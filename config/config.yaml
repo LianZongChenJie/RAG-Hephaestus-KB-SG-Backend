@@ -1,0 +1,37 @@
+# ============================================
+# Hephaestus RAG 后端 - 主配置文件
+# ============================================
+
+app:
+  host: "0.0.0.0"
+  port: 8000
+  title: "Hephaestus Chat Proxy"
+  # CORS 允许的来源，* 表示全部
+  cors_origins:
+    - "*"
+
+ollama:
+  chat_url: "http://127.0.0.1:11434/api/chat"
+  tags_url: "http://127.0.0.1:11434/api/tags"
+  model: "qwen3.5:9b"
+  timeout: 300.0          # 请求超时（秒）
+  num_gpu: 99            # GPU 加速，99 表示全 GPU
+  keep_alive: "24h"      # 模型在内存中保持的时间
+  # 是否启用 thinking 模式（qwen3.5 默认会先生成大量 thinking，关闭可降低延迟）
+  think: false
+
+model_defaults:
+  num_ctx: 2048          # 上下文窗口大小
+  temperature: 0.6       # 温度参数
+
+database:
+  host: "192.168.204.197"
+  port: 5432
+  user: "postgres"
+  password: "PG_617871572"
+  name: "Hephaestus"
+  min_size: 1
+  max_size: 5
+
+logging:
+  level: "INFO"

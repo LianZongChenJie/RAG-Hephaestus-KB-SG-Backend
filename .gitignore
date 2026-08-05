@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+
+# 敏感配置本地覆盖文件
+config/local_*.yaml
+config/secrets.yaml
