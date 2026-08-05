@@ -11,8 +11,8 @@ app:
     - "*"
 
 ollama:
-  chat_url: "http://127.0.0.1:11434/api/chat"
-  tags_url: "http://127.0.0.1:11434/api/tags"
+  chat_url: "http://192.168.204.197:11434/api/chat"
+  tags_url: "http://192.168.204.197:11434/api/tags"
   model: "qwen3.5:9b"
   timeout: 300.0          # 请求超时（秒）
   num_gpu: 99            # GPU 加速，99 表示全 GPU
