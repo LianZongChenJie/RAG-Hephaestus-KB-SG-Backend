@@ -1,638 +1,108 @@
 {
   "version": "2.0",
-  "name": "首钢报警与楼宇控制系统知识库",
-  "description": "基于告警系统（alarm_*）和楼宇控制系统（building_control_*）的复杂分析SQL生成规则库",
+  "name": "首钢会展小镇智慧园区管理系统",
   "database": {
     "type": "Dameng",
-    "version": "08.01.448",
-    "charset": "UTF-8",
     "schema": "FWBZ"
   },
-  "table_groups": {
-    "alarm_system": {
-      "name": "告警系统",
-      "description": "告警类别、级别、规则、记录管理",
-      "tables": ["alarm_category", "alarm_level", "alarm_rules", "alarm_rule_point", "alarm_record"]
-    },
-    "building_control_system": {
-      "name": "楼宇控制系统",
-      "description": "楼宇控制点实时数据与历史数据",
-      "tables": ["building_control_point", "building_control_point_history"]
-    },
-    "config_system": {
-      "name": "配置系统",
-      "description": "业务配置管理",
-      "tables": ["business_config"]
-    }
-  },
   "tables": {
-    "alarm_category": {
-      "name": "alarm_category",
-      "aliases": ["报警类别", "告警分类", "报警分类", "类别"],
-      "description": "报警类别表，定义不同类型的报警分类",
-      "primary_key": "id",
-      "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人", "filterable": true},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "filterable": true, "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门", "filterable": true},
-        "alarm_category_name": {"type": "VARCHAR(255)", "desc": "类别名称", "searchable": true, "filterable": true, "groupable": true},
-        "alarm_category_code": {"type": "VARCHAR(255)", "desc": "类别编号", "filterable": true, "groupable": true},
-        "sort": {"type": "INT", "desc": "排序字段", "filterable": true},
-        "status": {"type": "VARCHAR(2)", "desc": "状态", "enum": {"1": "启用", "0": "禁用"}, "filterable": true, "groupable": true}
-      },
-      "dict_mapping": {
-        "status": {"1": "启用", "0": "禁用"}
-      },
-      "sql_templates": {
-        "list_enabled": {
-          "desc": "查询所有启用的报警类别",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_category\" WHERE \"status\" = '1' ORDER BY \"sort\""
-        },
-        "search_by_name": {
-          "desc": "根据类别名称模糊查询",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_category\" WHERE \"alarm_category_name\" LIKE '%{keyword}%' AND \"status\" = '1' ORDER BY \"sort\""
-        },
-        "count_by_status": {
-          "desc": "按状态统计类别数量",
-          "sql": "SELECT \"status\", CASE WHEN \"status\" = '1' THEN '启用' ELSE '禁用' END AS status_name, COUNT(*) AS cnt FROM \"FWBZ\".\"alarm_category\" GROUP BY \"status\""
-        }
-      }
-    },
-    "alarm_level": {
-      "name": "alarm_level",
-      "aliases": ["报警级别", "告警等级", "严重程度", "级别", "等级"],
-      "description": "报警级别表，定义报警的严重程度等级",
-      "primary_key": "id",
-      "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人"},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门"},
-        "alarm_level_code": {"type": "VARCHAR(255)", "desc": "等级编号", "filterable": true, "groupable": true},
-        "alarm_level_name": {"type": "VARCHAR(255)", "desc": "等级名称", "searchable": true, "filterable": true, "groupable": true},
-        "sort": {"type": "INT", "desc": "排序字段"},
-        "status": {"type": "VARCHAR(2)", "desc": "状态", "enum": {"1": "启用", "0": "禁用"}, "filterable": true, "groupable": true},
-        "alarm_level_color": {"type": "VARCHAR(50)", "desc": "告警颜色", "filterable": true, "groupable": true}
-      },
-      "dict_mapping": {
-        "status": {"1": "启用", "0": "禁用"}
-      },
-      "sql_templates": {
-        "list_enabled": {
-          "desc": "查询所有启用的报警级别",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_level\" WHERE \"status\" = '1' ORDER BY \"sort\""
-        },
-        "search_by_name": {
-          "desc": "根据级别名称模糊查询",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_level\" WHERE \"alarm_level_name\" LIKE '%{keyword}%' AND \"status\" = '1' ORDER BY \"sort\""
-        },
-        "group_by_color": {
-          "desc": "按颜色统计级别分布",
-          "sql": "SELECT \"alarm_level_color\", COUNT(*) AS cnt FROM \"FWBZ\".\"alarm_level\" WHERE \"status\" = '1' GROUP BY \"alarm_level_color\" ORDER BY cnt DESC"
-        }
-      }
-    },
-    "alarm_rules": {
-      "name": "alarm_rules",
-      "aliases": ["告警规则", "报警规则", "规则配置", "触发条件", "规则"],
-      "description": "告警规则表，定义告警触发条件和通知配置",
-      "primary_key": "id",
-      "foreign_keys": {
-        "alarm_category_id": {"ref_table": "alarm_category", "ref_field": "id", "desc": "报警类别"},
-        "alarm_level_id": {"ref_table": "alarm_level", "ref_field": "id", "desc": "报警级别"}
-      },
-      "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人"},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门", "filterable": true},
-        "rule_code": {"type": "VARCHAR(255)", "desc": "规则编号", "filterable": true, "groupable": true},
-        "rule_name": {"type": "VARCHAR(255)", "desc": "规则名称", "searchable": true, "filterable": true, "groupable": true},
-        "alarm_category_id": {"type": "BIGINT", "desc": "报警类别ID", "filterable": true, "foreign": true},
-        "alarm_level_id": {"type": "BIGINT", "desc": "报警等级ID", "filterable": true, "foreign": true},
-        "frequency": {"type": "INT", "desc": "频率数值", "filterable": true},
-        "frequency_unit": {"type": "VARCHAR(50)", "desc": "频率单位", "enum": {"hour": "小时", "day": "天", "month": "月", "year": "年"}, "filterable": true, "groupable": true},
-        "point_type": {"type": "VARCHAR(50)", "desc": "点位类型", "enum": {"instant": "即时", "accumulate": "累积"}, "filterable": true, "groupable": true},
-        "notice_user": {"type": "VARCHAR(2000)", "desc": "通知用户ID列表"},
-        "enabled_status": {"type": "VARCHAR(2)", "desc": "启用状态", "enum": {"0": "禁用", "1": "启用"}, "filterable": true, "groupable": true},
-        "alarm_category_name": {"type": "VARCHAR(255)", "desc": "报警类别名称（冗余）", "filterable": true, "groupable": true},
-        "alarm_level_name": {"type": "VARCHAR(255)", "desc": "报警级别名称（冗余）", "filterable": true, "groupable": true},
-        "alarm_level_color": {"type": "VARCHAR(50)", "desc": "报警颜色（冗余）"}
-      },
-      "dict_mapping": {
-        "enabled_status": {"0": "禁用", "1": "启用"},
-        "frequency_unit": {"hour": "小时", "day": "天", "month": "月", "year": "年"},
-        "point_type": {"instant": "即时", "accumulate": "累积"}
-      },
-      "join_mappings": {
-        "alarm_category": {
-          "table": "alarm_category",
-          "type": "LEFT JOIN",
-          "on": "alarm_rules.alarm_category_id = alarm_category.id",
-          "fields": ["alarm_category_name", "alarm_category_code"]
-        },
-        "alarm_level": {
-          "table": "alarm_level",
-          "type": "LEFT JOIN",
-          "on": "alarm_rules.alarm_level_id = alarm_level.id",
-          "fields": ["alarm_level_name", "alarm_level_color", "alarm_level_code"]
-        }
-      },
-      "sql_templates": {
-        "list_enabled": {
-          "desc": "查询所有启用的告警规则",
-          "sql": "SELECT r.*, c.\"alarm_category_name\" AS cat_name, l.\"alarm_level_name\" AS lvl_name, l.\"alarm_level_color\"\nFROM \"FWBZ\".\"alarm_rules\" r\nLEFT JOIN \"FWBZ\".\"alarm_category\" c ON r.\"alarm_category_id\" = c.\"id\"\nLEFT JOIN \"FWBZ\".\"alarm_level\" l ON r.\"alarm_level_id\" = l.\"id\"\nWHERE r.\"enabled_status\" = '1'"
-        },
-        "search_by_rule_name": {
-          "desc": "根据规则名称模糊查询",
-          "sql": "SELECT r.*, c.\"alarm_category_name\" AS cat_name, l.\"alarm_level_name\" AS lvl_name\nFROM \"FWBZ\".\"alarm_rules\" r\nLEFT JOIN \"FWBZ\".\"alarm_category\" c ON r.\"alarm_category_id\" = c.\"id\"\nLEFT JOIN \"FWBZ\".\"alarm_level\" l ON r.\"alarm_level_id\" = l.\"id\"\nWHERE r.\"rule_name\" LIKE '%{keyword}%' AND r.\"enabled_status\" = '1'"
-        },
-        "count_by_category": {
-          "desc": "按报警类别统计规则数量",
-          "sql": "SELECT c.\"alarm_category_name\", COUNT(r.\"id\") AS rule_count\nFROM \"FWBZ\".\"alarm_rules\" r\nLEFT JOIN \"FWBZ\".\"alarm_category\" c ON r.\"alarm_category_id\" = c.\"id\"\nWHERE r.\"enabled_status\" = '1'\nGROUP BY c.\"alarm_category_name\"\nORDER BY rule_count DESC"
-        },
-        "count_by_level": {
-          "desc": "按报警级别统计规则数量",
-          "sql": "SELECT l.\"alarm_level_name\", l.\"alarm_level_color\", COUNT(r.\"id\") AS rule_count\nFROM \"FWBZ\".\"alarm_rules\" r\nLEFT JOIN \"FWBZ\".\"alarm_level\" l ON r.\"alarm_level_id\" = l.\"id\"\nWHERE r.\"enabled_status\" = '1'\nGROUP BY l.\"alarm_level_name\", l.\"alarm_level_color\"\nORDER BY l.\"sort\""
-        },
-        "count_by_status": {
-          "desc": "按启用状态统计规则数量",
-          "sql": "SELECT \"enabled_status\", CASE WHEN \"enabled_status\" = '1' THEN '启用' ELSE '禁用' END AS status_name, COUNT(*) AS cnt FROM \"FWBZ\".\"alarm_rules\" GROUP BY \"enabled_status\""
-        }
-      }
-    },
-    "alarm_rule_point": {
-      "name": "alarm_rule_point",
-      "aliases": ["规则点位", "设备点位", "触发条件", "阈值配置", "点位配置"],
-      "description": "告警规则设备点位配置表，定义规则关联的设备、点位及触发条件",
-      "primary_key": "id",
-      "foreign_keys": {
-        "alarm_rule_id": {"ref_table": "alarm_rules", "ref_field": "id", "desc": "告警规则"}
-      },
-      "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人"},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门"},
-        "alarm_rule_id": {"type": "BIGINT", "desc": "告警规则ID", "filterable": true, "foreign": true},
-        "device_id": {"type": "BIGINT", "desc": "设备ID", "filterable": true, "groupable": true},
-        "device_name": {"type": "VARCHAR(255)", "desc": "设备名称", "searchable": true, "filterable": true, "groupable": true},
-        "point_id": {"type": "BIGINT", "desc": "点位ID", "filterable": true, "groupable": true},
-        "point_name": {"type": "VARCHAR(255)", "desc": "点位名称", "searchable": true, "filterable": true, "groupable": true},
-        "time_granularity": {"type": "VARCHAR(50)", "desc": "时间粒度", "enum": {"hour": "小时", "day": "天", "month": "月", "year": "年"}, "filterable": true, "groupable": true},
-        "operator": {"type": "VARCHAR(10)", "desc": "条件运算符", "enum": {">": "大于", "<": "小于", "=": "等于", ">=": "大于等于", "<=": "小于等于", "!=": "不等于"}, "filterable": true, "groupable": true},
-        "condition_value": {"type": "VARCHAR(255)", "desc": "条件阈值", "filterable": true}
-      },
-      "dict_mapping": {
-        "time_granularity": {"hour": "小时", "day": "天", "month": "月", "year": "年"},
-        "operator": {">": "大于", "<": "小于", "=": "等于", ">=": "大于等于", "<=": "小于等于", "!=": "不等于"}
-      },
-      "join_mappings": {
-        "alarm_rules": {
-          "table": "alarm_rules",
-          "type": "LEFT JOIN",
-          "on": "alarm_rule_point.alarm_rule_id = alarm_rules.id",
-          "fields": ["rule_name", "rule_code", "enabled_status"]
-        }
-      },
-      "sql_templates": {
-        "list_by_rule": {
-          "desc": "查询某个告警规则关联的所有点位",
-          "sql": "SELECT p.*, r.\"rule_name\"\nFROM \"FWBZ\".\"alarm_rule_point\" p\nLEFT JOIN \"FWBZ\".\"alarm_rules\" r ON p.\"alarm_rule_id\" = r.\"id\"\nWHERE p.\"alarm_rule_id\" = {rule_id}"
-        },
-        "list_by_device": {
-          "desc": "查询某个设备的所有规则点位配置",
-          "sql": "SELECT p.*, r.\"rule_name\"\nFROM \"FWBZ\".\"alarm_rule_point\" p\nLEFT JOIN \"FWBZ\".\"alarm_rules\" r ON p.\"alarm_rule_id\" = r.\"id\"\nWHERE p.\"device_id\" = {device_id} AND r.\"enabled_status\" = '1'"
-        },
-        "search_by_condition": {
-          "desc": "按运算符和阈值搜索",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_rule_point\" WHERE \"operator\" = '{operator}' AND \"condition_value\" {operator} {value}"
-        },
-        "count_by_operator": {
-          "desc": "按运算符统计点位配置数量",
-          "sql": "SELECT \"operator\", CASE \n  WHEN \"operator\" = '>' THEN '大于'\n  WHEN \"operator\" = '<' THEN '小于'\n  WHEN \"operator\" = '=' THEN '等于'\n  WHEN \"operator\" = '>=' THEN '大于等于'\n  WHEN \"operator\" = '<=' THEN '小于等于'\n  WHEN \"operator\" = '!=' THEN '不等于'\nEND AS operator_name,\nCOUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_rule_point\"\nGROUP BY \"operator\"\nORDER BY cnt DESC"
-        },
-        "count_by_granularity": {
-          "desc": "按时间粒度统计",
-          "sql": "SELECT \"time_granularity\", CASE \n  WHEN \"time_granularity\" = 'hour' THEN '小时'\n  WHEN \"time_granularity\" = 'day' THEN '天'\n  WHEN \"time_granularity\" = 'month' THEN '月'\n  WHEN \"time_granularity\" = 'year' THEN '年'\n  ELSE '未设置'\nEND AS granularity_name,\nCOUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_rule_point\"\nGROUP BY \"time_granularity\""
-        }
-      }
-    },
     "alarm_record": {
       "name": "alarm_record",
-      "aliases": ["告警记录", "报警历史", "告警日志", "未处理告警", "已消除告警", "告警"],
-      "description": "告警记录表，存储所有触发的告警历史信息",
-      "primary_key": "id",
-      "foreign_keys": {
-        "alarm_rule_id": {"ref_table": "alarm_rules", "ref_field": "id", "desc": "告警规则"},
-        "alarm_category_id": {"ref_table": "alarm_category", "ref_field": "id", "desc": "报警类别"},
-        "alarm_level_id": {"ref_table": "alarm_level", "ref_field": "id", "desc": "报警级别"}
-      },
+      "description": "告警记录表",
       "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人"},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门"},
-        "alarm_rule_id": {"type": "BIGINT", "desc": "告警规则ID", "filterable": true, "foreign": true},
-        "device_id": {"type": "BIGINT", "desc": "设备ID", "filterable": true, "groupable": true},
-        "device_name": {"type": "VARCHAR(255)", "desc": "设备名称", "searchable": true, "filterable": true, "groupable": true},
-        "space_id": {"type": "BIGINT", "desc": "空间ID", "filterable": true},
-        "space_name": {"type": "VARCHAR(255)", "desc": "空间名称", "searchable": true, "filterable": true, "groupable": true},
-        "alarm_content": {"type": "TEXT", "desc": "告警内容", "searchable": true},
-        "alarm_time": {"type": "TIMESTAMP(6)", "desc": "告警时间", "filterable": true, "time_field": true},
-        "alarm_category_id": {"type": "BIGINT", "desc": "告警类别ID", "filterable": true, "foreign": true},
-        "alarm_category_name": {"type": "VARCHAR(255)", "desc": "告警类别名称", "filterable": true, "groupable": true},
-        "alarm_level_id": {"type": "BIGINT", "desc": "告警级别ID", "filterable": true, "foreign": true},
-        "alarm_level_name": {"type": "VARCHAR(255)", "desc": "告警级别名称", "filterable": true, "groupable": true},
-        "charge_person": {"type": "BIGINT", "desc": "负责人ID", "filterable": true},
-        "charge_person_name": {"type": "VARCHAR(255)", "desc": "负责人名称", "searchable": true, "filterable": true, "groupable": true},
-        "alarm_status": {"type": "VARCHAR(1)", "desc": "告警状态", "enum": {"1": "未处理", "2": "已消除"}, "filterable": true, "groupable": true},
-        "point_id": {"type": "BIGINT", "desc": "点位ID", "filterable": true},
-        "point_name": {"type": "VARCHAR(255)", "desc": "点位名称", "searchable": true, "filterable": true},
-        "value": {"type": "VARCHAR(255)", "desc": "告警时的实际值", "filterable": true},
-        "condition_value": {"type": "VARCHAR(255)", "desc": "触发告警的阈值", "filterable": true},
-        "operator": {"type": "VARCHAR(255)", "desc": "触发条件运算符", "filterable": true},
-        "time_granularity": {"type": "VARCHAR(255)", "desc": "时间粒度"},
-        "alarm_rule_point_id": {"type": "BIGINT", "desc": "告警规则点位ID"},
-        "device_category_id": {"type": "BIGINT", "desc": "设备类别ID"},
-        "alarm_level_color": {"type": "VARCHAR(50)", "desc": "报警级别颜色", "filterable": true, "groupable": true},
-        "event_id": {"type": "VARCHAR(50)", "desc": "事件ID"}
-      },
-      "dict_mapping": {
-        "alarm_status": {"1": "未处理", "2": "已消除"}
-      },
-      "join_mappings": {
-        "alarm_category": {
-          "table": "alarm_category",
-          "type": "LEFT JOIN",
-          "on": "alarm_record.alarm_category_id = alarm_category.id",
-          "fields": ["alarm_category_code"]
-        },
-        "alarm_level": {
-          "table": "alarm_level",
-          "type": "LEFT JOIN",
-          "on": "alarm_record.alarm_level_id = alarm_level.id",
-          "fields": ["alarm_level_code", "alarm_level_color"]
-        },
-        "alarm_rules": {
-          "table": "alarm_rules",
-          "type": "LEFT JOIN",
-          "on": "alarm_record.alarm_rule_id = alarm_rules.id",
-          "fields": ["rule_name", "rule_code"]
-        }
-      },
-      "sql_templates": {
-        "list_pending": {
-          "desc": "查询所有未处理的告警记录",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_record\" WHERE \"alarm_status\" = '1' ORDER BY \"alarm_time\" DESC"
-        },
-        "list_by_time_range": {
-          "desc": "按时间范围查询告警记录",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_record\" WHERE \"alarm_time\" BETWEEN '{start_date}' AND '{end_date}' ORDER BY \"alarm_time\" DESC"
-        },
-        "list_by_device": {
-          "desc": "查询某个设备的告警记录",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_record\" WHERE \"device_id\" = {device_id} ORDER BY \"alarm_time\" DESC"
-        },
-        "list_by_status": {
-          "desc": "按状态查询告警记录",
-          "sql": "SELECT * FROM \"FWBZ\".\"alarm_record\" WHERE \"alarm_status\" = '{status}' ORDER BY \"alarm_time\" DESC"
-        },
-        "count_by_level": {
-          "desc": "按告警级别统计告警数量",
-          "sql": "SELECT \"alarm_level_name\", \"alarm_level_color\", COUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"alarm_level_name\", \"alarm_level_color\"\nORDER BY cnt DESC"
-        },
-        "count_by_category": {
-          "desc": "按告警类别统计告警数量",
-          "sql": "SELECT \"alarm_category_name\", COUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"alarm_category_name\"\nORDER BY cnt DESC"
-        },
-        "count_by_device": {
-          "desc": "按设备统计告警数量（TOP N）",
-          "sql": "SELECT \"device_name\", COUNT(*) AS alarm_count\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"device_name\"\nORDER BY alarm_count DESC\nLIMIT {limit}"
-        },
-        "count_by_status_summary": {
-          "desc": "按状态统计告警数量",
-          "sql": "SELECT \"alarm_status\", CASE WHEN \"alarm_status\" = '1' THEN '未处理' ELSE '已消除' END AS status_name, COUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_record\"\nGROUP BY \"alarm_status\""
-        },
-        "trend_by_day": {
-          "desc": "按日统计告警趋势",
-          "sql": "SELECT DATE(\"alarm_time\") AS alarm_date, COUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY DATE(\"alarm_time\")\nORDER BY alarm_date"
-        },
-        "trend_by_hour": {
-          "desc": "按小时统计告警趋势",
-          "sql": "SELECT HOUR(\"alarm_time\") AS alarm_hour, COUNT(*) AS cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY HOUR(\"alarm_time\")\nORDER BY alarm_hour"
-        },
-        "count_by_category_and_status": {
-          "desc": "按类别和状态交叉统计",
-          "sql": "SELECT \"alarm_category_name\", \n  SUM(CASE WHEN \"alarm_status\" = '1' THEN 1 ELSE 0 END) AS pending_cnt,\n  SUM(CASE WHEN \"alarm_status\" = '2' THEN 1 ELSE 0 END) AS resolved_cnt,\n  COUNT(*) AS total_cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"alarm_category_name\"\nORDER BY total_cnt DESC"
-        },
-        "count_by_level_and_status": {
-          "desc": "按级别和状态交叉统计",
-          "sql": "SELECT \"alarm_level_name\", \"alarm_level_color\",\n  SUM(CASE WHEN \"alarm_status\" = '1' THEN 1 ELSE 0 END) AS pending_cnt,\n  SUM(CASE WHEN \"alarm_status\" = '2' THEN 1 ELSE 0 END) AS resolved_cnt,\n  COUNT(*) AS total_cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"alarm_level_name\", \"alarm_level_color\"\nORDER BY total_cnt DESC"
-        },
-        "count_by_charge_person": {
-          "desc": "按负责人统计告警数量",
-          "sql": "SELECT \"charge_person_name\",\n  SUM(CASE WHEN \"alarm_status\" = '1' THEN 1 ELSE 0 END) AS pending_cnt,\n  COUNT(*) AS total_cnt\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"charge_person_name\" IS NOT NULL\nGROUP BY \"charge_person_name\"\nORDER BY total_cnt DESC"
-        }
-      },
-      "complex_analysis": {
-        "pending_rate_by_category": {
-          "desc": "各类别告警未处理率",
-          "sql": "SELECT \n  \"alarm_category_name\",\n  COUNT(*) AS total,\n  SUM(CASE WHEN \"alarm_status\" = '1' THEN 1 ELSE 0 END) AS pending,\n  ROUND(SUM(CASE WHEN \"alarm_status\" = '1' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS pending_rate\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"alarm_category_name\"\nORDER BY pending_rate DESC"
-        },
-        "resolution_time_analysis": {
-          "desc": "告警处理时长分析（天）",
-          "sql": "SELECT \n  \"alarm_level_name\",\n  AVG(TIMESTAMPDIFF(HOUR, \"alarm_time\", \"update_time\")) AS avg_resolution_hours,\n  MIN(TIMESTAMPDIFF(HOUR, \"alarm_time\", \"update_time\")) AS min_resolution_hours,\n  MAX(TIMESTAMPDIFF(HOUR, \"alarm_time\", \"update_time\")) AS max_resolution_hours\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_status\" = '2' \n  AND \"update_time\" IS NOT NULL\n  AND \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"alarm_level_name\""
-        },
-        "hourly_distribution": {
-          "desc": "告警按小时分布",
-          "sql": "SELECT \n  HOUR(\"alarm_time\") AS alarm_hour,\n  COUNT(*) AS cnt,\n  ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM \"FWBZ\".\"alarm_record\" WHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)), 2) AS percentage\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY HOUR(\"alarm_time\")\nORDER BY alarm_hour"
-        },
-        "top_devices_with_high_alarm": {
-          "desc": "高频告警设备（超过阈值）",
-          "sql": "SELECT \n  \"device_name\",\n  COUNT(*) AS alarm_count\nFROM \"FWBZ\".\"alarm_record\"\nWHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\nGROUP BY \"device_name\"\nHAVING alarm_count >= {threshold}\nORDER BY alarm_count DESC"
-        }
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备ID", "filterable": true},
+        "device_name": {"type": "VARCHAR(255)", "desc": "设备名称"},
+        "space_id": {"type": "BIGINT", "desc": "空间ID"},
+        "space_name": {"type": "VARCHAR(255)", "desc": "空间名称"},
+        "alarm_content": {"type": "TEXT", "desc": "告警内容"},
+        "alarm_time": {"type": "TIMESTAMP", "desc": "告警时间", "filterable": true},
+        "alarm_category_id": {"type": "BIGINT", "desc": "告警类别ID"},
+        "alarm_category_name": {"type": "VARCHAR(255)", "desc": "告警类别名称"},
+        "alarm_level_id": {"type": "BIGINT", "desc": "告警级别ID"},
+        "alarm_level_name": {"type": "VARCHAR(255)", "desc": "告警级别名称"},
+        "charge_person_name": {"type": "VARCHAR(255)", "desc": "负责人名称"},
+        "alarm_status": {"type": "VARCHAR(1)", "desc": "告警状态【1-未处理，2-已消除】"},
+        "point_name": {"type": "VARCHAR(255)", "desc": "点位名称"},
+        "value": {"type": "VARCHAR(255)", "desc": "告警值"},
+        "condition_value": {"type": "VARCHAR(255)", "desc": "阈值"}
       }
     },
-    "business_config": {
-      "name": "business_config",
-      "aliases": ["业务配置", "系统配置", "参数配置", "配置"],
-      "description": "业务配置表，存储系统业务相关的配置参数",
-      "primary_key": "id",
+    "device": {
+      "name": "device",
+      "description": "设备基础信息",
       "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人"},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门"},
-        "name": {"type": "VARCHAR(255)", "desc": "业务说明", "searchable": true},
-        "config_key": {"type": "VARCHAR(255)", "desc": "配置唯一标识", "filterable": true, "groupable": true, "unique": true},
-        "config_value": {"type": "VARCHAR(2000)", "desc": "配置值"},
-        "remark": {"type": "VARCHAR(200)", "desc": "备注"}
-      },
-      "sql_templates": {
-        "get_by_key": {
-          "desc": "根据配置键查询配置值",
-          "sql": "SELECT * FROM \"FWBZ\".\"business_config\" WHERE \"config_key\" = '{key}'"
-        },
-        "list_all": {
-          "desc": "查询所有业务配置",
-          "sql": "SELECT * FROM \"FWBZ\".\"business_config\" ORDER BY \"create_time\" DESC"
-        },
-        "search_by_name": {
-          "desc": "按业务说明模糊查询",
-          "sql": "SELECT * FROM \"FWBZ\".\"business_config\" WHERE \"name\" LIKE '%{keyword}%'"
-        }
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_code": {"type": "VARCHAR(255)", "desc": "设备编号"},
+        "device_name": {"type": "VARCHAR(255)", "desc": "设备名称"},
+        "category_id": {"type": "BIGINT", "desc": "设备类别id"},
+        "space_id": {"type": "BIGINT", "desc": "空间位置id"},
+        "run_state": {"type": "VARCHAR(255)", "desc": "运行状态"},
+        "device_type": {"type": "VARCHAR(2)", "desc": "设备分类。仪表：1；设备：2"},
+        "last_gather_time": {"type": "TIMESTAMP", "desc": "最后采集时间"},
+        "venue_id": {"type": "BIGINT", "desc": "场馆id"}
       }
     },
-    "building_control_point": {
-      "name": "building_control_point",
-      "aliases": ["楼宇控制点", "控制点", "BACnet", "当前值", "采集值", "楼宇点位"],
-      "description": "楼宇控制点表，存储楼宇自控系统的点位当前值",
-      "primary_key": "id",
+    "data_day": {
+      "name": "data_day",
+      "description": "日数据",
       "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "create_by": {"type": "VARCHAR(255)", "desc": "创建人"},
-        "create_time": {"type": "TIMESTAMP(6)", "desc": "创建日期", "time_field": true},
-        "update_by": {"type": "VARCHAR(255)", "desc": "更新人"},
-        "update_time": {"type": "TIMESTAMP(6)", "desc": "更新日期"},
-        "sys_org_code": {"type": "VARCHAR(255)", "desc": "所属部门"},
-        "gateway_adr": {"type": "VARCHAR(255)", "desc": "网关地址", "filterable": true, "groupable": true},
-        "bacnet_adr": {"type": "VARCHAR(255)", "desc": "BACnet地址", "filterable": true, "groupable": true},
-        "value": {"type": "VARCHAR(255)", "desc": "当前采集值", "filterable": true},
-        "collection_time": {"type": "TIMESTAMP(6)", "desc": "采集时间", "filterable": true, "time_field": true},
-        "content": {"type": "VARCHAR(2000)", "desc": "点位内容描述", "searchable": true}
-      },
-      "sql_templates": {
-        "list_all": {
-          "desc": "查询所有楼宇控制点",
-          "sql": "SELECT * FROM \"FWBZ\".\"building_control_point\" ORDER BY \"collection_time\" DESC"
-        },
-        "list_by_gateway": {
-          "desc": "按网关地址查询控制点",
-          "sql": "SELECT * FROM \"FWBZ\".\"building_control_point\" WHERE \"gateway_adr\" = '{gateway}'"
-        },
-        "get_latest_by_point": {
-          "desc": "查询某个控制点的最新值",
-          "sql": "SELECT * FROM \"FWBZ\".\"building_control_point\" WHERE \"id\" = {point_id} ORDER BY \"collection_time\" DESC LIMIT 1"
-        },
-        "count_by_gateway": {
-          "desc": "按网关统计控制点数量",
-          "sql": "SELECT \"gateway_adr\", COUNT(*) AS cnt FROM \"FWBZ\".\"building_control_point\" GROUP BY \"gateway_adr\""
-        }
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备id", "filterable": true},
+        "value": {"type": "DECIMAL(38,4)", "desc": "数值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
       }
     },
-    "building_control_point_history": {
-      "name": "building_control_point_history",
-      "aliases": ["控制点历史", "历史数据", "采集历史", "点位历史"],
-      "description": "楼宇控制点历史表，存储控制点的历史采集数据",
-      "primary_key": "id",
-      "foreign_keys": {
-        "point_id": {"ref_table": "building_control_point", "ref_field": "id", "desc": "控制点"}
-      },
+    "table_venue_flow": {
+      "name": "table_venue_flow",
+      "description": "各场馆客流统计",
       "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID", "primary": true},
-        "point_id": {"type": "BIGINT", "desc": "控制点ID", "filterable": true, "foreign": true},
-        "value": {"type": "VARCHAR(255)", "desc": "历史采集值", "filterable": true},
-        "collection_time": {"type": "TIMESTAMP(6)", "desc": "采集时间", "filterable": true, "time_field": true}
-      },
-      "join_mappings": {
-        "building_control_point": {
-          "table": "building_control_point",
-          "type": "LEFT JOIN",
-          "on": "building_control_point_history.point_id = building_control_point.id",
-          "fields": ["gateway_adr", "bacnet_adr", "content"]
-        }
-      },
-      "sql_templates": {
-        "list_by_point": {
-          "desc": "查询某个控制点的历史数据",
-          "sql": "SELECT h.*, p.\"gateway_adr\", p.\"bacnet_adr\", p.\"content\"\nFROM \"FWBZ\".\"building_control_point_history\" h\nLEFT JOIN \"FWBZ\".\"building_control_point\" p ON h.\"point_id\" = p.\"id\"\nWHERE h.\"point_id\" = {point_id}\nORDER BY h.\"collection_time\" DESC"
-        },
-        "list_by_time_range": {
-          "desc": "按时间范围查询控制点历史",
-          "sql": "SELECT h.*, p.\"gateway_adr\", p.\"bacnet_adr\", p.\"content\"\nFROM \"FWBZ\".\"building_control_point_history\" h\nLEFT JOIN \"FWBZ\".\"building_control_point\" p ON h.\"point_id\" = p.\"id\"\nWHERE h.\"collection_time\" BETWEEN '{start_date}' AND '{end_date}'\nORDER BY h.\"collection_time\" DESC"
-        },
-        "get_stats_by_point": {
-          "desc": "查询控制点的统计值（最大/最小/平均）",
-          "sql": "SELECT \n  CAST(h.\"value\" AS DECIMAL(10,2)) AS numeric_value,\n  MAX(CAST(h.\"value\" AS DECIMAL(10,2))) AS max_value,\n  MIN(CAST(h.\"value\" AS DECIMAL(10,2))) AS min_value,\n  AVG(CAST(h.\"value\" AS DECIMAL(10,2))) AS avg_value\nFROM \"FWBZ\".\"building_control_point_history\" h\nWHERE h.\"point_id\" = {point_id}\n  AND h.\"collection_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\n  AND h.\"value\" REGEXP '^[0-9]+(\\.[0-9]+)?$'"
-        },
-        "trend_by_hour": {
-          "desc": "按小时统计控制点趋势",
-          "sql": "SELECT \n  DATE_FORMAT(h.\"collection_time\", '%Y-%m-%d %H:00:00') AS time_slot,\n  AVG(CAST(h.\"value\" AS DECIMAL(10,2))) AS avg_value,\n  MAX(CAST(h.\"value\" AS DECIMAL(10,2))) AS max_value,\n  MIN(CAST(h.\"value\" AS DECIMAL(10,2))) AS min_value\nFROM \"FWBZ\".\"building_control_point_history\" h\nWHERE h.\"point_id\" = {point_id}\n  AND h.\"collection_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY)\n  AND h.\"value\" REGEXP '^[0-9]+(\\.[0-9]+)?$'\nGROUP BY DATE_FORMAT(h.\"collection_time\", '%Y-%m-%d %H:00:00')\nORDER BY time_slot"
-        }
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "data_date": {"type": "DATE", "desc": "统计日期"},
+        "venue_id": {"type": "BIGINT", "desc": "场馆id", "filterable": true},
+        "today_in_count": {"type": "BIGINT", "desc": "进场人数"},
+        "today_now_count": {"type": "BIGINT", "desc": "在场人数"},
+        "max_count": {"type": "BIGINT", "desc": "峰值人数"},
+        "max_time": {"type": "TIME", "desc": "峰值时间"},
+        "average_duration": {"type": "DOUBLE", "desc": "平均时长"}
       }
-    }
-  },
-  "entity_relationships": {
-    "description": "表之间的关系说明",
-    "relations": [
-      {
-        "from": "alarm_rules",
-        "to": "alarm_category",
-        "type": "many-to-one",
-        "via": "alarm_category_id",
-        "description": "每个告警规则属于一个报警类别"
-      },
-      {
-        "from": "alarm_rules",
-        "to": "alarm_level",
-        "type": "many-to-one",
-        "via": "alarm_level_id",
-        "description": "每个告警规则属于一个报警级别"
-      },
-      {
-        "from": "alarm_rule_point",
-        "to": "alarm_rules",
-        "type": "many-to-one",
-        "via": "alarm_rule_id",
-        "description": "每个规则可关联多个设备点位配置"
-      },
-      {
-        "from": "alarm_record",
-        "to": "alarm_rules",
-        "type": "many-to-one",
-        "via": "alarm_rule_id",
-        "description": "每个告警记录由一条规则触发"
-      },
-      {
-        "from": "alarm_record",
-        "to": "alarm_category",
-        "type": "many-to-one",
-        "via": "alarm_category_id",
-        "description": "每个告警记录对应一个报警类别"
-      },
-      {
-        "from": "alarm_record",
-        "to": "alarm_level",
-        "type": "many-to-one",
-        "via": "alarm_level_id",
-        "description": "每个告警记录对应一个报警级别"
-      },
-      {
-        "from": "building_control_point_history",
-        "to": "building_control_point",
-        "type": "many-to-one",
-        "via": "point_id",
-        "description": "每个控制点有多条历史记录"
-      }
-    ]
-  },
-  "common_query_patterns": {
-    "patterns": [
-      {
-        "pattern": "查询所有启用的{entity}",
-        "table": "alarm_category",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"alarm_category\" WHERE \"status\" = '1' ORDER BY \"sort\"",
-        "examples": ["查询所有启用的报警类别"]
-      },
-      {
-        "pattern": "查询{entity}列表并按排序字段排序",
-        "table": "alarm_category",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"alarm_category\" ORDER BY \"sort\"",
-        "examples": ["查询报警类别列表并按排序字段排序"]
-      },
-      {
-        "pattern": "根据名称查询{entity}",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"{table}\" WHERE \"{name_field}\" LIKE '%{keyword}%'",
-        "examples": ["根据类别名称查询报警类别", "根据级别名称查询报警级别"]
-      },
-      {
-        "pattern": "查询某个{entity}下的所有{child_entity}",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"{child_table}\" WHERE \"{foreign_key}\" = {id}",
-        "examples": ["查询某个类别下的所有告警规则", "查询某个告警规则关联的所有点位"]
-      },
-      {
-        "pattern": "统计{entity}的数量",
-        "sql_template": "SELECT COUNT(*) FROM \"FWBZ\".\"{table}\" WHERE {condition}",
-        "examples": ["按告警级别统计告警数量", "统计未处理的告警数量"]
-      },
-      {
-        "pattern": "查询某个时间段内的{entity}",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"{table}\" WHERE \"{time_field}\" BETWEEN '{start_date}' AND '{end_date}'",
-        "examples": ["查询2026年8月的告警记录", "按时间范围查询控制点历史"]
-      },
-      {
-        "pattern": "查询某设备的{entity}",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"{table}\" WHERE \"device_id\" = {device_id}",
-        "examples": ["查询某个设备的告警记录"]
-      },
-      {
-        "pattern": "查询未处理的{entity}",
-        "table": "alarm_record",
-        "sql_template": "SELECT * FROM \"FWBZ\".\"alarm_record\" WHERE \"alarm_status\" = '1' ORDER BY \"alarm_time\" DESC",
-        "examples": ["查询所有未处理的告警", "查询待处理的告警记录"]
-      },
-      {
-        "pattern": "统计{entity}趋势",
-        "table": "alarm_record",
-        "sql_template": "SELECT DATE(\"alarm_time\") AS dt, COUNT(*) AS cnt FROM \"FWBZ\".\"alarm_record\" WHERE \"alarm_time\" >= DATE_SUB(NOW(), INTERVAL {days} DAY) GROUP BY DATE(\"alarm_time\") ORDER BY dt",
-        "examples": ["统计最近7天告警趋势", "按日统计告警趋势"]
-      }
-    ]
-  },
-  "sql_generation_guidelines": {
-    "rules": [
-      "所有 SQL 关键字使用大写（SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT 等）",
-      "表名和字段名使用双引号包裹（Dameng/MySQL 兼容），如 \"FWBZ\".\"alarm_category\"",
-      "字符串值使用单引号",
-      "查询时优先使用索引字段（id、外键、状态字段）",
-      "状态值：status='1' 表示启用/有效，status='0' 表示禁用/无效",
-      "告警状态：alarm_status='1' 表示未处理，alarm_status='2' 表示已消除",
-      "时间范围查询时，如果用户未指定具体时间，默认查询最近30天",
-      "模糊查询使用 LIKE 并加 '%' 通配符",
-      "多表查询时优先使用 LEFT JOIN 关联有外键关系的表",
-      "排序默认使用 sort 字段升序，或按 create_time 倒序",
-      "统计类查询需要加 GROUP BY，并合理使用聚合函数",
-      "占比计算：分子/分母 * 100，使用 ROUND(..., 2) 保留两位小数",
-      "Dameng 数据库分页使用 LIMIT {limit} OFFSET {offset} 语法",
-      "禁止使用 MySQL/PostgreSQL 特有但 Dameng 不支持的语法",
-      "如果用户问题与表结构不明确，返回空字符串或提示信息",
-      "告警记录查询默认按 alarm_time DESC 排序，优先展示最新告警"
-    ],
-    "field_value_mappings": {
-      "alarm_status": {"1": "未处理", "2": "已消除"},
-      "enabled_status": {"0": "禁用", "1": "启用"},
-      "status": {"0": "禁用", "1": "启用"},
-      "point_type": {"instant": "即时", "accumulate": "累积"},
-      "frequency_unit": {"hour": "小时", "day": "天", "month": "月", "year": "年"},
-      "time_granularity": {"hour": "小时", "day": "天", "month": "月", "year": "年"}
     },
-    "time_handling": {
-      "default_range_days": 30,
-      "date_formats": {
-        "daily": "DATE(alarm_time)",
-        "monthly": "DATE_FORMAT(alarm_time, '%Y-%m')",
-        "hourly": "HOUR(alarm_time)",
-        "hourly_range": "alarm_time BETWEEN '{start}' AND '{end}'"
+    "table_venue_info": {
+      "name": "table_venue_info",
+      "description": "场馆基本信息",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "venue_name": {"type": "VARCHAR2(50)", "desc": "场馆名称"},
+        "location": {"type": "VARCHAR2(50)", "desc": "位置"},
+        "area": {"type": "VARCHAR2(20)", "desc": "建筑面积"},
+        "floors": {"type": "BIGINT", "desc": "楼层"}
       }
-    }
-  },
-  "dameng_specific": {
-    "notes": [
-      "Dameng 数据库兼容 Oracle 和 PostgreSQL 语法风格",
-      "字符串连接使用 || 而不是 CONCAT",
-      "字符串函数：SUBSTR、INSTR、LENGTH 等与 Oracle 兼容",
-      "日期函数：SYSDATE、TO_DATE、TO_CHAR",
-      "分页使用 LIMIT {n} OFFSET {m} 或 ROWNUM",
-      "表名和字段名建议使用双引号包裹以保留大小写"
-    ],
-    "date_functions": {
-      "current_time": "SYSDATE",
-      "date_sub": "SYSDATE - INTERVAL '{days} DAY'",
-      "date_format": "TO_CHAR(column, 'YYYY-MM-DD')"
+    },
+    "table_activeMeet_info": {
+      "name": "table_activeMeet_info",
+      "description": "展会活动信息",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "active_name": {"type": "VARCHAR2(255)", "desc": "展会名称"},
+        "venue_id": {"type": "BIGINT", "desc": "场馆id"},
+        "venue_floors": {"type": "VARCHAR2(255)", "desc": "展会层数"},
+        "start_date": {"type": "DATE", "desc": "开始日期"},
+        "start_time": {"type": "TIME", "desc": "开始时间"},
+        "end_time": {"type": "TIME", "desc": "结束时间"},
+        "people_quantity": {"type": "BIGINT", "desc": "预计人数"}
+      }
+    },
+    "table_personnel_statistics": {
+      "name": "table_personnel_statistics",
+      "description": "人员统计表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "stat_date": {"type": "DATE", "desc": "统计日期"},
+        "today_entry_count": {"type": "BIGINT", "desc": "今日进场人数"},
+        "current_in_count": {"type": "BIGINT", "desc": "当前在场人数"},
+        "recognition_record_count": {"type": "BIGINT", "desc": "人员识别记录数"},
+        "abnormal_warning_count": {"type": "BIGINT", "desc": "异常行为预警数"}
+      }
     }
   }
 }

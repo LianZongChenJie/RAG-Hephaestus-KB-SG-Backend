@@ -88,7 +88,8 @@ class OllamaClient:
             response = await client.post(self.chat_url, json=payload)
             if response.status_code != 200:
                 raise httpx.HTTPStatusError(
-                    f"Ollama 返回 {response.status_code}",
+                    message=f"Ollama 返回 {response.status_code}",
+                    request=response.request,
                     response=response,
                 )
             result = response.json()

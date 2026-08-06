@@ -11,8 +11,8 @@ app:
     - "*"
 
 ollama:
-  chat_url: "http://192.168.204.197:11434/api/chat"
-  tags_url: "http://192.168.204.197:11434/api/tags"
+  chat_url: "http://localhost:11434/api/chat"
+  tags_url: "http://localhost:11434/api/tags"
   model: "qwen3.5:9b"
   timeout: 300.0          # 请求超时（秒）
   num_gpu: 99            # GPU 加速，99 表示全 GPU
@@ -24,6 +24,7 @@ model_defaults:
   num_ctx: 2048          # 上下文窗口大小
   temperature: 0.6       # 温度参数
 
+# PostgreSQL - 访问日志存储
 database:
   host: "192.168.204.197"
   port: 5432
@@ -33,5 +34,14 @@ database:
   min_size: 1
   max_size: 5
 
+# 达梦数据库 - 业务数据查询
+dameng:
+  host: "localhost"
+  port: 5236
+  user: "SYSDBA"
+  password: "Dameng123"
+  schema: "FWBZ"
+  charset: "UTF-8"
+
 logging:
-  level: "INFO"
+  level: "DEBUG"

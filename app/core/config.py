@@ -80,6 +80,37 @@ class DatabaseConfig:
         self.max_size = max_size
 
 
+class DamengConfig:
+    """达梦数据库配置"""
+    host: str
+    port: int
+    user: str
+    password: str
+    schema: str
+    charset: str
+
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 5236,
+        user: str = "SYSDBA",
+        password: str = "Dameng123",
+        schema: str = "FWBZ",
+        charset: str = "UTF-8",
+    ):
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.schema = schema
+        self.charset = charset
+
+    @property
+    def dsn(self) -> str:
+        """构建达梦连接字符串"""
+        return f"{self.host}:{self.port}/{self.schema}"
+
+
 class AppConfig:
     """应用配置"""
     host: str
@@ -111,6 +142,7 @@ class LoggingConfig:
 class Settings:
     """全局配置对象"""
     database: DatabaseConfig
+    dameng: DamengConfig
     ollama: OllamaConfig
     model_defaults: ModelDefaultsConfig
     app: AppConfig
@@ -133,6 +165,7 @@ class Settings:
             data: Dict[str, Any] = yaml.safe_load(f)
 
         self.database = DatabaseConfig(**data.get("database", {}))
+        self.dameng = DamengConfig(**data.get("dameng", {}))
         self.ollama = OllamaConfig(**data.get("ollama", {}))
         self.model_defaults = ModelDefaultsConfig(**data.get("model_defaults", {}))
         self.app = AppConfig(**data.get("app", {}))
@@ -151,6 +184,7 @@ class Settings:
     def _use_defaults(self) -> None:
         """使用硬编码默认值（兼容旧代码）"""
         self.database = DatabaseConfig()
+        self.dameng = DamengConfig()
         self.ollama = OllamaConfig()
         self.model_defaults = ModelDefaultsConfig()
         self.app = AppConfig()
