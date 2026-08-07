@@ -67,9 +67,9 @@ class AIPredictItem(BaseModel):
     """预测项"""
     item_name: str = Field(..., description="预测项名称")
     predict_value: str = Field(..., description="预测值")
-    confidence: float = Field(..., description="置信度(0-1)")
+    confidence: Optional[float] = Field(None, description="置信度(0-1)")
     trend: str = Field(..., description="趋势: up=上升, down=下降, stable=稳定")
-    description: str = Field(..., description="预测描述")
+    description: Optional[str] = Field(None, description="预测描述")
 
 
 class AIWarningItem(BaseModel):
@@ -77,8 +77,8 @@ class AIWarningItem(BaseModel):
     device_name: str = Field(..., description="设备名称")
     warning_type: str = Field(..., description="预警类型")
     warning_content: str = Field(..., description="预警内容")
-    confidence: float = Field(..., description="置信度")
-    suggest_time: str = Field(..., description="建议处理时间")
+    confidence: Optional[float] = Field(None, description="置信度")
+    suggest_time: Optional[str] = Field(None, description="建议处理时间")
 
 
 class AIPredictReportResponse(BaseModel):
@@ -104,11 +104,11 @@ class AIStrategyItem(BaseModel):
     """节能策略项"""
     strategy_name: str = Field(..., description="策略名称")
     implement_date: str = Field(..., description="实施日期")
-    before_daily: str = Field(..., description="优化前日均")
-    after_daily: str = Field(..., description="优化后日均")
-    daily_saving: str = Field(..., description="日节能量")
-    saving_rate: str = Field(..., description="节能率")
-    total_saving: str = Field(..., description="累计节约")
+    before_daily: Optional[str] = Field(None, description="优化前日均")
+    after_daily: Optional[str] = Field(None, description="优化后日均")
+    daily_saving: Optional[str] = Field(None, description="日节能量")
+    saving_rate: Optional[str] = Field(None, description="节能率")
+    total_saving: Optional[str] = Field(None, description="累计节约")
     status: str = Field(..., description="状态")
 
 
@@ -138,7 +138,7 @@ class AIFaultDistribution(BaseModel):
     """故障分布"""
     category: str = Field(..., description="类别")
     count: int = Field(..., description="数量")
-    percentage: float = Field(..., description="占比")
+    percentage: Optional[float] = Field(None, description="占比")
 
 
 class AIFaultItem(BaseModel):
@@ -146,9 +146,9 @@ class AIFaultItem(BaseModel):
     device_name: str = Field(..., description="设备名称")
     fault_type: str = Field(..., description="故障类型")
     fault_time: str = Field(..., description="故障时间")
-    duration: str = Field(..., description="持续时长")
-    cause: str = Field(..., description="故障原因")
-    solution: str = Field(..., description="解决方案")
+    duration: Optional[str] = Field(None, description="持续时长")
+    cause: Optional[str] = Field(None, description="故障原因")
+    solution: Optional[str] = Field(None, description="解决方案")
 
 
 class AIFaultReportResponse(BaseModel):

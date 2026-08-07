@@ -1,8 +1,13 @@
 """达梦数据库连接模块"""
 import importlib
 import logging
+import os
+import re
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+# 强制 UTF-8 避免 dmPython 在中文 Windows 上用 GBK 编码导致特殊字符报错
+os.environ['NLS_LANG'] = '.UTF8'
 
 from app.core.config import get_settings
 
@@ -48,6 +53,7 @@ def get_dameng_connection():
             user=settings.dameng.user,
             password=settings.dameng.password,
             schema=settings.dameng.schema,
+            charset='utf-8',
         )
         logger.info("达梦数据库连接成功: %s@%s:%s/%s",
             settings.dameng.user, settings.dameng.host,
@@ -178,6 +184,16 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
                 cursor.execute(sql)
             return cursor.rowcount
     except Exception as exc:
+        # 编码错误时，尝试将特殊 Unicode 字符替换后重试
+        if params and ('gbk' in str(exc).lower() or 'codec' in str(exc).lower()):
+            safe_params = tuple(
+                str(p).replace('\u00b3', '^3') if isinstance(p, str) else p
+                for p in params
+            )
+            logger.warning("参数编码异常，已自动替换特殊字符后重试: %s", exc)
+            with dameng_cursor() as cursor:
+                cursor.execute(sql, safe_params)
+                return cursor.rowcount
         logger.error("SQL执行失败: %s", exc)
         raise
 
@@ -208,5 +224,17 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
             result = cursor.fetchone()
             return result[0] if result else 0
     except Exception as exc:
+        # 编码错误时，尝试将特殊 Unicode 字符替换后重试
+        if params and ('gbk' in str(exc).lower() or 'codec' in str(exc).lower()):
+            safe_params = tuple(
+                str(p).replace('\u00b3', '^3') if isinstance(p, str) else p
+                for p in params
+            )
+            logger.warning("INSERT参数编码异常，已自动替换特殊字符后重试: %s", exc)
+            with dameng_cursor() as cursor:
+                cursor.execute(sql, safe_params)
+                cursor.execute("SELECT LAST_INSERT_ID()")
+                result = cursor.fetchone()
+                return result[0] if result else 0
         logger.error("INSERT执行失败: %s", exc)
         raise

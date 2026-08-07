@@ -1001,7 +1001,7 @@ class AIReportService:
 ```
 
 ### 输出要求
-请基于以上真实数据，生成JSON格式的分析报告。**summary 和 suggestions 尽量简短**：
+请基于以上真实数据，生成JSON格式的分析报告。**所有字段必须完整填写，禁止返回 null，summary 和 suggestions 尽量简短**：
 ```json
 {{
   "report_title": "报告标题（如：园区设备运行周报 - 2026年X月X日）",
@@ -1075,15 +1075,15 @@ class AIReportService:
 ```
 
 ### 输出要求
-请基于历史数据趋势，生成预测分析报告JSON。**predict_items 和 warning_items 各最多3条，summary 和 suggestions 尽量简短**：
+请基于历史数据趋势，生成预测分析报告JSON。**predict_items 和 warning_items 各最多3条，所有字段必须完整填写，禁止返回 null，summary 和 suggestions 尽量简短**：
 ```json
 {{
   "report_title": "报告标题",
   "predict_items": [
-    {{"item_name": "预测项名称", "predict_value": "预测值", "trend": "up/down/stable"}}
+    {{"item_name": "预测项名称", "predict_value": "预测值", "confidence": 0.85, "trend": "up/down/stable", "description": "预测依据说明"}}
   ],
   "warning_items": [
-    {{"device_name": "设备名称", "warning_type": "预警类型", "warning_content": "预警内容"}}
+    {{"device_name": "设备名称", "warning_type": "预警类型", "warning_content": "预警内容", "confidence": 0.90, "suggest_time": "建议处理时间（如：2小时内）"}}
   ],
   "summary": "预测分析总结（不超过80字）",
   "suggestions": ["建议1", "建议2"]
@@ -1135,7 +1135,7 @@ class AIReportService:
 ```
 
 ### 输出要求
-请基于真实能耗数据，生成节能分析报告JSON。**重要：strategy_items 最多3条，每条只保留 strategy_name 和 saving_rate 两个字段，summary 和 suggestions 尽量简短**：
+请基于真实能耗数据，生成节能分析报告JSON。**strategy_items 最多3条，所有字段必须完整填写，禁止返回 null，summary 和 suggestions 尽量简短**：
 ```json
 {{
   "report_title": "报告标题（如：AI节能效果分析报告 - 2026年X月）",
@@ -1144,8 +1144,7 @@ class AIReportService:
     {{"value": "数值", "label": "指标名称"}}
   ],
   "strategy_items": [
-    {{"strategy_name": "策略名称", "saving_rate": "节能率"}},
-    {{"strategy_name": "策略名称", "saving_rate": "节能率"}}
+    {{"strategy_name": "策略名称", "implement_date": "实施日期", "before_daily": "优化前日均", "after_daily": "优化后日均", "daily_saving": "日节能量", "saving_rate": "节能率", "total_saving": "累计节约", "status": "执行中/已完成/待实施"}}
   ],
   "summary": "节能分析总结（不超过100字）",
   "suggestions": ["建议1", "建议2"]
@@ -1199,7 +1198,7 @@ class AIReportService:
 ```
 
 ### 输出要求
-请基于真实故障数据，生成故障分析报告JSON。**fault_items 最多5条，summary 和 suggestions 尽量简短**：
+请基于真实故障数据，生成故障分析报告JSON。**fault_items 最多5条，所有字段必须完整填写，禁止返回 null，summary 和 suggestions 尽量简短**：
 ```json
 {{
   "report_title": "报告标题（如：设备故障智能分析报告 - 2026年X月）",
@@ -1208,10 +1207,10 @@ class AIReportService:
     {{"value": "数值", "label": "指标名称"}}
   ],
   "fault_distribution": [
-    {{"category": "类别名称", "count": 数量}}
+    {{"category": "类别名称", "count": 数量, "percentage": 占比数值（纯数字，如53.4，不带百分号）}}
   ],
   "fault_items": [
-    {{"device_name": "设备名称", "fault_type": "故障类型", "fault_time": "故障时间"}}
+    {{"device_name": "设备名称", "fault_type": "故障类型", "fault_time": "故障时间", "duration": "持续时长", "cause": "故障原因", "solution": "解决方案"}}
   ],
   "summary": "故障分析总结（不超过80字）",
   "suggestions": ["维保建议1", "维保建议2"]
