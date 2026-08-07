@@ -53,7 +53,6 @@ def get_dameng_connection():
             user=settings.dameng.user,
             password=settings.dameng.password,
             schema=settings.dameng.schema,
-            charset='utf-8',
         )
         logger.info("达梦数据库连接成功: %s@%s:%s/%s",
             settings.dameng.user, settings.dameng.host,

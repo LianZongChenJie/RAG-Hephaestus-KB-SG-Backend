@@ -1270,6 +1270,7 @@ class AIReportService:
         logger.warning(f"LLM原始返回({report_type})，长度={len(response)}:\n{response}")
 
         # 方法1：提取单个代码块内容（去首尾```，取第一个完整JSON对象）
+        result = None
         for pattern in [
             r"```json\s*(\{.*\})\s*```",
             r"```\s*(\{.*\})\s*```",
@@ -1277,33 +1278,50 @@ class AIReportService:
             match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
             if match:
                 try:
-                    return json.loads(match.group(1))
+                    result = json.loads(match.group(1))
+                    break
                 except json.JSONDecodeError:
                     pass
 
-        # 方法2：剥掉所有 markdown 代码块标记后，找第一个 { 到最后一个 }
-        stripped = re.sub(r"```json|```", "", response, flags=re.IGNORECASE).strip()
-        try:
-            start = stripped.find("{")
-            end = stripped.rfind("}") + 1
-            if start != -1 and end > start:
-                candidate = stripped[start:end]
-                return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-        # 方法3：直接暴力找第一个 { 到最后一个 }
-        start = response.find("{")
-        end = response.rfind("}") + 1
-        if start != -1 and end > start:
+        if result is None:
+            # 方法2：剥掉所有 markdown 代码块标记后，找第一个 { 到最后一个 }
+            stripped = re.sub(r"```json|```", "", response, flags=re.IGNORECASE).strip()
             try:
-                return json.loads(response[start:end])
+                start = stripped.find("{")
+                end = stripped.rfind("}") + 1
+                if start != -1 and end > start:
+                    candidate = stripped[start:end]
+                    result = json.loads(candidate)
             except json.JSONDecodeError:
                 pass
 
-        # 解析失败，返回默认结构
-        logger.warning(f"无法解析{report_type}返回结果，使用默认结构")
-        return self._get_default_report(report_type)
+        if result is None:
+            # 方法3：直接暴力找第一个 { 到最后一个 }
+            start = response.find("{")
+            end = response.rfind("}") + 1
+            if start != -1 and end > start:
+                try:
+                    result = json.loads(response[start:end])
+                except json.JSONDecodeError:
+                    pass
+
+        if result is None:
+            # 解析失败，返回默认结构
+            logger.warning(f"无法解析{report_type}返回结果，使用默认结构")
+            return self._get_default_report(report_type)
+
+        # 修复 LLM 常见拼写错误
+        result = self._fix_llm_typos(result, report_type)
+        return result
+
+    def _fix_llm_typos(self, result: Dict[str, Any], report_type: str) -> Dict[str, Any]:
+        """修复 LLM 常见字段名拼写错误"""
+        # 故障报告：float_time → fault_time
+        if "fault_items" in result:
+            for item in result["fault_items"]:
+                if "float_time" in item and "fault_time" not in item:
+                    item["fault_time"] = item.pop("float_time")
+        return result
 
     def _get_default_report(self, report_type: str) -> Dict[str, Any]:
         """获取默认报告结构"""
