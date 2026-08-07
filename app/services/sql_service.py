@@ -239,10 +239,132 @@ class SQLService:
 
         return self.extract_sql(response_text)
 
+    # ==================== 大模型生成报告SQL ====================
+
+    async def generate_report_sql_by_llm(
+        self,
+        report_type: str,
+        target_id: Optional[int],
+        target_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """调用大模型生成报告SQL"""
+        # 优先使用 target_id，否则使用 target_name
+        if target_id is None and target_name:
+            target_id_or_name = target_name
+            use_name = True
+        else:
+            target_id_or_name = str(target_id)
+            use_name = False
+
+        # 使用 f-string 避免 JSON 中的 {name} 被误解析
+        if use_name:
+            user_prompt = f"""你是一个达梦数据库 SQL 专家。
+
+## 数据库
+- Schema: FWBZ
+- 表名和列名用双引号
+
+## 任务
+为展会报告生成SQL。展会名称: {target_name}
+
+## 必须查询的指标
+1. 展会基本信息 - SELECT * FROM FWBZ."table_activeMeet_info" WHERE "active_name" = '{target_name}'
+2. 人员服务：总服务人次、投诉数量、建议数量、满意度评分、安保出勤
+3. 设备能耗：设备故障数、平均修复时长、总用电量、能耗预算比、单人次能耗
+4. 会展数据：
+   - 展会天数：按 active_name='{target_name}' 过滤 table_activeMeet_info，取所有记录中 MAX("start_date") - MIN("start_date") + 1，示例：
+     SELECT CASE WHEN COUNT(*) <= 1 THEN 1 ELSE DATEDIFF(DAY, MIN("start_date"), MAX("start_date")) + 1 END as result FROM FWBZ."table_activeMeet_info" WHERE "active_name" = '{target_name}'
+   - 总客流、峰值客流、参展商数、应急响应
+
+## 输出
+返回JSON数组：
+```json
+[
+  {{"name": "展会基本信息", "sql": "SELECT * FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = '{target_name}'"}},
+  {{"name": "总服务人次", "sql": "SELECT SUM(\"value\") FROM FWBZ.\"table_personnel_statistics\""}}
+]
+```
+
+请根据表结构生成完整SQL列表。
+"""
+        else:
+            user_prompt = f"""你是一个达梦数据库 SQL 专家。
+
+## 数据库
+- Schema: FWBZ
+- 表名和列名用双引号
+
+## 任务
+为展会报告生成SQL。展会ID: {target_id}
+
+## 必须查询的指标
+1. 展会基本信息 - SELECT * FROM FWBZ."table_activeMeet_info" WHERE "id" = {target_id}
+2. 人员服务：总服务人次、投诉数量、建议数量、满意度评分、安保出勤
+3. 设备能耗：设备故障数、平均修复时长、总用电量、能耗预算比、单人次能耗
+4. 会展数据：
+   - 展会天数：按 id={target_id} 过滤 table_activeMeet_info，取所有记录中 MAX("start_date") - MIN("start_date") + 1，示例：
+     SELECT CASE WHEN COUNT(*) <= 1 THEN 1 ELSE DATEDIFF(DAY, MIN("start_date"), MAX("start_date")) + 1 END as result FROM FWBZ."table_activeMeet_info" WHERE "id" = {target_id}
+   - 总客流、峰值客流、参展商数、应急响应
+
+## 输出
+返回JSON数组：
+```json
+[
+  {{"name": "展会基本信息", "sql": "SELECT * FROM FWBZ.\"table_activeMeet_info\" WHERE \"id\" = {target_id}"}},
+  {{"name": "总服务人次", "sql": "SELECT SUM(\"value\") FROM FWBZ.\"table_personnel_statistics\""}}
+]
+```
+
+请根据表结构生成完整SQL列表。
+"""
+
+        schema_info = self._extract_schema_info()
+        user_prompt = schema_info + "\n\n" + user_prompt
+
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        logger.info("调用大模型生成报告SQL，report_type: %s, target_id: %s, target_name: %s", report_type, target_id, target_name)
+
+        payload = self.ollama.build_sql_payload(messages)
+        response_text = await self.ollama.chat(payload)
+
+        # 解析返回的JSON
+        return self._parse_sql_list(response_text, target_id)
+
+    def _parse_sql_list(self, response: str, target_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """解析大模型返回的SQL列表"""
+        import json
+
+        # 尝试提取 JSON
+        json_pattern = r"```(?:json)?\s*(\[[\s\S]*?\])\s*```"
+        match = re.search(json_pattern, response, re.IGNORECASE)
+
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # 尝试直接解析
+        try:
+            start = response.find("[")
+            end = response.rfind("]") + 1
+            if start != -1 and end > start:
+                return json.loads(response[start:end])
+        except json.JSONDecodeError:
+            pass
+
+        logger.warning("无法解析大模型返回的SQL列表，使用默认配置")
+        # 返回空列表，让调用方使用默认配置
+        return []
+
     async def generate_report_sql(
         self,
         report_type: str,
-        target_id: int,
+        target_id: Optional[int],
         target_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -250,97 +372,186 @@ class SQLService:
 
         Args:
             report_type: 报告类型 (device/venue/exhibition)
-            target_id: 目标ID (设备ID/场馆ID/展会ID)
-            target_name: 目标名称(可选)
+            target_id: 目标ID (设备ID/场馆ID/展会ID，非必填)
+            target_name: 目标名称(可选，当 target_id 为空时使用)
 
         Returns:
             包含指标名称和SQL的列表
         """
+        # 优先使用 target_id，否则使用 target_name
+        if target_id is None and target_name:
+            use_name = True
+        else:
+            use_name = False
+
         # 定义每种报告类型对应的指标
         if report_type == "device":
-            metrics = self._get_device_report_metrics(target_id, target_name)
+            metrics = self._get_device_report_metrics(target_id, target_name, use_name)
         elif report_type == "venue":
-            metrics = self._get_venue_report_metrics(target_id, target_name)
+            metrics = self._get_venue_report_metrics(target_id, target_name, use_name)
         elif report_type == "exhibition":
-            metrics = self._get_exhibition_report_metrics(target_id, target_name)
+            metrics = self._get_exhibition_report_metrics(target_id, target_name, use_name)
         else:
             raise ValueError(f"不支持的报告类型: {report_type}")
 
         return metrics
 
-    def _get_device_report_metrics(self, device_id: int, device_name: Optional[str]) -> List[Dict[str, Any]]:
+    def _get_device_report_metrics(self, device_id: Optional[int], device_name: Optional[str], use_name: bool = False) -> List[Dict[str, Any]]:
         """获取设备报告的指标定义"""
-        return [
-            {
-                "name": "设备基本信息",
-                "description": "设备编号、名称、类型、运行状态",
-                "table": "device",
-                "filter_field": "id",
-                "filter_value": device_id
-            },
-            {
-                "name": "告警统计",
-                "description": "该设备的告警总数",
-                "table": "alarm_record",
-                "filter_field": "device_id",
-                "filter_value": device_id
-            },
-            {
-                "name": "故障统计",
-                "description": "该设备按告警级别统计",
-                "table": "alarm_record",
-                "filter_field": "device_id",
-                "filter_value": device_id,
-                "group_by": "alarm_level_name"
-            },
-            {
-                "name": "能耗统计",
-                "description": "该设备的日能耗数据",
-                "table": "data_day",
-                "filter_field": "device_id",
-                "filter_value": device_id
-            },
-        ]
+        if use_name and device_name:
+            return [
+                {
+                    "name": "设备基本信息",
+                    "description": "设备编号、名称、类型、运行状态",
+                    "table": "device",
+                    "filter_field": "device_name",
+                    "filter_value": device_name
+                },
+                {
+                    "name": "告警统计",
+                    "description": "该设备的告警总数",
+                    "table": "alarm_record",
+                    "filter_field": "device_id",
+                    "filter_value_from_name": "device_name",
+                    "target_name": device_name
+                },
+                {
+                    "name": "故障统计",
+                    "description": "该设备按告警级别统计",
+                    "table": "alarm_record",
+                    "filter_field": "device_id",
+                    "filter_value_from_name": "device_name",
+                    "target_name": device_name,
+                    "group_by": "alarm_level_name"
+                },
+                {
+                    "name": "能耗统计",
+                    "description": "该设备的日能耗数据",
+                    "table": "data_day",
+                    "filter_field": "device_id",
+                    "filter_value_from_name": "device_name",
+                    "target_name": device_name
+                },
+            ]
+        else:
+            return [
+                {
+                    "name": "设备基本信息",
+                    "description": "设备编号、名称、类型、运行状态",
+                    "table": "device",
+                    "filter_field": "id",
+                    "filter_value": device_id
+                },
+                {
+                    "name": "告警统计",
+                    "description": "该设备的告警总数",
+                    "table": "alarm_record",
+                    "filter_field": "device_id",
+                    "filter_value": device_id
+                },
+                {
+                    "name": "故障统计",
+                    "description": "该设备按告警级别统计",
+                    "table": "alarm_record",
+                    "filter_field": "device_id",
+                    "filter_value": device_id,
+                    "group_by": "alarm_level_name"
+                },
+                {
+                    "name": "能耗统计",
+                    "description": "该设备的日能耗数据",
+                    "table": "data_day",
+                    "filter_field": "device_id",
+                    "filter_value": device_id
+                },
+            ]
 
-    def _get_venue_report_metrics(self, venue_id: int, venue_name: Optional[str]) -> List[Dict[str, Any]]:
+    def _get_venue_report_metrics(self, venue_id: Optional[int], venue_name: Optional[str], use_name: bool = False) -> List[Dict[str, Any]]:
         """获取场馆报告的指标定义"""
-        return [
-            {
-                "name": "场馆基本信息",
-                "description": "场馆名称、位置、楼层",
-                "table": "table_venue_info",
-                "filter_field": "id",
-                "filter_value": venue_id
-            },
-            {
-                "name": "客流统计",
-                "description": "当日进场、在场、峰值客流",
-                "table": "table_venue_flow",
-                "filter_field": "venue_id",
-                "filter_value": venue_id
-            },
-            {
-                "name": "设备告警统计",
-                "description": "该场馆所有设备的告警",
-                "table": "alarm_record",
-                "filter_field": "device_id",
-                "filter_value": venue_id,
-                "join_table": "device",
-                "join_condition": "device.venue_id = {target_id}"
-            },
-            {
-                "name": "能耗统计",
-                "description": "该场馆所有设备的能耗汇总",
-                "table": "data_day",
-                "filter_field": "device_id",
-                "filter_value": venue_id,
-                "join_table": "device",
-                "join_condition": "device.venue_id = {target_id}"
-            },
-        ]
+        if use_name and venue_name:
+            return [
+                {
+                    "name": "场馆基本信息",
+                    "description": "场馆名称、位置、楼层",
+                    "table": "table_venue_info",
+                    "filter_field": "venue_name",
+                    "filter_value": venue_name
+                },
+                {
+                    "name": "客流统计",
+                    "description": "当日进场、在场、峰值客流",
+                    "table": "table_venue_flow",
+                    "filter_field": "venue_id",
+                    "filter_value_from_name": "venue_name",
+                    "target_name": venue_name
+                },
+                {
+                    "name": "设备告警统计",
+                    "description": "该场馆所有设备的告警",
+                    "table": "alarm_record",
+                    "filter_field": "device_id",
+                    "filter_value_from_name": "venue_name",
+                    "target_name": venue_name,
+                    "join_table": "device",
+                    "join_condition": 'device.venue_id = (SELECT "id" FROM FWBZ."table_venue_info" WHERE "venue_name" = \'{target_name}\')'
+                },
+                {
+                    "name": "能耗统计",
+                    "description": "该场馆所有设备的能耗汇总",
+                    "table": "data_day",
+                    "filter_field": "device_id",
+                    "filter_value_from_name": "venue_name",
+                    "target_name": venue_name,
+                    "join_table": "device",
+                    "join_condition": 'device.venue_id = (SELECT "id" FROM FWBZ."table_venue_info" WHERE "venue_name" = \'{target_name}\')'
+                },
+            ]
+        else:
+            return [
+                {
+                    "name": "场馆基本信息",
+                    "description": "场馆名称、位置、楼层",
+                    "table": "table_venue_info",
+                    "filter_field": "id",
+                    "filter_value": venue_id
+                },
+                {
+                    "name": "客流统计",
+                    "description": "当日进场、在场、峰值客流",
+                    "table": "table_venue_flow",
+                    "filter_field": "venue_id",
+                    "filter_value": venue_id
+                },
+                {
+                    "name": "设备告警统计",
+                    "description": "该场馆所有设备的告警",
+                    "table": "alarm_record",
+                    "filter_field": "device_id",
+                    "filter_value": venue_id,
+                    "join_table": "device",
+                    "join_condition": "device.venue_id = {target_id}"
+                },
+                {
+                    "name": "能耗统计",
+                    "description": "该场馆所有设备的能耗汇总",
+                    "table": "data_day",
+                    "filter_field": "device_id",
+                    "filter_value": venue_id,
+                    "join_table": "device",
+                    "join_condition": "device.venue_id = {target_id}"
+                },
+            ]
 
-    def _get_exhibition_report_metrics(self, exhibition_id: int, exhibition_name: Optional[str]) -> List[Dict[str, Any]]:
+    def _get_exhibition_report_metrics(self, exhibition_id: Optional[int], exhibition_name: Optional[str], use_name: bool = False) -> List[Dict[str, Any]]:
         """获取展会报告的指标定义"""
+        # 根据是否使用名称来决定过滤字段
+        if use_name and exhibition_name:
+            basic_filter_field = "active_name"
+            basic_filter_value = exhibition_name
+        else:
+            basic_filter_field = "id"
+            basic_filter_value = exhibition_id
+
         return [
             # ===== 展会基本信息 =====
             {
@@ -348,39 +559,56 @@ class SQLService:
                 "description": "展会名称、开始日期、预计人数",
                 "category": "会展数据",
                 "table": "table_activeMeet_info",
-                "filter_field": "id",
-                "filter_value": exhibition_id
+                "filter_field": basic_filter_field,
+                "filter_value": basic_filter_value
             },
 
             # ===== 人员服务 =====
             {
                 "name": "总服务人次",
-                "description": "人员识别记录总数",
+                "description": "展会关联场馆在展会期间的进场总人次",
                 "category": "人员服务",
-                "table": "table_personnel_statistics",
+                "table": "table_venue_flow",
+                "filter_field": "venue_id",
+                "filter_value_from_exhibition": "venue_id",
+                "filter_name": "active_name",
+                "date_field": "data_date",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
                 "aggregate": "SUM",
-                "aggregate_field": "recognition_record_count",
-                "where_extra": '"stat_date" >= (SELECT "start_date" FROM FWBZ."table_activeMeet_info" WHERE "id" = {exhibition_id})'
+                "aggregate_field": "today_in_count"
             },
             {
                 "name": "投诉数量",
-                "description": "展会期间投诉告警数量",
+                "description": "展会期间投诉建议数量",
                 "category": "人员服务",
-                "table": "alarm_record",
+                "table": "table_complaint_info",
+                "join_table": "table_complaint_type",
+                "join_on": 't1."type_id" = t2."id"',
                 "aggregate": "COUNT",
-                "aggregate_field": "id",
-                "date_field": "alarm_time",
-                "where_extra": 'alarm_category_name LIKE \'%投诉%\''
+                "aggregate_field": "t1.id",
+                "date_field": "complaint_date",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_field": "type_id",
+                "filter_name": "active_name",
+                "where_extra": 't2."type_name" = \'投诉\''
             },
             {
                 "name": "建议数量",
                 "description": "展会期间建议数量",
                 "category": "人员服务",
-                "table": "alarm_record",
+                "table": "table_complaint_info",
+                "join_table": "table_complaint_type",
+                "join_on": 't1."type_id" = t2."id"',
                 "aggregate": "COUNT",
-                "aggregate_field": "id",
-                "date_field": "alarm_time",
-                "where_extra": 'alarm_category_name LIKE \'%建议%\''
+                "aggregate_field": "t1.id",
+                "date_field": "complaint_date",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_field": "type_id",
+                "filter_name": "active_name",
+                "where_extra": 't2."type_name" = \'建议\''
             },
             {
                 "name": "满意度评分",
@@ -390,7 +618,10 @@ class SQLService:
                 "aggregate": "AVG",
                 "aggregate_field": "value",
                 "date_field": "alarm_time",
-                "where_extra": 'alarm_category_name LIKE \'%满意%\''
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name",
+                "where_extra": '"alarm_category_name" LIKE \'%满意%\''
             },
             {
                 "name": "安保出勤",
@@ -400,7 +631,10 @@ class SQLService:
                 "aggregate": "COUNT",
                 "aggregate_field": "id",
                 "date_field": "alarm_time",
-                "where_extra": 'alarm_category_name LIKE \'%安保%\''
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name",
+                "where_extra": '"alarm_category_name" LIKE \'%安保%\''
             },
 
             # ===== 设备与能耗 =====
@@ -412,26 +646,38 @@ class SQLService:
                 "aggregate": "COUNT",
                 "aggregate_field": "id",
                 "date_field": "alarm_time",
-                "where_extra": 'alarm_level_name LIKE \'%故障%\''
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name",
+                "where_extra": '"alarm_level_name" LIKE \'%故障%\''
             },
             {
                 "name": "平均修复时长",
                 "description": "故障平均修复时长(分钟)",
                 "category": "设备能耗",
-                "table": "alarm_record",
-                "aggregate": "AVG",
-                "aggregate_field": "value",
-                "date_field": "alarm_time",
-                "where_extra": 'alarm_category_name LIKE \'%修复%\''
+                "sql": (
+                    "SELECT CASE WHEN COUNT(*) = 0 THEN 0 "
+                    "ELSE SUM((t1.\"process_time\" - t1.\"alarm_time\") * 24 * 60) / COUNT(*) "
+                    "END as result "
+                    "FROM FWBZ.\"alarm_record\" t1 "
+                    "WHERE t1.\"alarm_level_name\" LIKE '%故障%' "
+                    "AND t1.\"alarm_time\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
+                    "AND t1.\"alarm_time\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})"
+                )
             },
             {
                 "name": "总用电量",
-                "description": "展会期间所有设备能耗汇总(kWh)",
+                "description": "展会期间计量点位能耗汇总(kWh)",
                 "category": "设备能耗",
-                "table": "data_day",
+                "table": "metering_point_data_day",
                 "aggregate": "SUM",
                 "aggregate_field": "value",
-                "date_field": "time"
+                "filter_field": "metering_point_id",
+                "filter_value_from_config": "energyMetering:electric:pointId",
+                "date_field": "time",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name"
             },
             {
                 "name": "能耗预算比",
@@ -440,46 +686,75 @@ class SQLService:
                 "table": "data_day",
                 "aggregate": "SUM",
                 "aggregate_field": "value",
-                "date_field": "time"
+                "date_field": "time",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name"
             },
             {
                 "name": "单人次能耗",
                 "description": "人均用电量(kWh/人)",
                 "category": "设备能耗",
-                "table": "data_day",
-                "aggregate": "AVG",
-                "aggregate_field": "value",
-                "date_field": "time"
+                "sql": (
+                    "SELECT CASE WHEN "
+                    "(SELECT SUM(t2.\"today_in_count\") FROM FWBZ.\"table_venue_flow\" t2 "
+                    "WHERE t2.\"venue_id\" = (SELECT \"venue_id\" FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
+                    "AND t2.\"data_date\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
+                    "AND t2.\"data_date\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})) = 0 "
+                    "THEN 0 "
+                    "ELSE "
+                    "(SELECT SUM(\"value\") FROM FWBZ.\"metering_point_data_day\" "
+                    "WHERE \"metering_point_id\" = (SELECT \"config_value\" FROM FWBZ.\"business_config\" WHERE \"config_key\" = 'energyMetering:electric:pointId') "
+                    "AND \"time\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
+                    "AND \"time\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})) "
+                    "/ "
+                    "(SELECT SUM(t3.\"today_in_count\") FROM FWBZ.\"table_venue_flow\" t3 "
+                    "WHERE t3.\"venue_id\" = (SELECT \"venue_id\" FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
+                    "AND t3.\"data_date\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
+                    "AND t3.\"data_date\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})) "
+                    "END as result "
+                    "FROM DUAL"
+                )
             },
 
             # ===== 会展数据 =====
             {
                 "name": "展会天数",
-                "description": "展会已举办天数",
+                "description": "展会已举办天数（按名称过滤，取记录条数）",
                 "category": "会展数据",
-                "table": "table_activeMeet_info",
-                "aggregate": "DATEDIFF",
-                "aggregate_field": "start_date",
-                "filter_field": "id",
-                "filter_value": exhibition_id
+                "sql": (
+                    "SELECT COUNT(*) as result "
+                    "FROM FWBZ.\"table_activeMeet_info\" "
+                    "WHERE \"active_name\" = {exhibition_name}"
+                )
             },
             {
                 "name": "总客流",
                 "description": "展会期间累计进场人数",
                 "category": "会展数据",
                 "table": "table_venue_flow",
+                "filter_field": "venue_id",
+                "filter_value_from_exhibition": "venue_id",
+                "filter_name": "active_name",
                 "aggregate": "SUM",
                 "aggregate_field": "today_in_count",
-                "date_field": "data_date"
+                "date_field": "data_date",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date"
             },
             {
                 "name": "峰值客流",
                 "description": "展会期间单日最高进场人数",
                 "category": "会展数据",
                 "table": "table_venue_flow",
+                "filter_field": "venue_id",
+                "filter_value_from_exhibition": "venue_id",
+                "filter_name": "active_name",
                 "aggregate": "MAX",
                 "aggregate_field": "max_count",
-                "date_field": "data_date"
+                "date_field": "data_date",
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date"
             },
             {
                 "name": "参展商数",
@@ -490,7 +765,10 @@ class SQLService:
                 "aggregate_field": "charge_person_name",
                 "distinct": True,
                 "date_field": "alarm_time",
-                "where_extra": 'alarm_category_name LIKE \'%参展%\''
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name",
+                "where_extra": '"alarm_category_name" LIKE \'%参展%\''
             },
             {
                 "name": "应急响应",
@@ -500,7 +778,10 @@ class SQLService:
                 "aggregate": "COUNT",
                 "aggregate_field": "id",
                 "date_field": "alarm_time",
-                "where_extra": 'alarm_level_name LIKE \'%紧急%\''
+                "date_start_from_exhibition": "start_date",
+                "date_end_from_exhibition": "start_date",
+                "filter_name": "active_name",
+                "where_extra": '"alarm_level_name" LIKE \'%紧急%\''
             },
         ]
 
@@ -565,7 +846,7 @@ class SuggestionService:
     def build_suggestions_prompt(
         self,
         report_type: str,
-        target_id: int,
+        target_id: Optional[int],
         target_name: Optional[str],
         metrics: List[Dict[str, Any]],
         focus_areas: Optional[List[str]] = None
@@ -584,9 +865,12 @@ class SuggestionService:
 
         metrics_text = "\n".join(metrics_lines) if metrics_lines else "（无数据）"
 
+        # 格式化 target_id
+        target_id_str = str(target_id) if target_id is not None else "未指定"
+
         user_prompt = SUGGESTIONS_USER_TEMPLATE.format(
             report_type=report_type,
-            target_id=target_id,
+            target_id=target_id_str,
             target_name=target_name or "未知",
             focus_areas=focus_text,
             metrics_data=metrics_text,
@@ -629,7 +913,7 @@ class SuggestionService:
     async def generate_suggestions(
         self,
         report_type: str,
-        target_id: int,
+        target_id: Optional[int],
         target_name: Optional[str],
         metrics: List[Dict[str, Any]],
         focus_areas: Optional[List[str]] = None
@@ -644,7 +928,7 @@ class SuggestionService:
             {"role": "user", "content": user_prompt},
         ]
 
-        logger.info("生成优化建议，report_type: %s, target_id: %d", report_type, target_id)
+        logger.info("生成优化建议，report_type: %s, target_id: %s", report_type, target_id)
 
         payload = self.ollama.build_sql_payload(messages)
         response_text = await self.ollama.chat(payload)

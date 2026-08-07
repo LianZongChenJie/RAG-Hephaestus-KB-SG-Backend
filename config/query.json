@@ -15,17 +15,83 @@
         "device_name": {"type": "VARCHAR(255)", "desc": "设备名称"},
         "space_id": {"type": "BIGINT", "desc": "空间ID"},
         "space_name": {"type": "VARCHAR(255)", "desc": "空间名称"},
+        "alarm_rule_id": {"type": "BIGINT", "desc": "告警规则ID"},
         "alarm_content": {"type": "TEXT", "desc": "告警内容"},
         "alarm_time": {"type": "TIMESTAMP", "desc": "告警时间", "filterable": true},
         "alarm_category_id": {"type": "BIGINT", "desc": "告警类别ID"},
         "alarm_category_name": {"type": "VARCHAR(255)", "desc": "告警类别名称"},
         "alarm_level_id": {"type": "BIGINT", "desc": "告警级别ID"},
         "alarm_level_name": {"type": "VARCHAR(255)", "desc": "告警级别名称"},
+        "alarm_level_color": {"type": "VARCHAR(50)", "desc": "告警级别颜色"},
+        "charge_person": {"type": "BIGINT", "desc": "负责人ID"},
         "charge_person_name": {"type": "VARCHAR(255)", "desc": "负责人名称"},
         "alarm_status": {"type": "VARCHAR(1)", "desc": "告警状态【1-未处理，2-已消除】"},
+        "point_id": {"type": "BIGINT", "desc": "点位ID"},
         "point_name": {"type": "VARCHAR(255)", "desc": "点位名称"},
         "value": {"type": "VARCHAR(255)", "desc": "告警值"},
-        "condition_value": {"type": "VARCHAR(255)", "desc": "阈值"}
+        "condition_value": {"type": "VARCHAR(255)", "desc": "阈值"},
+        "operator": {"type": "VARCHAR(255)", "desc": "条件运算符"},
+        "time_granularity": {"type": "VARCHAR(255)", "desc": "时间粒度"},
+        "alarm_rule_point_id": {"type": "BIGINT", "desc": "告警规则点位ID"},
+        "device_category_id": {"type": "BIGINT", "desc": "设备类别ID"},
+        "event_id": {"type": "VARCHAR(50)", "desc": "事件ID"},
+        "process_time": {"type": "TIMESTAMP(6)", "desc": "处理时间"}
+      }
+    },
+    "alarm_category": {
+      "name": "alarm_category",
+      "description": "报警类别表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "alarm_category_name": {"type": "VARCHAR(255)", "desc": "类别名称"},
+        "alarm_category_code": {"type": "VARCHAR(255)", "desc": "类别编号"},
+        "sort": {"type": "INT", "desc": "排序字段"},
+        "status": {"type": "VARCHAR(2)", "desc": "状态。启用：1；禁用：0"}
+      }
+    },
+    "alarm_level": {
+      "name": "alarm_level",
+      "description": "报警级别表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "alarm_level_code": {"type": "VARCHAR(255)", "desc": "等级编号"},
+        "alarm_level_name": {"type": "VARCHAR(255)", "desc": "等级名称"},
+        "alarm_level_color": {"type": "VARCHAR(50)", "desc": "告警颜色"},
+        "sort": {"type": "INT", "desc": "排序字段"},
+        "status": {"type": "VARCHAR(2)", "desc": "状态。启用：1；禁用：0"}
+      }
+    },
+    "alarm_rules": {
+      "name": "alarm_rules",
+      "description": "告警规则表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "rule_code": {"type": "VARCHAR(255)", "desc": "规则编号"},
+        "rule_name": {"type": "VARCHAR(255)", "desc": "规则名称"},
+        "alarm_category_id": {"type": "BIGINT", "desc": "报警类别ID"},
+        "alarm_category_name": {"type": "VARCHAR(255)", "desc": "报警类别名称"},
+        "alarm_level_id": {"type": "BIGINT", "desc": "报警等级ID"},
+        "alarm_level_name": {"type": "VARCHAR(255)", "desc": "报警级别名称"},
+        "alarm_level_color": {"type": "VARCHAR(50)", "desc": "报警颜色"},
+        "frequency": {"type": "INT", "desc": "频率"},
+        "frequency_unit": {"type": "VARCHAR(50)", "desc": "频率单位"},
+        "point_type": {"type": "VARCHAR(50)", "desc": "报警点位类型（instant/accumulate）"},
+        "enabled_status": {"type": "VARCHAR(2)", "desc": "启用状态【0-禁用，1-启用】"}
+      }
+    },
+    "alarm_rule_point": {
+      "name": "alarm_rule_point",
+      "description": "告警规则设备点位配置表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "alarm_rule_id": {"type": "BIGINT", "desc": "告警规则ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备ID"},
+        "device_name": {"type": "VARCHAR(255)", "desc": "设备名称"},
+        "point_id": {"type": "BIGINT", "desc": "点位ID"},
+        "point_name": {"type": "VARCHAR(255)", "desc": "点位名称"},
+        "time_granularity": {"type": "VARCHAR(50)", "desc": "时间粒度（hour/day/month/year）"},
+        "operator": {"type": "VARCHAR(10)", "desc": "条件运算符（如 >, <, = 等）"},
+        "condition_value": {"type": "VARCHAR(255)", "desc": "条件值"}
       }
     },
     "device": {
@@ -37,20 +103,210 @@
         "device_name": {"type": "VARCHAR(255)", "desc": "设备名称"},
         "category_id": {"type": "BIGINT", "desc": "设备类别id"},
         "space_id": {"type": "BIGINT", "desc": "空间位置id"},
+        "magnification": {"type": "DECIMAL(19,4)", "desc": "倍率"},
+        "automatic_algorithm": {"type": "VARCHAR(255)", "desc": "自动算法"},
+        "model_id": {"type": "BIGINT", "desc": "设备模型id"},
         "run_state": {"type": "VARCHAR(255)", "desc": "运行状态"},
         "device_type": {"type": "VARCHAR(2)", "desc": "设备分类。仪表：1；设备：2"},
         "last_gather_time": {"type": "TIMESTAMP", "desc": "最后采集时间"},
         "venue_id": {"type": "BIGINT", "desc": "场馆id"}
       }
     },
+    "device_attribute": {
+      "name": "device_attribute",
+      "description": "设备属性信息",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备ID"},
+        "attribute_name": {"type": "VARCHAR(255)", "desc": "属性名称"},
+        "attribute_code": {"type": "VARCHAR(255)", "desc": "属性编码"},
+        "unit": {"type": "VARCHAR(255)", "desc": "单位"},
+        "value": {"type": "DECIMAL(19,4)", "desc": "采集值"},
+        "gather_time": {"type": "TIMESTAMP", "desc": "采集时间"},
+        "value_type": {"type": "VARCHAR(50)", "desc": "属性值类型"}
+      }
+    },
+    "device_model": {
+      "name": "device_model",
+      "description": "设备模型",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "model_name": {"type": "VARCHAR(255)", "desc": "模型名称"},
+        "category_id": {"type": "BIGINT", "desc": "专业id"}
+      }
+    },
+    "device_model_attribute": {
+      "name": "device_model_attribute",
+      "description": "设备模型属性",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "model_id": {"type": "BIGINT", "desc": "模型id"},
+        "attribute_name": {"type": "VARCHAR(255)", "desc": "属性名称"},
+        "attribute_code": {"type": "VARCHAR(255)", "desc": "属性编码"},
+        "unit": {"type": "VARCHAR(255)", "desc": "单位"},
+        "value_type": {"type": "VARCHAR(50)", "desc": "属性值类型"}
+      }
+    },
+    "space": {
+      "name": "space",
+      "description": "空间位置表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "pid": {"type": "BIGINT", "desc": "父级节点"},
+        "has_child": {"type": "VARCHAR(10)", "desc": "是否有子节点"},
+        "space_name": {"type": "VARCHAR(255)", "desc": "空间名称"},
+        "full_name": {"type": "VARCHAR(255)", "desc": "空间全称"},
+        "full_id": {"type": "VARCHAR(255)", "desc": "父级id"},
+        "sort": {"type": "INT", "desc": "排序字段"}
+      }
+    },
+    "equipment_category": {
+      "name": "equipment_category",
+      "description": "设备类别表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "pid": {"type": "BIGINT", "desc": "父级节点"},
+        "has_child": {"type": "VARCHAR(10)", "desc": "是否有子节点"},
+        "category_name": {"type": "VARCHAR(255)", "desc": "类别名称"},
+        "full_name": {"type": "VARCHAR(255)", "desc": "全称"},
+        "type": {"type": "VARCHAR(2)", "desc": "分类。仪表：1；设备：2"}
+      }
+    },
     "data_day": {
       "name": "data_day",
-      "description": "日数据",
+      "description": "日能耗数据",
       "fields": {
         "id": {"type": "BIGINT", "desc": "主键ID"},
         "device_id": {"type": "BIGINT", "desc": "设备id", "filterable": true},
         "value": {"type": "DECIMAL(38,4)", "desc": "数值"},
         "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
+      }
+    },
+    "data_hour": {
+      "name": "data_hour",
+      "description": "小时能耗数据",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备id", "filterable": true},
+        "value": {"type": "DECIMAL(38,4)", "desc": "数值"},
+        "start_value": {"type": "DECIMAL(38,4)", "desc": "起始值"},
+        "end_value": {"type": "DECIMAL(38,4)", "desc": "结束值"},
+        "compute_value": {"type": "DECIMAL(38,4)", "desc": "计算值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
+      }
+    },
+    "data_minute": {
+      "name": "data_minute",
+      "description": "分钟能耗数据",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备id", "filterable": true},
+        "start_value": {"type": "DECIMAL(19,2)", "desc": "起始值"},
+        "end_value": {"type": "DECIMAL(19,2)", "desc": "结束值"},
+        "value": {"type": "DECIMAL(10,2)", "desc": "数值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
+      }
+    },
+    "data_month": {
+      "name": "data_month",
+      "description": "月能耗数据",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备id", "filterable": true},
+        "value": {"type": "DECIMAL(38,4)", "desc": "数值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
+      }
+    },
+    "data_year": {
+      "name": "data_year",
+      "description": "年能耗数据",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备id", "filterable": true},
+        "value": {"type": "DECIMAL(38,4)", "desc": "数值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
+      }
+    },
+    "data_real": {
+      "name": "data_real",
+      "description": "实时能耗数据",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_id": {"type": "BIGINT", "desc": "设备id"},
+        "value": {"type": "DECIMAL(38,4)", "desc": "数值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间"}
+      }
+    },
+    "metering_point": {
+      "name": "metering_point",
+      "description": "计量点位配置表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "type": {"type": "VARCHAR(255)", "desc": "类型"},
+        "node_code": {"type": "VARCHAR(255)", "desc": "节点编号"},
+        "node_name": {"type": "VARCHAR(255)", "desc": "节点名称"},
+        "parent_id": {"type": "BIGINT", "desc": "父节点ID"},
+        "category_id": {"type": "BIGINT", "desc": "设备类别"},
+        "space_id": {"type": "BIGINT", "desc": "空间位置"},
+        "formula": {"type": "TEXT", "desc": "公式"}
+      }
+    },
+    "metering_point_data_day": {
+      "name": "metering_point_data_day",
+      "description": "计量点日数据",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "metering_point_id": {"type": "BIGINT", "desc": "计量点位ID"},
+        "value": {"type": "DECIMAL(30,4)", "desc": "数值"},
+        "time": {"type": "TIMESTAMP", "desc": "时间", "filterable": true}
+      }
+    },
+    "energy_price": {
+      "name": "energy_price",
+      "description": "能源单价配置表",
+      "fields": {
+        "id": {"type": "VARCHAR(36)", "desc": "主键ID"},
+        "energy_medium": {"type": "VARCHAR(32)", "desc": "能源介质"},
+        "unit_price": {"type": "DECIMAL(10,5)", "desc": "单价"},
+        "unit": {"type": "VARCHAR(32)", "desc": "单位"}
+      }
+    },
+    "energy_medium_manage": {
+      "name": "energy_medium_manage",
+      "description": "能介管理表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "pid": {"type": "BIGINT", "desc": "父级节点"},
+        "code": {"type": "VARCHAR(255)", "desc": "能介编码"},
+        "name": {"type": "VARCHAR(255)", "desc": "能介名称"},
+        "standard_unit": {"type": "BIGINT", "desc": "标准单位"},
+        "sort": {"type": "INT", "desc": "排序"}
+      }
+    },
+    "carbon_emission_factor": {
+      "name": "carbon_emission_factor",
+      "description": "碳排放因子表",
+      "fields": {
+        "id": {"type": "VARCHAR(36)", "desc": "主键ID"},
+        "carbon_factor_name": {"type": "VARCHAR(32)", "desc": "碳因子名称"},
+        "coefficient": {"type": "VARCHAR(32)", "desc": "系数"},
+        "unit": {"type": "VARCHAR(32)", "desc": "单位"}
+      }
+    },
+    "table_venue_info": {
+      "name": "table_venue_info",
+      "description": "场馆基本信息",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "venue_name": {"type": "VARCHAR(50)", "desc": "场馆名称"},
+        "location": {"type": "VARCHAR(50)", "desc": "位置"},
+        "orientation": {"type": "VARCHAR(20)", "desc": "朝向"},
+        "area": {"type": "VARCHAR(20)", "desc": "建筑面积"},
+        "ceiling_h": {"type": "VARCHAR(255)", "desc": "层高"},
+        "lighting": {"type": "VARCHAR(255)", "desc": "采光条件"},
+        "basic_facility": {"type": "VARCHAR(255)", "desc": "基础情况"},
+        "buildable": {"type": "TINYINT", "desc": "可施工 1=是 0=否"},
+        "floors": {"type": "BIGINT", "desc": "楼层"}
       }
     },
     "table_venue_flow": {
@@ -64,18 +320,8 @@
         "today_now_count": {"type": "BIGINT", "desc": "在场人数"},
         "max_count": {"type": "BIGINT", "desc": "峰值人数"},
         "max_time": {"type": "TIME", "desc": "峰值时间"},
-        "average_duration": {"type": "DOUBLE", "desc": "平均时长"}
-      }
-    },
-    "table_venue_info": {
-      "name": "table_venue_info",
-      "description": "场馆基本信息",
-      "fields": {
-        "id": {"type": "BIGINT", "desc": "主键ID"},
-        "venue_name": {"type": "VARCHAR2(50)", "desc": "场馆名称"},
-        "location": {"type": "VARCHAR2(50)", "desc": "位置"},
-        "area": {"type": "VARCHAR2(20)", "desc": "建筑面积"},
-        "floors": {"type": "BIGINT", "desc": "楼层"}
+        "average_duration": {"type": "DOUBLE", "desc": "平均时长"},
+        "status": {"type": "TINYINT", "desc": "状态"}
       }
     },
     "table_activeMeet_info": {
@@ -83,13 +329,35 @@
       "description": "展会活动信息",
       "fields": {
         "id": {"type": "BIGINT", "desc": "主键ID"},
-        "active_name": {"type": "VARCHAR2(255)", "desc": "展会名称"},
+        "active_name": {"type": "VARCHAR(255)", "desc": "展会名称"},
         "venue_id": {"type": "BIGINT", "desc": "场馆id"},
-        "venue_floors": {"type": "VARCHAR2(255)", "desc": "展会层数"},
+        "venue_floors": {"type": "VARCHAR(255)", "desc": "展会层数"},
         "start_date": {"type": "DATE", "desc": "开始日期"},
         "start_time": {"type": "TIME", "desc": "开始时间"},
         "end_time": {"type": "TIME", "desc": "结束时间"},
-        "people_quantity": {"type": "BIGINT", "desc": "预计人数"}
+        "people_quantity": {"type": "BIGINT", "desc": "预计人数"},
+        "active_progress": {"type": "DOUBLE", "desc": "进度"}
+      }
+    },
+    "table_activeMeet_preparation_info": {
+      "name": "table_activeMeet_preparation_info",
+      "description": "会前筹备信息表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "active_meet_id": {"type": "BIGINT", "desc": "展会id"},
+        "active_meets_device_type_id": {"type": "BIGINT", "desc": "筹备设备id"},
+        "preparation_value": {"type": "BIGINT", "desc": "筹备数量"},
+        "real_value": {"type": "BIGINT", "desc": "在线数量"},
+        "status": {"type": "TINYINT", "desc": "状态，0：未完成，1：已完成"},
+        "complete_time": {"type": "DATETIME(6)", "desc": "完成时间"}
+      }
+    },
+    "table_activeMeet_preparation_type": {
+      "name": "table_activeMeet_preparation_type",
+      "description": "会前筹备类型表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "type_name": {"type": "VARCHAR(255)", "desc": "筹备名称"}
       }
     },
     "table_personnel_statistics": {
@@ -101,7 +369,194 @@
         "today_entry_count": {"type": "BIGINT", "desc": "今日进场人数"},
         "current_in_count": {"type": "BIGINT", "desc": "当前在场人数"},
         "recognition_record_count": {"type": "BIGINT", "desc": "人员识别记录数"},
-        "abnormal_warning_count": {"type": "BIGINT", "desc": "异常行为预警数"}
+        "abnormal_warning_count": {"type": "BIGINT", "desc": "异常行为预警数"},
+        "gmt_create": {"type": "TIMESTAMP", "desc": "记录创建时间"},
+        "gmt_modified": {"type": "TIMESTAMP", "desc": "记录更新时间"}
+      }
+    },
+    "table_visitor_flow": {
+      "name": "table_visitor_flow",
+      "description": "客流统计表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "date": {"type": "DATE", "desc": "日期"},
+        "today_count": {"type": "BIGINT", "desc": "今日客流"},
+        "now_count": {"type": "BIGINT", "desc": "当前在场"},
+        "max_count": {"type": "BIGINT", "desc": "峰值客流"},
+        "average_stop_duration": {"type": "DOUBLE", "desc": "平均时长（小时）"}
+      }
+    },
+    "table_parking_count": {
+      "name": "table_parking_count",
+      "description": "停车统计表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "date": {"type": "DATE", "desc": "日期"},
+        "today_entry_count": {"type": "BIGINT", "desc": "今日进场车辆数"},
+        "current_in_count": {"type": "BIGINT", "desc": "当前在场车辆数"},
+        "remaining_space_count": {"type": "BIGINT", "desc": "剩余车位数"},
+        "average_parking_duration": {"type": "DOUBLE", "desc": "平均停车时长（小时）"}
+      }
+    },
+    "table_parking_record": {
+      "name": "table_parking_record",
+      "description": "停车记录表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "park_time": {"type": "VARCHAR(20)", "desc": "时间（格式 HH24:MI:SS）"},
+        "park_date": {"type": "DATE", "desc": "日期"},
+        "plate_no": {"type": "VARCHAR(20)", "desc": "车牌号"},
+        "park_type": {"type": "VARCHAR(20)", "desc": "类型（进场/出场）"},
+        "parking_lot": {"type": "VARCHAR(100)", "desc": "停车场名称"},
+        "direction": {"type": "VARCHAR(20)", "desc": "方向（入口/出口）"},
+        "space_no": {"type": "VARCHAR(30)", "desc": "车位号"},
+        "park_duration": {"type": "VARCHAR(50)", "desc": "停车时长"}
+      }
+    },
+    "table_patrol_plan": {
+      "name": "table_patrol_plan",
+      "description": "巡更计划表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "plan_name": {"type": "VARCHAR(255)", "desc": "计划名称"},
+        "patrol_route": {"type": "VARCHAR(255)", "desc": "巡更路线"},
+        "execution_cycle": {"type": "TIME", "desc": "执行周期"},
+        "next_execution": {"type": "VARCHAR(255)", "desc": "下次执行"},
+        "staus": {"type": "TINYINT", "desc": "状态。1：启用，0：停用，2：运行中"}
+      }
+    },
+    "table_door_event": {
+      "name": "table_door_event",
+      "description": "门禁点事件表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "event_id": {"type": "VARCHAR(64)", "desc": "事件ID"},
+        "event_name": {"type": "VARCHAR(128)", "desc": "事件名称"},
+        "event_time": {"type": "DATETIME(6)", "desc": "事件产生时间"},
+        "person_id": {"type": "VARCHAR(64)", "desc": "人员编码"},
+        "person_name": {"type": "VARCHAR(128)", "desc": "人员姓名"},
+        "card_no": {"type": "VARCHAR(64)", "desc": "卡号"},
+        "door_name": {"type": "VARCHAR(128)", "desc": "门禁点名称"},
+        "event_type": {"type": "INT", "desc": "事件类型"},
+        "in_and_out_type": {"type": "SMALLINT", "desc": "进出类型：1-进 0-出 -1-未知"}
+      }
+    },
+    "table_smoke_detector": {
+      "name": "table_smoke_detector",
+      "description": "消防设备表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "device_name": {"type": "VARCHAR(255)", "desc": "设备名称"},
+        "status": {"type": "VARCHAR(255)", "desc": "状态"},
+        "device_type": {"type": "VARCHAR(255)", "desc": "设备类型。1：烟感，2：温感，3：光感，4：消防栓"}
+      }
+    },
+    "linkage_strategy": {
+      "name": "linkage_strategy",
+      "description": "联动控制策略表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "strategy_code": {"type": "VARCHAR(255)", "desc": "策略编码"},
+        "strategy_name": {"type": "VARCHAR(255)", "desc": "策略名称"},
+        "strategy_target": {"type": "VARCHAR(255)", "desc": "策略目标"},
+        "enabled_status": {"type": "VARCHAR(2)", "desc": "启用状态。启用：1；禁用：0"}
+      }
+    },
+    "patterning_strategy": {
+      "name": "patterning_strategy",
+      "description": "场景控制策略表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "strategy_code": {"type": "VARCHAR(255)", "desc": "策略编号"},
+        "strategy_name": {"type": "VARCHAR(255)", "desc": "策略名称"},
+        "strategy_scene": {"type": "VARCHAR(255)", "desc": "应用场景"},
+        "strategy_target": {"type": "VARCHAR(255)", "desc": "策略目的"},
+        "space_id": {"type": "BIGINT", "desc": "空间主键"},
+        "space_name": {"type": "VARCHAR(255)", "desc": "空间名称"},
+        "enabled_status": {"type": "VARCHAR(1)", "desc": "启动状态【0禁用，1启用】"}
+      }
+    },
+    "business_config": {
+      "name": "business_config",
+      "description": "业务配置表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID"},
+        "name": {"type": "VARCHAR(255)", "desc": "业务说明"},
+        "config_key": {"type": "VARCHAR(255)", "desc": "唯一标识"},
+        "config_value": {"type": "VARCHAR(2000)", "desc": "值"},
+        "remark": {"type": "VARCHAR(200)", "desc": "备注"}
+      }
+    },
+    "table_complaint_info": {
+      "name": "table_complaint_info",
+      "description": "投诉建议信息表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "投诉建议ID，自增主键"},
+        "title": {"type": "VARCHAR(200)", "desc": "标题"},
+        "complaint_date": {"type": "DATE", "desc": "日期"},
+        "complaint_time": {"type": "VARCHAR(20)", "desc": "时间"},
+        "type_id": {"type": "BIGINT", "desc": "投诉类型ID"},
+        "content": {"type": "TEXT", "desc": "内容"},
+        "source": {"type": "VARCHAR(128)", "desc": "来源（现场/电话/邮件/微信/APP等）"},
+        "handler": {"type": "VARCHAR(64)", "desc": "处理人"},
+        "status": {"type": "VARCHAR(32)", "desc": "状态（待处理/处理中/已处理/已关闭/已驳回）"},
+        "remark": {"type": "VARCHAR(512)", "desc": "备注"},
+        "gmt_create": {"type": "TIMESTAMP(6)", "desc": "记录创建时间"},
+        "gmt_modified": {"type": "TIMESTAMP(6)", "desc": "记录更新时间"}
+      }
+    },
+    "table_complaint_record": {
+      "name": "table_complaint_record",
+      "description": "投诉建议处理记录表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "记录ID，自增主键"},
+        "complaint_id": {"type": "BIGINT", "desc": "投诉建议ID"},
+        "handle_date": {"type": "DATE", "desc": "处理日期"},
+        "handle_time": {"type": "TIME", "desc": "处理时间"},
+        "handle_content": {"type": "TEXT", "desc": "处理内容"},
+        "status_from": {"type": "VARCHAR(32)", "desc": "状态变化-变更前状态"},
+        "status_to": {"type": "VARCHAR(32)", "desc": "状态变化-变更后状态"},
+        "handler": {"type": "VARCHAR(64)", "desc": "处理人"},
+        "gmt_create": {"type": "TIMESTAMP(6)", "desc": "记录创建时间"},
+        "gmt_modified": {"type": "TIMESTAMP(6)", "desc": "记录更新时间"}
+      }
+    },
+    "table_complaint_status": {
+      "name": "table_complaint_status",
+      "description": "投诉建议状态表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID，自增"},
+        "status_id": {"type": "BIGINT", "desc": "状态ID"},
+        "status_name": {"type": "VARCHAR(64)", "desc": "状态名称"},
+        "gmt_create": {"type": "TIMESTAMP(6)", "desc": "记录创建时间"},
+        "gmt_modified": {"type": "TIMESTAMP(6)", "desc": "记录更新时间"}
+      }
+    },
+    "table_complaint_type": {
+      "name": "table_complaint_type",
+      "description": "投诉类型表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "类型ID，自增主键"},
+        "type_name": {"type": "VARCHAR(64)", "desc": "类型名称"},
+        "gmt_create": {"type": "TIMESTAMP(6)", "desc": "记录创建时间"},
+        "gmt_modified": {"type": "TIMESTAMP(6)", "desc": "记录更新时间"}
+      }
+    },
+    "table_person_recognition": {
+      "name": "table_person_recognition",
+      "description": "人员识别记录表",
+      "fields": {
+        "id": {"type": "BIGINT", "desc": "主键ID，自增"},
+        "recognize_time": {"type": "TIMESTAMP(6)", "desc": "识别时间"},
+        "person_type": {"type": "VARCHAR(32)", "desc": "人员类型（员工/访客/VIP/临时人员/黑名单等）"},
+        "person_name": {"type": "VARCHAR(128)", "desc": "姓名"},
+        "recognize_location": {"type": "VARCHAR(256)", "desc": "识别位置"},
+        "confidence": {"type": "DECIMAL(5,2)", "desc": "置信度（0.00~100.00）"},
+        "direction": {"type": "VARCHAR(16)", "desc": "进出方向（进/出/未知）"},
+        "venue": {"type": "VARCHAR(128)", "desc": "所属场馆"},
+        "employee_no": {"type": "VARCHAR(64)", "desc": "员工号"},
+        "gmt_create": {"type": "TIMESTAMP(6)", "desc": "记录创建时间"},
+        "gmt_modified": {"type": "TIMESTAMP(6)", "desc": "记录更新时间"}
       }
     }
   }

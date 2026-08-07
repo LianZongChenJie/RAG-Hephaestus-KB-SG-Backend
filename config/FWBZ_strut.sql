@@ -11,7 +11,7 @@
  Target Server Version : 80000 (08.00.00)
  File Encoding         : 65001
 
- Date: 06/08/2026 08:59:27
+ Date: 06/08/2026 16:53:55
 */
 
 
@@ -109,7 +109,8 @@ CREATE TABLE "FWBZ"."alarm_record" (
   "alarm_rule_point_id" BIGINT,
   "device_category_id" BIGINT,
   "alarm_level_color" VARCHAR(50),
-  "event_id" VARCHAR(50)
+  "event_id" VARCHAR(50),
+  "process_time" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."alarm_record"."id" IS '主键';
@@ -142,6 +143,7 @@ COMMENT ON COLUMN "FWBZ"."alarm_record"."alarm_rule_point_id" IS '告警规则�
 COMMENT ON COLUMN "FWBZ"."alarm_record"."device_category_id" IS '设备类别id';
 COMMENT ON COLUMN "FWBZ"."alarm_record"."alarm_level_color" IS '报警级别颜色';
 COMMENT ON COLUMN "FWBZ"."alarm_record"."event_id" IS '事件id';
+COMMENT ON COLUMN "FWBZ"."alarm_record"."process_time" IS '处理时间';
 COMMENT ON TABLE "FWBZ"."alarm_record" IS '告警记录表';
 
 -- ----------------------------
@@ -265,6 +267,20 @@ CREATE TABLE "FWBZ"."building_control_point_history" (
   "collection_time" TIMESTAMP
 )
 ;
+COMMENT ON TABLE "FWBZ"."building_control_point_history" IS '楼控点位数据接收历史';
+
+-- ----------------------------
+-- Table structure for building_control_point_send_history
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."building_control_point_send_history";
+CREATE TABLE "FWBZ"."building_control_point_send_history" (
+  "id" BIGINT NOT NULL,
+  "point_id" BIGINT NOT NULL,
+  "value" VARCHAR(255 CHAR),
+  "collection_time" TIMESTAMP(6)
+)
+;
+COMMENT ON TABLE "FWBZ"."building_control_point_send_history" IS '楼控点位发送控制历史';
 
 -- ----------------------------
 -- Table structure for business_config
@@ -2272,6 +2288,104 @@ COMMENT ON COLUMN "FWBZ"."table_camera_resource"."online" IS '在线状态，0�
 COMMENT ON TABLE "FWBZ"."table_camera_resource" IS '监控点资源表';
 
 -- ----------------------------
+-- Table structure for table_complaint_info
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_complaint_info";
+CREATE TABLE "FWBZ"."table_complaint_info" (
+  "id" BIGINT NOT NULL,
+  "title" VARCHAR(200) NOT NULL,
+  "complaint_date" DATE NOT NULL,
+  "complaint_time" VARCHAR(20),
+  "type_id" BIGINT NOT NULL,
+  "content" TEXT,
+  "source" VARCHAR(128),
+  "handler" VARCHAR(64),
+  "status" VARCHAR(32) DEFAULT '待处理',
+  "remark" VARCHAR(512),
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."id" IS '投诉建议ID，自增主键';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."title" IS '标题';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."complaint_date" IS '日期';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."complaint_time" IS '时间，格式 HH24:MI:SS';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."type_id" IS '投诉类型ID，关联 table_complaint_type.id';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."content" IS '内容';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."source" IS '来源（如：现场、电话、邮件、微信、APP等）';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."handler" IS '处理人';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."status" IS '状态（待处理/处理中/已处理/已关闭/已驳回）';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."remark" IS '备注';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."gmt_create" IS '记录创建时间';
+COMMENT ON COLUMN "FWBZ"."table_complaint_info"."gmt_modified" IS '记录更新时间';
+COMMENT ON TABLE "FWBZ"."table_complaint_info" IS '投诉建议信息表';
+
+-- ----------------------------
+-- Table structure for table_complaint_record
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_complaint_record";
+CREATE TABLE "FWBZ"."table_complaint_record" (
+  "id" BIGINT NOT NULL,
+  "complaint_id" BIGINT NOT NULL,
+  "handle_date" DATE NOT NULL,
+  "handle_time" TIME,
+  "handle_content" TEXT,
+  "status_from" VARCHAR(32),
+  "status_to" VARCHAR(32),
+  "handler" VARCHAR(64),
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."id" IS '记录ID，自增主键';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."complaint_id" IS '投诉建议ID，关联 table_complaint_info.id';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."handle_date" IS '处理日期';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."handle_time" IS '处理时间，格式 HH24:MI:SS';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."handle_content" IS '处理内容';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."status_from" IS '状态变化-变更前状态';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."status_to" IS '状态变化-变更后状态';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."handler" IS '处理人';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."gmt_create" IS '记录创建时间';
+COMMENT ON COLUMN "FWBZ"."table_complaint_record"."gmt_modified" IS '记录更新时间';
+COMMENT ON TABLE "FWBZ"."table_complaint_record" IS '投诉建议处理记录表';
+
+-- ----------------------------
+-- Table structure for table_complaint_status
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_complaint_status";
+CREATE TABLE "FWBZ"."table_complaint_status" (
+  "id" BIGINT NOT NULL,
+  "status_id" BIGINT NOT NULL,
+  "status_name" VARCHAR(64) NOT NULL,
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_complaint_status"."id" IS '主键ID，自增';
+COMMENT ON COLUMN "FWBZ"."table_complaint_status"."status_id" IS '状态ID';
+COMMENT ON COLUMN "FWBZ"."table_complaint_status"."status_name" IS '状态名称';
+COMMENT ON COLUMN "FWBZ"."table_complaint_status"."gmt_create" IS '记录创建时间';
+COMMENT ON COLUMN "FWBZ"."table_complaint_status"."gmt_modified" IS '记录更新时间';
+COMMENT ON TABLE "FWBZ"."table_complaint_status" IS '投诉建议状态表';
+
+-- ----------------------------
+-- Table structure for table_complaint_type
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_complaint_type";
+CREATE TABLE "FWBZ"."table_complaint_type" (
+  "id" BIGINT NOT NULL,
+  "type_name" VARCHAR(64) NOT NULL,
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_complaint_type"."id" IS '类型ID，自增主键';
+COMMENT ON COLUMN "FWBZ"."table_complaint_type"."type_name" IS '类型名称';
+COMMENT ON COLUMN "FWBZ"."table_complaint_type"."gmt_create" IS '记录创建时间';
+COMMENT ON COLUMN "FWBZ"."table_complaint_type"."gmt_modified" IS '记录更新时间';
+COMMENT ON TABLE "FWBZ"."table_complaint_type" IS '投诉类型表';
+
+-- ----------------------------
 -- Table structure for table_door_event
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."table_door_event";
@@ -2441,7 +2555,7 @@ DROP TABLE IF EXISTS "FWBZ"."table_event_type";
 CREATE TABLE "FWBZ"."table_event_type" (
   "id" BIGINT NOT NULL,
   "event_type" VARCHAR2(255),
-  "event_code" VARCHAR2(255)
+  "event_code" INT
 )
 ;
 COMMENT ON TABLE "FWBZ"."table_event_type" IS '海康事件类型';
@@ -2501,7 +2615,9 @@ CREATE TABLE "FWBZ"."table_interface_info" (
   "update_by" VARCHAR2(50),
   "update_time" TIMESTAMP(3),
   "sys_org_code" VARCHAR2(50),
-  "test_path" VARCHAR2(255)
+  "test_path" VARCHAR2(255),
+  "cycle" VARCHAR2(255),
+  "collection_point_location" BIGINT
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."sys_name" IS '系统名称';
@@ -2516,6 +2632,8 @@ COMMENT ON COLUMN "FWBZ"."table_interface_info"."update_by" IS '更新人';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."update_time" IS '更新时间';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."sys_org_code" IS '所属部门';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."test_path" IS '测试地址';
+COMMENT ON COLUMN "FWBZ"."table_interface_info"."cycle" IS '采集周期';
+COMMENT ON COLUMN "FWBZ"."table_interface_info"."collection_point_location" IS '采集点位';
 COMMENT ON TABLE "FWBZ"."table_interface_info" IS '接口信息表';
 
 -- ----------------------------
@@ -2605,6 +2723,37 @@ CREATE TABLE "FWBZ"."table_patrolHistory" (
 )
 ;
 COMMENT ON TABLE "FWBZ"."table_patrolHistory" IS '巡更历史';
+
+-- ----------------------------
+-- Table structure for table_person_recognition
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_person_recognition";
+CREATE TABLE "FWBZ"."table_person_recognition" (
+  "id" BIGINT NOT NULL,
+  "recognize_time" TIMESTAMP(6) NOT NULL,
+  "person_type" VARCHAR(32),
+  "person_name" VARCHAR(128),
+  "recognize_location" VARCHAR(256),
+  "confidence" DECIMAL(5,2),
+  "direction" VARCHAR(16),
+  "venue" VARCHAR(128),
+  "employee_no" VARCHAR(64),
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."id" IS '主键ID，自增';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."recognize_time" IS '识别时间';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."person_type" IS '人员类型（员工/访客/VIP/临时人员/黑名单等）';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."person_name" IS '姓名';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."recognize_location" IS '识别位置（具体摄像头/门禁点/通道名称）';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."confidence" IS '置信度，0.00~100.00，如95.50';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."direction" IS '进出方向（进/出/未知）';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."venue" IS '所属场馆';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."employee_no" IS '员工号';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."gmt_create" IS '记录创建时间';
+COMMENT ON COLUMN "FWBZ"."table_person_recognition"."gmt_modified" IS '记录更新时间';
+COMMENT ON TABLE "FWBZ"."table_person_recognition" IS '人员识别记录表';
 
 -- ----------------------------
 -- Table structure for table_personnel_statistics
@@ -2866,6 +3015,11 @@ ALTER TABLE "FWBZ"."building_control_point" ADD UNIQUE ("gateway_adr", "bacnet_a
 -- Primary Key structure for table building_control_point_history
 -- ----------------------------
 ALTER TABLE "FWBZ"."building_control_point_history" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table building_control_point_send_history
+-- ----------------------------
+ALTER TABLE "FWBZ"."building_control_point_send_history" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table business_config
@@ -3272,6 +3426,83 @@ CREATE INDEX "FWBZ"."idx_region_index_code"
    UNUSABLE;
 
 -- ----------------------------
+-- Primary Key structure for table table_complaint_info
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_complaint_info" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Indexes structure for table table_complaint_info
+-- ----------------------------
+CREATE INDEX "FWBZ"."idx_ci_date"
+  ON "FWBZ"."table_complaint_info" ("complaint_date" ASC)
+  STORAGE (CLUSTERBTR)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_ci_handler"
+  ON "FWBZ"."table_complaint_info" ("handler" ASC)
+  STORAGE (CLUSTERBTR)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_ci_source"
+  ON "FWBZ"."table_complaint_info" ("source" ASC)
+  STORAGE (CLUSTERBTR)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_ci_status"
+  ON "FWBZ"."table_complaint_info" ("status" ASC)
+  STORAGE (CLUSTERBTR)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_ci_type_id"
+  ON "FWBZ"."table_complaint_info" ("type_id" ASC)
+  STORAGE (CLUSTERBTR)
+   UNUSABLE;
+
+-- ----------------------------
+-- Primary Key structure for table table_complaint_record
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_complaint_record" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Indexes structure for table table_complaint_record
+-- ----------------------------
+CREATE INDEX "FWBZ"."idx_cr_complaint_id"
+  ON "FWBZ"."table_complaint_record" ("complaint_id" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_cr_handle_date"
+  ON "FWBZ"."table_complaint_record" ("handle_date" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_cr_handler"
+  ON "FWBZ"."table_complaint_record" ("handler" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_cr_status_to"
+  ON "FWBZ"."table_complaint_record" ("status_to" ASC)
+   UNUSABLE;
+
+-- ----------------------------
+-- Primary Key structure for table table_complaint_status
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_complaint_status" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Indexes structure for table table_complaint_status
+-- ----------------------------
+CREATE INDEX "FWBZ"."idx_complaint_status_name"
+  ON "FWBZ"."table_complaint_status" ("status_name" ASC)
+   UNUSABLE;
+CREATE UNIQUE INDEX "FWBZ"."uk_complaint_status_id"
+  ON "FWBZ"."table_complaint_status" ("status_id" ASC)
+   UNUSABLE;
+
+-- ----------------------------
+-- Primary Key structure for table table_complaint_type
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_complaint_type" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Indexes structure for table table_complaint_type
+-- ----------------------------
+CREATE UNIQUE INDEX "FWBZ"."uk_complaint_type_name"
+  ON "FWBZ"."table_complaint_type" ("type_name" ASC)
+   UNUSABLE;
+
+-- ----------------------------
 -- Primary Key structure for table table_door_event
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_door_event" ADD PRIMARY KEY ("id");
@@ -3391,6 +3622,13 @@ END;
 ALTER TABLE "FWBZ"."table_event_type" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
+-- Indexes structure for table table_event_type
+-- ----------------------------
+CREATE UNIQUE INDEX "FWBZ"."uk_event_type_code"
+  ON "FWBZ"."table_event_type" ("event_code" ASC)
+   UNUSABLE;
+
+-- ----------------------------
 -- Primary Key structure for table table_http_system
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_http_system" ADD PRIMARY KEY ("id");
@@ -3440,6 +3678,36 @@ ALTER TABLE "FWBZ"."table_patrol_plan" ADD PRIMARY KEY ("id");
 -- Primary Key structure for table table_patrolHistory
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_patrolHistory" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table table_person_recognition
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_person_recognition" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Indexes structure for table table_person_recognition
+-- ----------------------------
+CREATE INDEX "FWBZ"."idx_pr_direction"
+  ON "FWBZ"."table_person_recognition" ("direction" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_pr_employee_no"
+  ON "FWBZ"."table_person_recognition" ("employee_no" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_pr_location"
+  ON "FWBZ"."table_person_recognition" ("recognize_location" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_pr_person_name"
+  ON "FWBZ"."table_person_recognition" ("person_name" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_pr_person_type"
+  ON "FWBZ"."table_person_recognition" ("person_type" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_pr_recognize_time"
+  ON "FWBZ"."table_person_recognition" ("recognize_time" ASC)
+   UNUSABLE;
+CREATE INDEX "FWBZ"."idx_pr_venue"
+  ON "FWBZ"."table_person_recognition" ("venue" ASC)
+   UNUSABLE;
 
 -- ----------------------------
 -- Primary Key structure for table table_personnel_statistics

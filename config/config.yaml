@@ -36,10 +36,13 @@ database:
 
 # 达梦数据库 - 业务数据查询
 dameng:
-  host: "localhost"
-  port: 5236
+#  host: "localhost"
+  host: "192.168.204.51"
+  port: 5238
+#  port: 5236
   user: "SYSDBA"
-  password: "Dameng123"
+#  password: "Dameng123"
+  password: "Liming@2026"
   schema: "FWBZ"
   charset: "UTF-8"
 

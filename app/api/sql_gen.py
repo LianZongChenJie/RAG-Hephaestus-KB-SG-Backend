@@ -1,6 +1,6 @@
 """SQL 生成接口"""
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -156,7 +156,13 @@ async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportS
         # 构建指标SQL列表
         metrics: List[ReportMetricItem] = []
         for metric in metrics_def:
-            sql = _build_metric_sql(metric, body.target_id, body.target_name)
+            # 优先使用自定义 SQL，否则动态构建
+            if "sql" in metric and "{" in metric["sql"]:
+                sql = metric["sql"].replace("{exhibition_id}", str(body.target_id))
+                sql = sql.replace("{target_id}", str(body.target_id))
+                sql = sql.replace("{exhibition_name}", f"'{body.target_name or ''}'")
+            else:
+                sql = _build_metric_sql(metric, body.target_id, body.target_name)
             metrics.append(ReportMetricItem(
                 name=metric["name"],
                 sql=sql,
@@ -188,22 +194,44 @@ async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportS
         )
 
 
-def _build_metric_sql(metric: Dict[str, Any], target_id: int, target_name: str = None) -> str:
+def _build_metric_sql(metric: Dict[str, Any], target_id: Optional[int], target_name: Optional[str] = None) -> str:
     """根据指标定义构建SQL（达梦语法：表名加"", 列名加""）"""
+    # 有自定义 sql 的指标跳过
+    if "sql" in metric:
+        sql = metric["sql"]
+        # 替换占位符
+        if target_name:
+            sql = sql.replace("{exhibition_name}", f"'{target_name}'")
+            sql = sql.replace("{target_name}", f"'{target_name}'")
+        if target_id:
+            sql = sql.replace("{exhibition_id}", str(target_id))
+            sql = sql.replace("{target_id}", str(target_id))
+        return sql
+
     table = metric["table"]
     aggregate = metric.get("aggregate")
     aggregate_field = metric.get("aggregate_field")
     filter_field = metric.get("filter_field")
     filter_value = metric.get("filter_value")
+    filter_value_from_exhibition = metric.get("filter_value_from_exhibition")
+    filter_value_from_config = metric.get("filter_value_from_config")
+    filter_value_from_name = metric.get("filter_value_from_name")
     date_field = metric.get("date_field")
+    date_start_from_exhibition = metric.get("date_start_from_exhibition")
+    date_end_from_exhibition = metric.get("date_end_from_exhibition")
+    date_end_from_max = metric.get("date_end_from_max")
     where_extra = metric.get("where_extra")
     distinct = metric.get("distinct", False)
+    join_table = metric.get("join_table")
+    join_on = metric.get("join_on")
+    filter_name = metric.get("filter_name")  # 按会展名称过滤，值为字段名如 "active_name"
+
+    # 根据是否有 JOIN 决定列名前缀
+    prefix = "t1." if join_table else ""
 
     # 构建 SELECT 子句
     if aggregate and aggregate_field:
         agg_func = aggregate.upper()
-
-        # 处理特殊聚合
         if agg_func == "DATEDIFF":
             select_clause = f'DATEDIFF(DAY, MIN("{aggregate_field}"), CURRENT_DATE) as result'
         elif distinct:
@@ -214,29 +242,122 @@ def _build_metric_sql(metric: Dict[str, Any], target_id: int, target_name: str =
         select_clause = "*"
 
     # 构建 FROM 子句
-    from_clause = f'FWBZ."{table}"'
+    if join_table and join_on:
+        # 替换 join_on 中的占位符
+        resolved_join_on = join_on
+        if target_name:
+            resolved_join_on = resolved_join_on.replace("{target_name}", f"'{target_name}'")
+        if target_id:
+            resolved_join_on = resolved_join_on.replace("{target_id}", str(target_id))
+        from_clause = f'FWBZ."{table}" t1 JOIN FWBZ."{join_table}" t2 ON {resolved_join_on}'
+    else:
+        from_clause = f'FWBZ."{table}"'
 
     # 构建 WHERE 条件
     conditions = []
 
-    # 添加展会日期过滤（如果有 date_field）
-    if date_field and target_id:
-        conditions.append(f'"{date_field}" >= (SELECT "start_date" FROM FWBZ."table_activeMeet_info" WHERE "id" = {target_id})')
+    # 添加过滤条件
+    if filter_field:
+        col = f'{prefix}"{filter_field}"'
+        if filter_value_from_exhibition:
+            # 通过展会名称或ID获取关联字段
+            if target_name:
+                conditions.append(
+                    f'{col} = ('
+                    f'SELECT "{filter_value_from_exhibition}" '
+                    f'FROM FWBZ."table_activeMeet_info" '
+                    f'WHERE "active_name" = \'{target_name}\')'
+                )
+            elif target_id:
+                conditions.append(
+                    f'{col} = ('
+                    f'SELECT "{filter_value_from_exhibition}" '
+                    f'FROM FWBZ."table_activeMeet_info" '
+                    f'WHERE "id" = {target_id})'
+                )
+        elif filter_value_from_name:
+            # 通过名称获取关联 ID
+            if target_name:
+                conditions.append(
+                    f'{col} IN ('
+                    f'SELECT "{filter_value_from_name}" '
+                    f'FROM FWBZ."{join_table or filter_field.replace("_id", "_info")}" '
+                    f'WHERE "device_name" = \'{target_name}\' OR "venue_name" = \'{target_name}\')'
+                )
+        elif filter_value_from_config:
+            conditions.append(
+                f'{col} = ('
+                f'SELECT "config_value" '
+                f'FROM FWBZ."business_config" '
+                f'WHERE "config_key" = \'{filter_value_from_config}\')'
+            )
+        elif filter_value is not None:
+            if isinstance(filter_value, str) and "%" in filter_value:
+                conditions.append(f'{col} LIKE \'{filter_value}\'')
+            elif target_id:
+                conditions.append(f'{col} = {filter_value}')
+            else:
+                conditions.append(f'{col} = \'{filter_value}\'')
+
+    # 添加日期过滤
+    if date_field and (target_id or target_name):
+        date_col = f'{prefix}"{date_field}"'
+        # 构建会展表过滤条件（优先使用名称）
+        if target_name:
+            meet_filter = f'"{filter_name or "active_name"}" = \'{target_name}\''
+        elif target_id:
+            meet_filter = f'"id" = {target_id}'
+        else:
+            meet_filter = None
+
+        if date_start_from_exhibition and meet_filter:
+            conditions.append(
+                f'{date_col} >= ('
+                f'SELECT MIN("{date_start_from_exhibition}") '
+                f'FROM FWBZ."table_activeMeet_info" '
+                f'WHERE {meet_filter})'
+            )
+        elif aggregate != "DATEDIFF" and meet_filter:
+            conditions.append(
+                f'{date_col} >= ('
+                f'SELECT MIN("start_date") '
+                f'FROM FWBZ."table_activeMeet_info" '
+                f'WHERE {meet_filter})'
+            )
+
+        if date_end_from_exhibition and meet_filter:
+            conditions.append(
+                f'{date_col} <= ('
+                f'SELECT MAX("{date_end_from_exhibition}") '
+                f'FROM FWBZ."table_activeMeet_info" '
+                f'WHERE {meet_filter})'
+            )
+        elif date_end_from_max:
+            end_col = f'{prefix}"{date_end_from_max}"'
+            sub_col = f'{prefix}"{filter_field}"' if filter_field else '1'
+            if filter_value_from_exhibition and filter_field and meet_filter:
+                sub_filter = f'{sub_col} = (SELECT "{filter_value_from_exhibition}" FROM FWBZ."table_activeMeet_info" WHERE {meet_filter})'
+            elif filter_value is not None and filter_field:
+                sub_filter = f'{sub_col} = \'{filter_value}\''
+            else:
+                sub_filter = '1=1'
+            conditions.append(
+                f'{date_col} <= ('
+                f'SELECT MAX("{date_end_from_max}") '
+                f'FROM FWBZ."{table}" '
+                f'WHERE {sub_filter})'
+            )
 
     # 添加额外条件
     if where_extra:
-        # 替换展览ID
-        extra = where_extra.replace("{exhibition_id}", str(target_id))
+        extra = where_extra
+        if target_name:
+            extra = extra.replace("{exhibition_name}", f"'{target_name}'")
+            extra = extra.replace("{target_name}", f"'{target_name}'")
+        if target_id:
+            extra = extra.replace("{exhibition_id}", str(target_id))
+            extra = extra.replace("{target_id}", str(target_id))
         conditions.append(extra)
-
-    # 添加过滤条件
-    if filter_field and filter_value is not None:
-        if isinstance(filter_value, int):
-            conditions.append(f'"{filter_field}" = {filter_value}')
-        elif isinstance(filter_value, str) and "%" in filter_value:
-            conditions.append(f'"{filter_field}" LIKE \'{filter_value}\'')
-        else:
-            conditions.append(f'"{filter_field}" = \'{filter_value}\'')
 
     # 组装 SQL
     sql = f"SELECT {select_clause} FROM {from_clause}"
@@ -405,7 +526,7 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
 
     一个接口完成所有步骤，返回报告数据和AI优化建议。
 
-    示例请求：
+    示例请求（传入 target_id）：
     ```json
     {
         "report_type": "exhibition",
@@ -415,11 +536,19 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
     }
     ```
 
+    示例请求（只传入 target_name）：
+    ```json
+    {
+        "report_type": "exhibition",
+        "target_name": "智能制造博览会",
+        "focus_areas": ["人员服务", "设备能耗", "会展数据"]
+    }
+    ```
+
     返回：
     ```json
     {
         "report_type": "exhibition",
-        "target_id": 1,
         "target_name": "智能制造博览会",
         "data": [
             {
@@ -446,19 +575,45 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
         sql_service = SQLService()
         suggestion_service = SuggestionService()
 
-        # Step 1: 获取报告指标定义
-        metrics_def = await sql_service.generate_report_sql(
+        # Step 1: 调用大模型生成报告SQL
+        metrics_def = await sql_service.generate_report_sql_by_llm(
             report_type=body.report_type.value,
             target_id=body.target_id,
             target_name=body.target_name,
         )
+
+        # 如果大模型没有返回有效SQL，使用默认配置
+        if not metrics_def:
+            logger.info("大模型未返回SQL，使用默认指标配置")
+            metrics_def = await sql_service.generate_report_sql(
+                report_type=body.report_type.value,
+                target_id=body.target_id,
+                target_name=body.target_name,
+            )
+            # 动态拼接SQL
+            for metric in metrics_def:
+                metric["sql"] = _build_metric_sql(metric, body.target_id, body.target_name)
+                # 自定义SQL的占位符替换
+                if "{" in metric["sql"]:
+                    metric["sql"] = metric["sql"].replace("{exhibition_id}", str(body.target_id))
+                    metric["sql"] = metric["sql"].replace("{target_id}", str(body.target_id))
+                    metric["sql"] = metric["sql"].replace("{exhibition_name}", f"'{body.target_name or ''}'")
+        else:
+            # 替换SQL中的目标ID
+            for metric in metrics_def:
+                if "sql" in metric and "{" in metric["sql"]:
+                    metric["sql"] = metric["sql"].replace("{target_id}", str(body.target_id))
+                    metric["sql"] = metric["sql"].replace("{exhibition_id}", str(body.target_id))
+                    metric["sql"] = metric["sql"].replace("{exhibition_name}", f"'{body.target_name or ''}'")
 
         # Step 2: 执行每个SQL获取数据
         report_data: List[MetricDataResult] = []
         metrics_for_suggestion: List[Dict[str, Any]] = []
 
         for metric in metrics_def:
-            sql = _build_metric_sql(metric, body.target_id, body.target_name)
+            sql = metric.get("sql", "")
+            if not sql:
+                continue
 
             try:
                 rows = execute_query(sql)
@@ -468,7 +623,7 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
                 summary_value = _calculate_summary(metric, rows)
 
                 report_data.append(MetricDataResult(
-                    name=metric["name"],
+                    name=metric.get("name", ""),
                     description=metric.get("description"),
                     category=metric.get("category"),
                     columns=columns,
@@ -478,14 +633,14 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
                 ))
 
                 metrics_for_suggestion.append({
-                    "name": metric["name"],
+                    "name": metric.get("name", ""),
                     "value": summary_value,
                     "description": metric.get("description", ""),
                 })
             except Exception as exc:
-                logger.warning("执行SQL失败 [%s]: %s", metric["name"], exc)
+                logger.warning("执行SQL失败 [%s]: %s", metric.get("name", ""), exc)
                 report_data.append(MetricDataResult(
-                    name=metric["name"],
+                    name=metric.get("name", ""),
                     description=metric.get("description"),
                     category=metric.get("category"),
                     columns=[],
@@ -494,7 +649,7 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
                     sql=sql,
                 ))
                 metrics_for_suggestion.append({
-                    "name": metric["name"],
+                    "name": metric.get("name", ""),
                     "value": f"查询失败: {exc}",
                     "description": metric.get("description", ""),
                 })

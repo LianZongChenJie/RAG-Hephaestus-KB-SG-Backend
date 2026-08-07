@@ -157,7 +157,7 @@ class GenerateFullReportRequest(BaseModel):
         ...,
         description="报告类型: device=设备报告, venue=场馆报告, exhibition=展会报告"
     )
-    target_id: int = Field(..., description="目标ID: 设备ID/场馆ID/展会ID")
+    target_id: Optional[int] = Field(None, description="目标ID: 设备ID/场馆ID/展会ID（非必填）")
     target_name: Optional[str] = Field(None, description="目标名称")
     focus_areas: Optional[List[str]] = Field(
         default=None,
@@ -168,7 +168,7 @@ class GenerateFullReportRequest(BaseModel):
 class GenerateFullReportResponse(BaseModel):
     """生成完整报告响应"""
     report_type: str = Field(..., description="报告类型")
-    target_id: int = Field(..., description="目标ID")
+    target_id: Optional[int] = Field(None, description="目标ID")
     target_name: Optional[str] = Field(None, description="目标名称")
     data: List[MetricDataResult] = Field(default_factory=list, description="报告数据")
     suggestions: List[SuggestionItem] = Field(default_factory=list, description="优化建议")
