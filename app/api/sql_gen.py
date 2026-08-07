@@ -133,23 +133,33 @@ async def generate_sql_by_device(body: GenerateSQLByDeviceRequest) -> GenerateSQ
 @router.post("/generate-report-sql", response_model=GenerateReportSQLResponse)
 async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportSQLResponse:
     """
-    根据报告类型和目标ID，生成包含所有指标的SQL列表。
+    根据报告类型和目标名称，生成包含所有指标的SQL列表。
 
     用于前端获取设备/场馆/展会的完整报告数据。
 
-    - device: 设备报告 (需要 device_id)
-    - venue: 场馆报告 (需要 venue_id)
-    - exhibition: 展会报告 (需要 exhibition_id)
+    - device: 设备报告
+    - venue: 场馆报告
+    - exhibition: 展会报告
+
+    target_id 和 target_name 二选一：
+    - 只传 target_name 时，系统自动根据名称查找对应的 ID
+    - 两者都传时优先使用 target_id
+    - target_name 为空时只支持精确 ID 查询
 
     返回每个指标对应的SQL语句，前端可并行执行这些SQL获取数据。
     """
     try:
         sql_service = SQLService()
 
+        # 如果没有传 target_id，尝试根据 target_name 自动查找
+        resolved_target_id = body.target_id
+        if resolved_target_id is None and body.target_name:
+            resolved_target_id = await _lookup_target_id(body.report_type.value, body.target_name)
+
         # 获取指标定义
         metrics_def = await sql_service.generate_report_sql(
             report_type=body.report_type.value,
-            target_id=body.target_id,
+            target_id=resolved_target_id,
             target_name=body.target_name,
         )
 
@@ -158,11 +168,11 @@ async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportS
         for metric in metrics_def:
             # 优先使用自定义 SQL，否则动态构建
             if "sql" in metric and "{" in metric["sql"]:
-                sql = metric["sql"].replace("{exhibition_id}", str(body.target_id))
-                sql = sql.replace("{target_id}", str(body.target_id))
+                sql = metric["sql"].replace("{exhibition_id}", str(resolved_target_id or ""))
+                sql = sql.replace("{target_id}", str(resolved_target_id or ""))
                 sql = sql.replace("{exhibition_name}", f"'{body.target_name or ''}'")
             else:
-                sql = _build_metric_sql(metric, body.target_id, body.target_name)
+                sql = _build_metric_sql(metric, resolved_target_id, body.target_name)
             metrics.append(ReportMetricItem(
                 name=metric["name"],
                 sql=sql,
@@ -171,7 +181,7 @@ async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportS
 
         return GenerateReportSQLResponse(
             report_type=body.report_type.value,
-            target_id=body.target_id,
+            target_id=resolved_target_id,
             target_name=body.target_name,
             metrics=metrics,
         )
@@ -368,6 +378,73 @@ def _build_metric_sql(metric: Dict[str, Any], target_id: Optional[int], target_n
     return sql
 
 
+async def _lookup_target_id(report_type: str, target_name: str) -> Optional[int]:
+    """
+    根据报告类型和目标名称，自动查找对应的 ID。
+
+    - exhibition: 查 table_activeMeet_info.active_name
+    - venue:      查 table_venue_info.venue_name
+    - device:     查 device.device_name
+    """
+    if not target_name:
+        return None
+
+    try:
+        if report_type == "exhibition":
+            sql = '''
+                SELECT "id" FROM FWBZ."table_activeMeet_info"
+                WHERE "active_name" = ?
+                LIMIT 1
+            '''
+        elif report_type == "venue":
+            sql = '''
+                SELECT "id" FROM FWBZ."table_venue_info"
+                WHERE "venue_name" = ?
+                LIMIT 1
+            '''
+        else:  # device
+            sql = '''
+                SELECT "id" FROM FWBZ."device"
+                WHERE "device_name" = ?
+                LIMIT 1
+            '''
+
+        result = execute_query(sql, (target_name,))
+        if result and result[0].get("id"):
+            logger.info(f"根据名称「{target_name}」查找到 ID: {result[0]['id']}")
+            return result[0]["id"]
+        else:
+            logger.warning(f"根据名称「{target_name}」未找到对应 ID")
+            return None
+    except Exception as exc:
+        logger.error(f"查找目标ID失败: {exc}")
+        return None
+
+
+def _execute_metric_sql(sql: str) -> str:
+    """
+    执行单个指标的 SQL 查询，返回结果值。
+    """
+    try:
+        # 安全检查：只允许 SELECT
+        sql_upper = sql.strip().upper()
+        if not sql_upper.startswith("SELECT"):
+            logger.warning(f"跳过非 SELECT 语句: {sql[:50]}...")
+            return ""
+
+        rows = execute_query(sql)
+        if not rows:
+            return ""
+
+        # 取第一行第一列的值
+        first_row = rows[0]
+        first_value = list(first_row.values())[0]
+        return str(first_value) if first_value is not None else ""
+    except Exception as exc:
+        logger.error(f"执行指标 SQL 失败: {exc}, SQL: {sql[:100]}")
+        return ""
+
+
 @router.post("/generate-suggestions", response_model=GenerateSuggestionsResponse)
 async def generate_suggestions(body: GenerateSuggestionsRequest) -> GenerateSuggestionsResponse:
     """
@@ -413,15 +490,22 @@ async def generate_suggestions(body: GenerateSuggestionsRequest) -> GenerateSugg
     try:
         suggestion_service = SuggestionService()
 
-        # 转换数据格式
-        metrics_data = [
-            {
+        # 转换数据格式：支持 value 和 sql 两种模式
+        metrics_data = []
+        for m in body.metrics:
+            # 如果有 value，直接使用；否则如果有 sql，自动执行查询
+            if m.value is not None:
+                value_str = str(m.value)
+            elif m.sql:
+                value_str = _execute_metric_sql(m.sql)
+            else:
+                value_str = ""
+
+            metrics_data.append({
                 "name": m.name,
-                "value": str(m.value) if m.value is not None else "",
+                "value": value_str,
                 "description": m.description or ""
-            }
-            for m in body.metrics
-        ]
+            })
 
         # 调用大模型生成建议
         suggestions_raw = await suggestion_service.generate_suggestions(

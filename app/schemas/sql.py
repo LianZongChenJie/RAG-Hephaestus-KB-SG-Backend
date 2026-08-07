@@ -58,8 +58,8 @@ class GenerateReportSQLRequest(BaseModel):
         ...,
         description="报告类型: device=设备报告, venue=场馆报告, exhibition=展会报告"
     )
-    target_id: int = Field(..., description="目标ID: 设备ID/场馆ID/展会ID")
-    target_name: Optional[str] = Field(None, description="目标名称(可选)")
+    target_id: Optional[int] = Field(None, description="目标ID: 设备ID/场馆ID/展会ID（可选，不传则根据target_name自动查找）")
+    target_name: Optional[str] = Field(None, description="目标名称（用于查找ID或直接作为筛选条件）")
 
 
 class ReportMetricItem(BaseModel):
@@ -72,7 +72,7 @@ class ReportMetricItem(BaseModel):
 class GenerateReportSQLResponse(BaseModel):
     """生成报告SQL响应"""
     report_type: str = Field(..., description="报告类型")
-    target_id: int = Field(..., description="目标ID")
+    target_id: Optional[int] = Field(None, description="目标ID")
     target_name: Optional[str] = Field(None, description="目标名称")
     metrics: List[ReportMetricItem] = Field(
         default_factory=list,
@@ -83,7 +83,8 @@ class GenerateReportSQLResponse(BaseModel):
 class MetricData(BaseModel):
     """单个指标的数据"""
     name: str = Field(..., description="指标名称")
-    value: Any = Field(..., description="指标值（可以是数字、字符串或字典）")
+    value: Optional[Any] = Field(None, description="指标值（可以是数字、字符串或字典）；传入 sql 字段时后端会自动执行查询获取值")
+    sql: Optional[str] = Field(None, description="SQL 语句（可选，传 sql 时后端自动执行查询获取 value）")
     description: Optional[str] = Field(None, description="指标说明")
 
 
@@ -93,11 +94,11 @@ class GenerateSuggestionsRequest(BaseModel):
         ...,
         description="报告类型: device=设备报告, venue=场馆报告, exhibition=展会报告"
     )
-    target_id: int = Field(..., description="目标ID")
+    target_id: Optional[int] = Field(None, description="目标ID")
     target_name: Optional[str] = Field(None, description="目标名称")
     metrics: List[MetricData] = Field(
         ...,
-        description="报告数据指标列表，从SQL查询结果中获取"
+        description="报告数据指标列表，支持传入 value（已执行的结果）或 sql（后端自动执行）"
     )
     focus_areas: Optional[List[str]] = Field(
         default=None,
@@ -116,7 +117,7 @@ class SuggestionItem(BaseModel):
 class GenerateSuggestionsResponse(BaseModel):
     """生成优化建议响应"""
     report_type: str = Field(..., description="报告类型")
-    target_id: int = Field(..., description="目标ID")
+    target_id: Optional[int] = Field(None, description="目标ID")
     suggestions: List[SuggestionItem] = Field(
         default_factory=list,
         description="优化建议列表"

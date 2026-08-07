@@ -58,6 +58,7 @@ class OllamaClient:
                 "num_gpu": self.num_gpu,
                 "temperature": 0.3,
                 "num_ctx": settings.model_defaults.num_ctx,
+                "num_predict": 2048,
             },
         }
 
@@ -94,6 +95,25 @@ class OllamaClient:
                 )
             result = response.json()
             return result.get("message", {}).get("content", "")
+
+    async def chat_for_report(self, payload: Dict[str, Any]) -> str:
+        """非流式聊天，返回完整回复（同步方式，确保完整读取，用于AI报告生成）"""
+        import logging
+        logger = logging.getLogger("app.core.ollama")
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(self.chat_url, json=payload)
+            if response.status_code != 200:
+                raise httpx.HTTPStatusError(
+                    message=f"Ollama 返回 {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
+            body_bytes = response.read()
+            logger.warning(f"chat_for_report 读取原始字节长度: {len(body_bytes)}")
+            result = json.loads(body_bytes)
+            content = result.get("message", {}).get("content", "")
+            logger.warning(f"chat_for_report content 长度: {len(content)}")
+            return content
 
     async def check_health(self) -> tuple[bool, Optional[str], bool]:
         """检查 Ollama 健康状态"""

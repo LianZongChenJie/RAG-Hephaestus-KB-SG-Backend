@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import chat_router, health_router, sql_gen_router
+from app.api import ai_report_router, chat_router, health_router, sql_gen_router
 from app.core import close_db, init_db
 from app.core.config import get_settings
 
@@ -49,6 +49,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(sql_gen_router)
+app.include_router(ai_report_router)
 
 
 @app.get("/")
