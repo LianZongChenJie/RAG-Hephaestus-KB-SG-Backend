@@ -1776,11 +1776,11 @@ DELETE /api/ai-report/history/1
 
 ---
 
-### 5.11 AI能源分析报告
+### 5.11 能源分析报告
 
 **接口地址**: `POST /api/ai-report/energy-analysis`
 
-**功能说明**: 基于实时数据对能源系统（空调机组、新风机组、配电系统、冷源系统、光伏系统）进行综合分析，生成包含分析总结、优化建议和异常警告的报告。
+**功能说明**: 基于实时数据对能源系统（空调机组、新风机组、配电系统、冷源系统、光伏系统）进行综合分析，返回包含核心指标、图表数据和表计实时数据的能源分析报告。
 
 **子系统类型**：
 
@@ -1822,112 +1822,123 @@ DELETE /api/ai-report/history/1
 | report_title | string | 报告标题 |
 | report_time | string | 报告生成时间 |
 | system_type | string | 分析的系统类型 |
+| meter_total | int | 计费表计总数 |
+| meter_online_rate | string | 表计在线率（如：98.24%） |
+| today_electricity | object | 今日用电量（value: 数值, change: 变化率） |
+| today_water | object | 今日用水量（value: 数值, change: 变化率） |
+| venue_electricity_compare | object | 各场馆用电对比（categories: 分类列表, data: 数据字典） |
+| energy_structure | object | 用能结构分析（categories: 分类列表, data: 占比数据） |
+| meter_data | object | 表计实时数据（含分页：items, total, page, page_size, total_pages） |
 | overview | object | 概览数据 |
 | air_condition | object | 空调机组数据 |
 | fresh_air | object | 新风机组数据 |
 | power_distribution | object | 配电系统数据 |
 | cold_source | object | 冷源系统数据 |
 | photovoltaic | object | 光伏系统数据 |
-| summary | string | AI分析总结 |
+| summary | string | 分析总结 |
 | suggestions | array | 优化建议 |
 | warnings | array | 异常警告 |
-| analysis_dimensions | array | 分析维度 |
 
 **响应示例**:
 
 ```json
 {
-    "report_id": 25,
-    "report_title": "会展小镇全系统概览分析报告 - 2026-08-10",
-    "report_time": "2026-08-10 15:32:00",
+    "report_id": 1,
+    "report_title": "会展小镇能源分析报告 - 2026-08-10",
+    "report_time": "2026-08-10 17:41:28",
     "system_type": "overview",
+    "meter_total": 435,
+    "meter_online_rate": "99.08%",
+    "today_electricity": {
+        "value": 0,
+        "change": "-100.00%"
+    },
+    "today_water": {
+        "value": 0,
+        "change": "-100.00%"
+    },
+    "venue_electricity_compare": {
+        "categories": ["公共用电", "应急照明", "办公用电", "商业用电"],
+        "data": {
+            "公共用电": [150.0],
+            "应急照明": [120.0],
+            "办公用电": [80.0],
+            "商业用电": [50.0]
+        }
+    },
+    "energy_structure": {
+        "categories": ["公共用电", "应急照明", "办公用电", "商业用电"],
+        "data": [45.0, 25.0, 20.0, 10.0]
+    },
+    "meter_data": {
+        "items": [
+            {
+                "meter_no": "05bcfd461ee874eac9ddfe805e8eb13f",
+                "meter_type": "热量表",
+                "install_location": "会展小镇-1号楼-F1",
+                "today_reading": 0,
+                "today_usage": 0,
+                "month_total": 0,
+                "status": "在线",
+                "detail_link": null
+            }
+        ],
+        "total": 435,
+        "page": 1,
+        "page_size": 10,
+        "total_pages": 44
+    },
     "overview": {
-        "subsystem_count": 6,
-        "total_devices": 343,
-        "online_devices": 340,
-        "offline_devices": 3,
-        "total_alarms": 12,
-        "pending_alarms": 2
+        "subsystem_count": 15,
+        "total_devices": 1141,
+        "online_devices": 1135,
+        "offline_devices": 6,
+        "total_alarms": 14022,
+        "pending_alarms": 14022
     },
     "air_condition": {
-        "total_count": 6,
-        "running_count": 5,
+        "total_count": 143,
+        "running_count": 142,
         "fault_count": 1,
-        "today_energy": 0,
-        "avg_cop": 4.2,
-        "devices": [
-            {"id": 1, "device_code": "A1-KT-F1-01", "device_name": "1号空调机组", "run_state": "停止", "space_name": "会展小镇-2号楼"},
-            {"id": 2, "device_code": "A1-KT-F3-01", "device_name": "3号空调机组", "run_state": "停止", "space_name": "会展小镇-2号楼"},
-            {"id": 3, "device_code": "A2-KT-F3-01", "device_name": "5号空调机组", "run_state": "停止", "space_name": "会展小镇-3号楼"},
-            {"id": 4, "device_code": "A2-KT-F3-02", "device_name": "6号空调机组", "run_state": "运行", "space_name": "会展小镇-3号楼"},
-            {"id": 5, "device_code": "A2-KT-F3-03", "device_name": "7号空调机组", "run_state": "停止", "space_name": "会展小镇-3号楼"},
-            {"id": 6, "device_code": "D6-KT-F2-01", "device_name": "除尘空调机组", "run_state": "停止", "space_name": "会展小镇-9号楼-除尘"}
-        ]
+        "avg_cop": null,
+        "today_energy": 0.0,
+        "devices": [...]
     },
     "fresh_air": {
-        "total_count": 27,
-        "running_count": 27,
+        "total_count": 29,
+        "running_count": 29,
         "avg_pm25": 15.36,
-        "today_energy": 0,
-        "devices": [
-            {"id": 101, "device_code": "C1-XF-MF-01", "device_name": "1号新风机组", "run_state": "在线", "space_name": "会展小镇-1号楼"},
-            {"id": 102, "device_code": "C1-XF-MF-02", "device_name": "2号新风机组", "run_state": "在线", "space_name": "会展小镇-1号楼"},
-            {"id": 103, "device_code": "A1-XF-B1-01", "device_name": "地下1层新风", "run_state": "在线", "space_name": "会展小镇-2号楼"}
-        ]
+        "today_energy": 0.0,
+        "devices": [...]
     },
     "power_distribution": {
         "total_count": 300,
         "running_count": 300,
-        "today_energy": 0,
-        "power_factor": 0.84,
-        "devices": [
-            {"id": 201, "device_code": "Kccgz211", "device_name": "1号配电柜", "run_state": "在线", "space_name": "会展小镇-9号楼-除尘改造"},
-            {"id": 202, "device_code": "Kccgz212", "device_name": "2号配电柜", "run_state": "在线", "space_name": "会展小镇-9号楼-除尘改造"}
-        ]
+        "today_energy": 1000.0,
+        "power_factor": 0.92,
+        "devices": [...]
     },
     "cold_source": {
-        "total_count": 8,
-        "running_count": 7,
-        "today_cooling": 12456,
-        "avg_cop": 5.8,
-        "devices": [
-            {"id": 301, "device_code": "CH-A-01", "device_name": "磁悬浮冷水机组A", "run_state": "运行", "space_name": "冷站"},
-            {"id": 302, "device_code": "CH-A-02", "device_name": "磁悬浮冷水机组B", "run_state": "运行", "space_name": "冷站"},
-            {"id": 303, "device_code": "CH-B-01", "device_name": "离心式冷水机组1", "run_state": "运行", "space_name": "冷站"},
-            {"id": 304, "device_code": "CH-B-02", "device_name": "离心式冷水机组2", "run_state": "停机", "space_name": "冷站"},
-            {"id": 305, "device_code": "CH-C-01", "device_name": "螺杆式冷水机组", "run_state": "运行", "space_name": "冷站"}
-        ]
+        "total_count": 0,
+        "running_count": null,
+        "today_cooling": 0.0,
+        "avg_cop": 5.5,
+        "devices": []
     },
     "photovoltaic": {
-        "total_count": 12,
-        "installed_capacity": 856,
-        "today_generation": 3456,
+        "total_count": 0,
+        "installed_capacity": 856.0,
+        "today_generation": 0.0,
         "efficiency": 18.5,
-        "devices": [
-            {"id": 401, "device_code": "PV-A-01", "device_name": "A馆屋顶-东组串", "run_state": "发电", "space_name": "A馆屋顶"},
-            {"id": 402, "device_code": "PV-A-02", "device_name": "A馆屋顶-西组串", "run_state": "发电", "space_name": "A馆屋顶"},
-            {"id": 403, "device_code": "PV-B-01", "device_name": "B馆屋顶组串", "run_state": "发电", "space_name": "B馆屋顶"},
-            {"id": 404, "device_code": "PV-C-01", "device_name": "C馆屋顶组串", "run_state": "发电", "space_name": "C馆屋顶"},
-            {"id": 405, "device_code": "PV-P-01", "device_name": "停车场车棚组串", "run_state": "发电", "space_name": "停车场"}
-        ]
+        "devices": []
     },
-    "summary": "全园区共接入6大能源子系统，对接设备343台，当前在线340台，在线率99.1%。告警总数12条，待处理2条。冷源系统运行效率良好，平均COP达5.8；光伏系统今日发电量3456kWh，效率18.5%；配电系统功率因数0.84，符合标准要求。",
+    "summary": "当前园区共接入435台计费表计，表计在线率99.08%。今日用电量0kWh，较上期-100.00%；今日用水量0m³，较上期-100.00%。",
     "suggestions": [
-        "建议提高COP低于5.0的机组负荷分配，预计可提升整体能效约3%",
-        "建议对D6-KT-F2-01号故障空调机组进行维修，保障系统稳定运行",
-        "建议优化空调机组启停策略，在非高峰时段采用节能模式运行",
-        "光伏系统效率良好，建议继续保持定期清洁维护"
+        "建议持续监测表计在线状态，确保数据采集完整性",
+        "关注用水用电异常波动，及时排查潜在漏损或故障",
+        "结合用能结构分析结果，优化能源分配策略"
     ],
-    "warnings": [
-        "D6-KT-F2-01号空调机组处于故障状态，请及时安排维修",
-        "CH-B-02离心式冷水机组处于停机状态，请检查原因并及时恢复"
-    ],
-    "analysis_dimensions": [
-        "运行效率分析",
-        "能耗水平分析",
-        "设备健康分析",
-        "优化潜力分析"
-    ]
+    "warnings": []
 }
 ```
 
@@ -2079,8 +2090,9 @@ print(response.json())
 | v1.2 | 2026-08-07 | AI报告自动保存到数据库 |
 | v1.3 | 2026-08-10 | chat-stream 支持智能数据问答，自动生成 SQL 查询达梦数据库，返回 ECharts 图表 + Vue 表格 + 总结；SQL 生成/执行增加 GROUP BY 修复；旧版 SQL 接口标记为废弃 |
 | v1.4 | 2026-08-10 | 新增AI能源分析报告接口（/api/ai-report/energy-analysis），支持对空调机组、新风机组、配电系统、冷源系统、光伏系统进行实时数据分析和AI建议生成；严格遵守达梦8.0语法规范 |
+| v1.5 | 2026-08-10 | 能源分析报告接口返回格式优化，新增计费表计总数、在线率、今日用水用电量、各场馆用电对比、用能结构分析、表计实时数据列表等核心指标数据 |
 
 ---
 
-> 文档生成时间: 2026-08-10
+> 文档生成时间: 2026-08-10 17:43
 > 更多信息请访问项目仓库

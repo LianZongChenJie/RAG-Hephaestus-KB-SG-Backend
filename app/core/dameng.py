@@ -3,6 +3,7 @@ import importlib
 import logging
 import os
 import re
+import traceback
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -10,9 +11,10 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 os.environ['NLS_LANG'] = '.UTF8'
 
 from app.core.config import get_settings
+from app.core.logger import get_logger
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
+logger = get_logger("dameng")
 
 # 达梦连接（同步模式）
 _dm_conn = None
@@ -25,7 +27,9 @@ def get_dameng_connection():
     if _dm_conn is not None:
         try:
             # 测试连接是否有效
-            _dm_conn.cursor().execute("SELECT 1")
+            cursor = _dm_conn.cursor()
+            cursor.execute("SELECT 1 FROM DUAL")
+            cursor.close()
             return _dm_conn
         except Exception:
             _dm_conn = None
@@ -134,6 +138,7 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
         if params:
             logger.error("参数: %s", params)
         logger.error("错误: %s", exc)
+        logger.error("堆栈: %s", traceback.format_exc())
         logger.error("=" * 80)
         return []
 

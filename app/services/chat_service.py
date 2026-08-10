@@ -12,11 +12,12 @@ import httpx
 from app.core.config import get_settings
 from app.core.database import save_access_log
 from app.core.dameng import execute_query
+from app.core.logger import get_logger
 from app.core.ollama import OllamaClient
 from app.schemas.chat import ChatMessage, ChatStreamRequest
 
-logger = logging.getLogger(__name__)
 settings = get_settings()
+logger = get_logger("chat")
 
 # 达梦数据库 Schema 上下文（供 LLM 生成 SQL 使用）
 DAMENG_SCHEMA_CONTEXT = """
@@ -263,21 +264,84 @@ class ChatService:
 
 用户问题：{question}
 
-## 要求
-1. 只生成 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等任何修改操作
-2. 表名格式：FWBZ."table_name"
-3. 字段名格式：用双引号包裹（如 "device_name"），禁止裸列名
-4. 日期常量用单引号（如 '2026-08-01'）
-5. 合理使用聚合函数（COUNT/SUM/AVG/MAX/MIN）和 GROUP BY
-6. LIMIT 最多100条（达梦用 ROWNUM 或 FETCH FIRST n ROWS ONLY）
-7. 必须可以实际执行，不要生成假设性数据
-8. 禁止使用 DATE() 函数，用 CAST(col AS DATE) 或 TRUNC(col)
-9. 时间差计算用 (end_time - start_time) * 1440，不用 TIMESTAMPDIFF()
-10. NULL 处理用 NVL(a, b)，不用 IFNULL()
+## ⚠️ 严格遵守达梦 8.0 语法规范（禁止使用 MySQL/PostgreSQL 语法）
+
+### 标识符引号
+- 表名和字段名：必须用双引号包裹，如 "device"."device_name"
+- 禁止裸列名：如 device_name ❌ → "device_name" ✅
+
+### 日期时间函数（❌ MySQL  ❌ PostgreSQL ✅ 达梦）
+| 错误写法 | 正确写法 |
+|---------|---------|
+| DATE(col) | CAST(col AS DATE) 或 TRUNC(col) |
+| DATE_FORMAT(col, 'YYYY-MM-DD') | TO_CHAR(col, 'YYYY-MM-DD') |
+| NOW() | SYSDATE |
+| CURDATE() | TRUNC(SYSDATE) |
+| YEAR(col) | EXTRACT(YEAR FROM col) 或 TO_CHAR(col, 'YYYY') |
+| MONTH(col) | EXTRACT(MONTH FROM col) 或 TO_CHAR(col, 'MM') |
+| DAY(col) | EXTRACT(DAY FROM col) 或 TO_CHAR(col, 'DD') |
+| WEEK(col) | TO_CHAR(col, 'IW') |
+
+### NULL 处理
+| 错误写法 | 正确写法 |
+|---------|---------|
+| IFNULL(a, b) | NVL(a, b) |
+| COALESCE(a, b, c) | NVL(a, NVL(b, c)) |
+| IF(cond, a, b) | CASE WHEN cond THEN a ELSE b END |
+
+### 日期计算
+| 错误写法 | 正确写法 |
+|---------|---------|
+| DATE_SUB(col, INTERVAL 1 DAY) | col - 1 |
+| DATE_ADD(col, INTERVAL 7 DAY) | col + 7 |
+| DATEDIFF(a, b) | (a - b) |
+| TIMESTAMPDIFF(MINUTE, a, b) | (b - a) * 1440 |
+
+### 分页查询
+❌ 错误：LIMIT 10, 20
+❌ 错误：LIMIT 20 OFFSET 10
+✅ 正确（达梦 8.0）：
+```sql
+SELECT * FROM (
+    SELECT t.*, ROWNUM AS rn FROM (
+        SELECT "id", "name" FROM FWBZ."device" ORDER BY "create_time" DESC
+    ) t WHERE ROWNUM <= 20
+) WHERE rn > 10
+```
+
+### 字符串函数
+| 错误写法 | 正确写法 |
+|---------|---------|
+| CONCAT(a, b, sep) | a || sep || b |
+| CONCAT_WS(sep, a, b) | a \|\| sep \|\| b |
+| GROUP_CONCAT(col) | LISTAGG(col, ',') WITHIN GROUP (ORDER BY col) |
+| SUBSTRING(col, 1, 10) | SUBSTR(col, 1, 10) |
+| UPPER/Lower | UPPER/LOWER（相同） |
+
+### 数值函数
+| 错误写法 | 正确写法 |
+|---------|---------|
+| FLOOR(col) | TRUNC(col) 或 CAST(col AS INT) |
+| ROUND(col, 2) | ROUND(col, 2)（相同） |
+
+### 聚合函数
+✅ COUNT / SUM / AVG / MAX / MIN / LISTAGG
+
+## 强制要求
+1. 只生成 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP/TRUNCATE 等任何修改操作
+2. 表名格式：FWBZ."table_name"（Schema + 双引号表名）
+3. 字段名格式：双引号包裹，如 "device_name"
+4. 日期常量用单引号，如 '2026-08-01'（不是 #2026-08-01#）
+5. LIMIT 最多100条，用 ROWNUM 实现分页
+6. 必须可以实际执行，不要生成假设性数据
 
 ## 输出格式
 直接输出 SQL 语句，不要任何解释，不要用 markdown 代码块包裹。
 """
+        logger.info(">>> 开始生成SQL >>>")
+        logger.info("用户问题: %s", question)
+        logger.info("-" * 60)
+        
         for attempt in range(2):
             try:
                 response = self.ollama.call_llm([
@@ -289,34 +353,79 @@ class ChatService:
                 sql = re.sub(r'\s*```$', '', sql)
                 sql = sql.strip()
 
+                logger.info("LLM原始输出: %s", sql[:500] if len(sql) > 500 else sql)
+
                 # 基础验证：必须包含 SELECT 和 FROM
                 if sql.upper().startswith('SELECT') and 'FROM' in sql.upper():
-                    # 清理 AS 别名（避免达梦中文别名编码问题）
+                    # ========== 达梦 SQL 语法修复 ==========
+
+                    # 1. 清理 AS 别名（避免达梦中文别名编码问题）
                     sql = re.sub(r'\s+AS\s+"[^"]+"\s*', ' ', sql, flags=re.IGNORECASE)
                     sql = re.sub(r'\s+AS\s+\'[^\']*\'\s*', ' ', sql, flags=re.IGNORECASE)
 
-                    # 如果有 GROUP BY，移除未分组的非聚合列（如 "id"）
+                    # 2. 修复 MySQL/通用 LIMIT 语法 → 达梦 ROWNUM
+                    # LIMIT 100 或 LIMIT 0, 100 或 LIMIT 100 OFFSET 0
+                    if re.search(r'\bLIMIT\s+\d+', sql, re.IGNORECASE):
+                        limit_match = re.search(r'LIMIT\s+(\d+)', sql, re.IGNORECASE)
+                        if limit_match:
+                            limit_n = int(limit_match.group(1))
+                            # 移除原 LIMIT 子句
+                            sql = re.sub(r'\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?', '', sql, flags=re.IGNORECASE)
+                            sql = re.sub(r'\s+LIMIT\s+\d+\s*,\s*\d+', '', sql, flags=re.IGNORECASE)
+                            # 添加达梦分页
+                            if limit_n <= 100:
+                                sql = f'SELECT * FROM (SELECT t.*, ROWNUM AS rn FROM ({sql}) t WHERE ROWNUM <= {limit_n}) WHERE rn > 0'
+                            else:
+                                sql = f'SELECT * FROM (SELECT t.*, ROWNUM AS rn FROM ({sql}) t WHERE ROWNUM <= 100) WHERE rn > 0'
+
+                    # 3. 修复 DATE() 函数 → TRUNC()
+                    sql = re.sub(r'\bDATE\(("?[\w.]+"?)\)', r'TRUNC(\1)', sql, flags=re.IGNORECASE)
+
+                    # 4. 修复 IFNULL() → NVL()
+                    sql = re.sub(r'\bIFNULL\(', 'NVL(', sql, flags=re.IGNORECASE)
+
+                    # 5. 修复 DATE_SUB/DATE_ADD → +/- INTERVAL
+                    sql = re.sub(r'DATE_SUB\(', '(', sql, flags=re.IGNORECASE)
+                    sql = re.sub(r'DATE_ADD\(', '(', sql, flags=re.IGNORECASE)
+                    sql = re.sub(r'INTERVAL\s+\d+\s+DAY', '', sql, flags=re.IGNORECASE)
+
+                    # 6. 修复 NOW() → SYSDATE
+                    sql = re.sub(r'\bNOW\(\)', 'SYSDATE', sql, flags=re.IGNORECASE)
+
+                    # 7. 修复 CONCAT_WS → ||
+                    sql = re.sub(r'\bCONCAT_WS\(["\'](.+?)["\']\s*,\s*', lambda m: '(', sql, flags=re.IGNORECASE)
+
+                    # 8. 如果有 GROUP BY，移除未分组的非聚合列（如 "id"）
                     if 'GROUP BY' in sql.upper():
                         sql = self._fix_group_by(sql)
 
+                    logger.info(">>> SQL生成成功 >>>")
+                    logger.info("最终SQL: %s", sql)
+                    logger.info("=" * 60)
                     return sql
                 else:
-                    logger.warning(f"SQL 生成结果无效（attempt {attempt+1}）: {sql}")
+                    logger.warning("SQL 生成结果无效（attempt %d）: %s", attempt + 1, sql[:200])
 
             except Exception as e:
-                logger.error(f"SQL 生成失败（attempt {attempt+1}）: {e}")
+                logger.error("SQL 生成失败（attempt %d）: %s", attempt + 1, str(e))
 
+        logger.warning(">>> SQL生成失败，已达到最大重试次数 <<<")
         return None
 
     def _execute_sql(self, sql: str) -> tuple[Optional[List[dict]], Optional[str]]:
         """执行 SQL 并返回结果"""
+        logger.info("=" * 80)
+        logger.info(">>> SQL执行开始 >>>")
+        logger.info("SQL语句: %s", sql)
+        logger.info("-" * 80)
+        
         try:
             # 安全检查：禁止危险操作（单词边界匹配，避免误伤 create_time 等列名）
             import re
             sql_upper = sql.upper()
             # INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER 用单词边界检测
             if re.search(r'\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER)\b', sql_upper):
-                logger.warning(f"SQL 安全检查拒绝（危险关键词）: {sql[:100]}")
+                logger.warning(f"SQL 安全检查拒绝（危险关键词）: {sql[:200]}")
                 return None, "禁止执行非查询语句"
             if re.search(r'\bCREATE\b', sql_upper):
                 # CREATE 作为独立单词检测（排除 CREATE_TIME 这类列名）
@@ -325,12 +434,23 @@ class ChatService:
                 if not re.search(safe_pattern, sql_upper):
                     pass  # CREATE_TIME 等列名是安全的
                 else:
-                    logger.warning(f"SQL 安全检查拒绝（CREATE DDL）: {sql[:100]}")
+                    logger.warning(f"SQL 安全检查拒绝（CREATE DDL）: {sql[:200]}")
                     return None, "禁止执行非查询语句"
 
             results = execute_query(sql)
+            
+            if results:
+                logger.info(">>> SQL执行成功，返回 %d 条记录 <<<", len(results))
+                if results:
+                    logger.info("示例数据(第一条): %s", dict(list(results[0].items())[:5]))
+            else:
+                logger.warning(">>> SQL执行成功，但返回 0 条记录 <<<")
+            logger.info("=" * 80)
+            
             return results, None
         except Exception as e:
+            logger.error(">>> SQL执行异常: %s <<<", str(e))
+            logger.error("=" * 80)
             return None, str(e)
 
     def _build_vue_table(self, data: List[dict]) -> dict:
@@ -507,6 +627,30 @@ class ChatService:
         sample = data[0]
         keys = list(sample.keys())
 
+        # 辅助函数：解析复杂列名表达式，提取真正的列名
+        def _extract_column_name(expr: str) -> str:
+            """从复杂表达式中提取列名"""
+            # NVL("xxx", '默认值') -> xxx
+            m = re.search(r'NVL\s*\(\s*"?([^",\)]+)"?', expr, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+            # TO_CHAR("table"."col", 'format') -> col
+            m = re.search(r'"?\w+"?\."?(\w+)"?', expr, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+            # 尝试直接取最后一部分
+            parts = expr.split('.')
+            if len(parts) > 1:
+                last = parts[-1].strip('" \'')
+                return last
+            return expr
+
+        # 预处理：建立复杂 key -> 干净列名 的映射
+        key_to_column = {}
+        for k in keys:
+            col_name = _extract_column_name(k)
+            key_to_column[k] = col_name
+
         # 优先选择人类可读的分类列（按优先级排序）
         readable_priority = [
             # 场馆/空间名称（最可读）
@@ -526,8 +670,9 @@ class ChatService:
         cat_key = None
         cat_key_raw = None
 
-        # 先按优先级找可读列
+        # 先按优先级找可读列（同时检查原始key和解析后的列名）
         for priority_key in readable_priority:
+            # 先检查是否是干净的列名
             if priority_key in keys:
                 v = sample.get(priority_key)
                 if isinstance(v, (str, datetime, date)):
@@ -535,15 +680,25 @@ class ChatService:
                     clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', priority_key, flags=re.IGNORECASE)
                     cat_key = clean_k
                     break
+            # 再检查复杂表达式解析后的列名
+            for raw_key, col_name in key_to_column.items():
+                if col_name.lower() == priority_key.lower():
+                    v = sample.get(raw_key)
+                    if isinstance(v, (str, datetime, date)):
+                        cat_key_raw = raw_key
+                        cat_key = col_name
+                        break
+            if cat_key:
+                break
 
         # 如果没找到可读列，用第一个字符串列
         if not cat_key:
             for k in keys:
                 v = sample.get(k)
-                if k.lower() not in ['id', 'bigint'] and isinstance(v, (str, datetime, date)):
+                col_name = key_to_column.get(k, k)
+                if col_name.lower() not in ['id', 'bigint'] and isinstance(v, (str, datetime, date)):
                     cat_key_raw = k
-                    clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', k, flags=re.IGNORECASE)
-                    cat_key = clean_k
+                    cat_key = col_name
                     break
 
         # 找数值列（包含聚合函数列）
@@ -552,6 +707,80 @@ class ChatService:
             k for k in num_candidates
             if not re.match(r'^(id|bigint)$', k, re.IGNORECASE)
         ]
+
+        # 如果没有数值列但有分类列，说明是明细数据，每行计数=1
+        if not numeric_keys and cat_key:
+            # 生成假数值列：每行计数为1
+            chart_data = []
+            # 按分类列聚合计数
+            category_counts = {}
+            for row in data:
+                key_val = str(row.get(cat_key_raw, "未知"))
+                # 格式化标签
+                display_val = self._format_category_label(cat_key, key_val, row)
+                if display_val not in category_counts:
+                    category_counts[display_val] = 0
+                category_counts[display_val] += 1
+
+            # 转换为图表数据
+            chart_data = [
+                {"name": name, "value": count}
+                for name, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:20]
+            ]
+
+            chart_title = self._gen_chart_title(question, "记录数量")
+            chart_id = f"chart_{datetime.now().strftime('%H%M%S%f')}"
+
+            if len(chart_data) <= 6:
+                return {
+                    "chartType": "pie",
+                    "chartId": chart_id,
+                    "option": {
+                        "title": {"text": chart_title, "left": "center"},
+                        "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"},
+                        "legend": {"bottom": 10, "left": "center"},
+                        "series": [{
+                            "type": "pie",
+                            "radius": ["35%", "60%"],
+                            "avoidLabelOverlap": False,
+                            "itemStyle": {"borderRadius": 6, "borderColor": "#fff", "borderWidth": 2},
+                            "label": {"show": True, "formatter": "{b}\n{c} ({d}%)"},
+                            "data": chart_data
+                        }]
+                    }
+                }
+            else:
+                # 柱状图：按分类聚合后的数据
+                sorted_data = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:20]
+                x_axis_data = [str(name) for name, _ in sorted_data]
+                series_data = [float(count) for _, count in sorted_data]
+
+                return {
+                    "chartType": "bar",
+                    "chartId": chart_id,
+                    "option": {
+                        "title": {"text": chart_title, "left": "center"},
+                        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                        "grid": {"left": "3%", "right": "4%", "bottom": "12%", "containLabel": True},
+                        "xAxis": {"type": "category", "data": x_axis_data, "axisLabel": {"rotate": 30, "interval": 0}},
+                        "yAxis": {"type": "value", "name": "记录数量"},
+                        "series": [{
+                            "type": "bar",
+                            "data": series_data,
+                            "itemStyle": {
+                                "color": {
+                                    "type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1,
+                                    "colorStops": [
+                                        {"offset": 0, "color": "#5470C6"},
+                                        {"offset": 1, "color": "#91CC75"}
+                                    ]
+                                },
+                                "borderRadius": [4, 4, 0, 0]
+                            },
+                            "label": {"show": True, "position": "top", "formatter": "{c}"}
+                        }]
+                    }
+                }
 
         if not cat_key or not numeric_keys:
             return {}
@@ -565,7 +794,7 @@ class ChatService:
         for row in data[:20]:
             raw_value = str(row.get(cat_key_raw, ""))
             # 如果是编码类列，尝试进行格式化
-            display_value = self._format_category_label(cat_key_raw, raw_value, row)
+            display_value = self._format_category_label(cat_key, raw_value, row)
             x_axis_data.append(display_value)
 
         series_data = [float(row.get(first_num_key, 0) or 0) for row in data[:20]]

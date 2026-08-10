@@ -417,12 +417,65 @@ class OverviewData(BaseModel):
     photovoltaic: Optional[PhotovoltaicData] = Field(None, description="光伏系统数据")
 
 
+class EnergyMetricCard(BaseModel):
+    """能源指标卡片"""
+    value: Any = Field(None, description="数值")
+    change: Optional[str] = Field(None, description="变化率")
+    unit: Optional[str] = Field(None, description="单位")
+
+
+class VenueElectricityCompare(BaseModel):
+    """各场馆用电对比"""
+    categories: List[str] = Field(default_factory=list, description="分类")
+    data: Dict[str, List[float]] = Field(default_factory=dict, description="数据")
+
+
+class EnergyStructureAnalysis(BaseModel):
+    """用能结构分析"""
+    categories: List[str] = Field(default_factory=list, description="分类")
+    data: List[float] = Field(default_factory=list, description="数据")
+
+
+class MeterRealTimeData(BaseModel):
+    """表计实时数据"""
+    meter_no: str = Field(..., description="表计编号")
+    meter_type: str = Field(..., description="表计类型")
+    install_location: str = Field(..., description="安装位置")
+    today_reading: float = Field(0, description="今日读数")
+    today_usage: float = Field(0, description="今日用量")
+    month_total: float = Field(0, description="本月累计")
+    status: str = Field(..., description="状态")
+    detail_link: Optional[str] = Field(None, description="详情链接")
+
+
+class MeterDataList(BaseModel):
+    """表计实时数据列表"""
+    items: List[MeterRealTimeData] = Field(default_factory=list, description="表计列表")
+    total: int = Field(0, description="总条数")
+    page: int = Field(1, description="当前页")
+    page_size: int = Field(10, description="每页条数")
+    total_pages: int = Field(1, description="总页数")
+
+
 class EnergyAnalysisResponse(BaseModel):
-    """AI能源分析报告响应"""
+    """能源分析报告响应"""
     report_id: Optional[int] = Field(None, description="报告ID")
     report_title: str = Field(..., description="报告标题")
     report_time: str = Field(..., description="报告生成时间")
     system_type: str = Field(..., description="分析的系统类型")
+    
+    # 核心指标卡片
+    meter_total: int = Field(0, description="计费表计总数")
+    meter_online_rate: str = Field("0%", description="表计在线率")
+    today_electricity: EnergyMetricCard = Field(default_factory=EnergyMetricCard, description="今日用电量")
+    today_water: EnergyMetricCard = Field(default_factory=EnergyMetricCard, description="今日用水量")
+    
+    # 图表数据
+    venue_electricity_compare: VenueElectricityCompare = Field(default_factory=VenueElectricityCompare, description="各场馆用电对比")
+    energy_structure: EnergyStructureAnalysis = Field(default_factory=EnergyStructureAnalysis, description="用能结构分析")
+    
+    # 表计实时数据
+    meter_data: MeterDataList = Field(default_factory=MeterDataList, description="表计实时数据")
     
     # 原始数据
     overview: Optional[OverviewData] = Field(None, description="概览数据")
@@ -433,7 +486,6 @@ class EnergyAnalysisResponse(BaseModel):
     photovoltaic: Optional[PhotovoltaicData] = Field(None, description="光伏系统数据")
     
     # AI分析结果
-    summary: str = Field(..., description="AI分析总结")
+    summary: str = Field("", description="分析总结")
     suggestions: List[str] = Field(default_factory=list, description="优化建议")
     warnings: List[str] = Field(default_factory=list, description="异常警告")
-    analysis_dimensions: List[str] = Field(default_factory=list, description="分析维度")
