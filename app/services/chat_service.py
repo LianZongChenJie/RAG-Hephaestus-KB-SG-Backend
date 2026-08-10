@@ -507,17 +507,44 @@ class ChatService:
         sample = data[0]
         keys = list(sample.keys())
 
-        # 找分类列（日期/字符串类型，排除 id 等）
+        # 优先选择人类可读的分类列（按优先级排序）
+        readable_priority = [
+            # 场馆/空间名称（最可读）
+            'venue_name', 'space_name', 'area_name', 'location', 'position',
+            # 设备/对象名称
+            'device_name', 'name', 'node_name', 'title', 'full_name',
+            # 告警/状态相关名称
+            'alarm_category_name', 'alarm_level_name', 'category_name', 'status',
+            # 描述性内容
+            'alarm_content', 'content', 'remark', 'description',
+            # 最后才用编码类（最不可读）
+            'device_code', 'device_type', 'node_code', 'area_code', 'circuit_code',
+            'space_id', 'venue_id', 'device_id', 'id', 'bigint'
+        ]
+
+        # 找分类列：优先选择人类可读的名称列
         cat_key = None
         cat_key_raw = None
-        for k in keys:
-            v = sample.get(k)
-            if k.lower() not in ['id', 'bigint'] and isinstance(v, (str, datetime, date)):
-                cat_key_raw = k
-                # 清理函数包裹
-                clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', k, flags=re.IGNORECASE)
-                cat_key = clean_k
-                break
+
+        # 先按优先级找可读列
+        for priority_key in readable_priority:
+            if priority_key in keys:
+                v = sample.get(priority_key)
+                if isinstance(v, (str, datetime, date)):
+                    cat_key_raw = priority_key
+                    clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', priority_key, flags=re.IGNORECASE)
+                    cat_key = clean_k
+                    break
+
+        # 如果没找到可读列，用第一个字符串列
+        if not cat_key:
+            for k in keys:
+                v = sample.get(k)
+                if k.lower() not in ['id', 'bigint'] and isinstance(v, (str, datetime, date)):
+                    cat_key_raw = k
+                    clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', k, flags=re.IGNORECASE)
+                    cat_key = clean_k
+                    break
 
         # 找数值列（包含聚合函数列）
         num_candidates = [k for k in keys if isinstance(sample.get(k), (int, float, Decimal))]
@@ -533,14 +560,24 @@ class ChatService:
         clean_num_key = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', first_num_key, flags=re.IGNORECASE)
         label = self._format_column_label(clean_num_key)
 
-        x_axis_data = [str(row.get(cat_key_raw, "")) for row in data[:20]]
+        # 生成人类可读的分类标签
+        x_axis_data = []
+        for row in data[:20]:
+            raw_value = str(row.get(cat_key_raw, ""))
+            # 如果是编码类列，尝试进行格式化
+            display_value = self._format_category_label(cat_key_raw, raw_value, row)
+            x_axis_data.append(display_value)
+
         series_data = [float(row.get(first_num_key, 0) or 0) for row in data[:20]]
 
         chart_title = self._gen_chart_title(question, label)
         chart_id = f"chart_{datetime.now().strftime('%H%M%S%f')}"
 
         if len(data) <= 6:
-            pie_data = [{"name": str(row.get(cat_key, "")), "value": float(row.get(first_num_key, 0) or 0)} for row in data[:20]]
+            pie_data = [
+                {"name": x_axis_data[i], "value": float(row.get(first_num_key, 0) or 0)}
+                for i, row in enumerate(data[:20])
+            ]
             return {
                 "chartType": "pie",
                 "chartId": chart_id,
@@ -585,6 +622,83 @@ class ChatService:
                     }]
                 }
             }
+
+    def _format_category_label(self, col_key: str, raw_value: str, row: dict) -> str:
+        """格式化分类标签，使人类更易读"""
+        if not raw_value or raw_value in ['None', 'null', '-']:
+            return "未知"
+
+        # 编码类列的格式化规则
+        code_format_rules = {
+            'device_code': lambda v: self._format_device_code(v, row),
+            'device_type': lambda v: self._format_device_type(v),
+            'node_code': lambda v: self._format_node_code(v, row),
+            'space_name': lambda v: v if v else "未知空间",
+            'area_name': lambda v: v if v else "未知区域",
+            'venue_name': lambda v: v if v else "未知场馆",
+        }
+
+        # 如果是编码类列，进行格式化
+        if col_key in code_format_rules:
+            return code_format_rules[col_key](raw_value)
+
+        # 对于普通字符串，截断过长的值
+        if len(raw_value) > 15:
+            return raw_value[:12] + "..."
+        return raw_value
+
+    def _format_device_code(self, code: str, row: dict) -> str:
+        """格式化设备编码为人类可读名称"""
+        # 如果有 device_name，优先使用
+        if row.get('device_name') and row.get('device_name') not in [None, 'None', '']:
+            return str(row['device_name'])
+
+        # 设备编码解析规则
+        if not code:
+            return "未知设备"
+
+        # 尝试从编码推断类型
+        code_upper = code.upper()
+        if 'KT' in code_upper:
+            return f"空调-{code}"
+        elif 'XF' in code_upper:
+            return f"新风-{code}"
+        elif 'CH' in code_upper:
+            return f"冷机-{code}"
+        elif 'PV' in code_upper:
+            return f"光伏-{code}"
+        elif 'PD' in code_upper or 'DP' in code_upper:
+            return f"配电-{code}"
+        elif 'ZT' in code_upper:
+            return f"照明-{code}"
+
+        # 通用：直接返回编码（截断过长的）
+        if len(code) > 12:
+            return code[:10] + "..."
+        return code
+
+    def _format_device_type(self, device_type: str) -> str:
+        """格式化设备类型为中文"""
+        type_mapping = {
+            '1': '仪表', '2': '设备',
+            'meter': '仪表', 'device': '设备',
+            'ac': '空调', 'air_condition': '空调机组',
+            'fresh_air': '新风机组', 'power': '配电',
+            'light': '照明', 'pv': '光伏'
+        }
+        return type_mapping.get(str(device_type).lower(), str(device_type))
+
+    def _format_node_code(self, code: str, row: dict) -> str:
+        """格式化节点编码为人类可读名称"""
+        # 如果有 node_name，优先使用
+        if row.get('node_name') and row.get('node_name') not in [None, 'None', '']:
+            return str(row['node_name'])
+
+        if not code:
+            return "未知节点"
+        if len(code) > 12:
+            return code[:10] + "..."
+        return code
 
     def _gen_chart_title(self, question: str, label: str) -> str:
         """根据问题生成图表标题"""

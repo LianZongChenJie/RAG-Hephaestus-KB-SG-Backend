@@ -335,3 +335,105 @@ class VenueListResponse(BaseModel):
     """会展列表响应"""
     items: List[VenueInfo]
     total: int
+
+
+# ============ AI能源分析报告 ============
+
+class EnergySystemType(str, Enum):
+    """能源子系统类型"""
+    OVERVIEW = "overview"      # 概览
+    AIR_CONDITION = "air_condition"   # 空调机组
+    FRESH_AIR = "fresh_air"    # 新风机组
+    POWER_DISTRIBUTION = "power_distribution"  # 配电系统
+    COLD_SOURCE = "cold_source"  # 冷源系统
+    PHOTOVOLTAIC = "photovoltaic"  # 光伏系统
+    ALL = "all"  # 全部系统
+
+
+class EnergyAnalysisRequest(BaseModel):
+    """AI能源分析报告请求"""
+    system_type: EnergySystemType = Field(..., description="子系统类型: overview/air_condition/fresh_air/power_distribution/cold_source/photovoltaic/all")
+    venue_name: Optional[str] = Field(None, description="会展名称(筛选特定会展的数据)")
+    time_range: Optional[TimeRange] = Field(TimeRange.DAY, description="时间范围(默认当天)")
+    device_name: Optional[str] = Field(None, description="设备名称(可选，筛选特定设备)")
+
+
+class AirConditionData(BaseModel):
+    """空调机组数据"""
+    total_count: int = Field(0, description="机组总数")
+    running_count: Optional[int] = Field(0, description="运行中数量")
+    fault_count: Optional[int] = Field(0, description="故障数量")
+    avg_cop: Optional[float] = Field(None, description="平均COP能效比")
+    today_energy: Optional[float] = Field(None, description="今日能耗")
+    devices: List[Dict[str, Any]] = Field(default_factory=list, description="设备列表")
+
+
+class FreshAirData(BaseModel):
+    """新风机组数据"""
+    total_count: int = Field(0, description="机组总数")
+    running_count: Optional[int] = Field(0, description="运行中数量")
+    avg_pm25: Optional[float] = Field(None, description="平均PM2.5")
+    today_energy: Optional[float] = Field(None, description="今日耗电")
+    devices: List[Dict[str, Any]] = Field(default_factory=list, description="设备列表")
+
+
+class PowerDistributionData(BaseModel):
+    """配电系统数据"""
+    total_count: int = Field(0, description="配电柜总数")
+    running_count: Optional[int] = Field(0, description="正常运行数量")
+    today_energy: Optional[float] = Field(None, description="今日用电量")
+    power_factor: Optional[float] = Field(None, description="功率因数")
+    devices: List[Dict[str, Any]] = Field(default_factory=list, description="设备列表")
+
+
+class ColdSourceData(BaseModel):
+    """冷源系统数据"""
+    total_count: int = Field(0, description="冷水机组总数")
+    running_count: Optional[int] = Field(None, description="运行中数量")
+    today_cooling: Optional[float] = Field(None, description="今日制冷量")
+    avg_cop: Optional[float] = Field(None, description="平均COP")
+    devices: List[Dict[str, Any]] = Field(default_factory=list, description="设备列表")
+
+
+class PhotovoltaicData(BaseModel):
+    """光伏系统数据"""
+    total_count: int = Field(0, description="光伏组串数")
+    installed_capacity: Optional[float] = Field(None, description="装机容量(kW)")
+    today_generation: Optional[float] = Field(None, description="今日发电量(kWh)")
+    efficiency: Optional[float] = Field(None, description="发电效率")
+    devices: List[Dict[str, Any]] = Field(default_factory=list, description="设备列表")
+
+
+class OverviewData(BaseModel):
+    """概览数据"""
+    subsystem_count: int = Field(0, description="对接子系统数")
+    device_online_rate: Optional[str] = Field(None, description="设备在线率/数量")
+    remote_control_count: Optional[int] = Field(0, description="远程控制设备")
+    today_command_count: Optional[int] = Field(0, description="今日指令下发")
+    air_conditions: Optional[AirConditionData] = Field(None, description="空调机组数据")
+    fresh_air: Optional[FreshAirData] = Field(None, description="新风机组数据")
+    power_distribution: Optional[PowerDistributionData] = Field(None, description="配电系统数据")
+    cold_source: Optional[ColdSourceData] = Field(None, description="冷源系统数据")
+    photovoltaic: Optional[PhotovoltaicData] = Field(None, description="光伏系统数据")
+
+
+class EnergyAnalysisResponse(BaseModel):
+    """AI能源分析报告响应"""
+    report_id: Optional[int] = Field(None, description="报告ID")
+    report_title: str = Field(..., description="报告标题")
+    report_time: str = Field(..., description="报告生成时间")
+    system_type: str = Field(..., description="分析的系统类型")
+    
+    # 原始数据
+    overview: Optional[OverviewData] = Field(None, description="概览数据")
+    air_condition: Optional[AirConditionData] = Field(None, description="空调机组数据")
+    fresh_air: Optional[FreshAirData] = Field(None, description="新风机组数据")
+    power_distribution: Optional[PowerDistributionData] = Field(None, description="配电系统数据")
+    cold_source: Optional[ColdSourceData] = Field(None, description="冷源系统数据")
+    photovoltaic: Optional[PhotovoltaicData] = Field(None, description="光伏系统数据")
+    
+    # AI分析结果
+    summary: str = Field(..., description="AI分析总结")
+    suggestions: List[str] = Field(default_factory=list, description="优化建议")
+    warnings: List[str] = Field(default_factory=list, description="异常警告")
+    analysis_dimensions: List[str] = Field(default_factory=list, description="分析维度")

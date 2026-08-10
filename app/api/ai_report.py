@@ -18,6 +18,8 @@ from app.schemas.ai_report import (
     AICarbonReportRequest,
     AICarbonReportResponse,
     VenueListResponse,
+    EnergyAnalysisRequest,
+    EnergyAnalysisResponse,
 )
 from app.services.ai_report_service import AIReportService
 
@@ -463,3 +465,85 @@ async def delete_ai_report(request: Request, report_id: int) -> dict:
             status_code=500,
             detail=f"删除报告失败: {str(exc)}",
         )
+
+
+# ==================== AI能源分析报告接口 ====================
+
+@router.post("/energy-analysis", response_model=EnergyAnalysisResponse)
+async def generate_energy_analysis_report(request: Request, body: EnergyAnalysisRequest) -> EnergyAnalysisResponse:
+    """
+    AI能源分析报告
+
+    基于实时数据对能源系统（空调机组、新风机组、配电系统、冷源系统、光伏系统）进行综合分析，
+    生成包含分析总结、优化建议和异常警告的报告。
+
+    **子系统类型**：
+    - overview: 全系统概览
+    - air_condition: 空调机组
+    - fresh_air: 新风机组
+    - power_distribution: 配电系统
+    - cold_source: 冷源系统
+    - photovoltaic: 光伏系统
+    - all: 全部系统
+
+    **会展名称**：
+    - 可选参数，指定后只统计该会展的数据
+
+    示例请求：
+    ```json
+    {
+        "system_type": "overview",
+        "venue_name": "会展小镇",
+        "time_range": "day"
+    }
+    ```
+    """
+    try:
+        service = AIReportService()
+
+        report = await service.generate_energy_analysis_report(
+            system_type=body.system_type.value,
+            venue_name=body.venue_name,
+            time_range=body.time_range.value if body.time_range else "day",
+            device_name=body.device_name,
+        )
+
+        resp = EnergyAnalysisResponse(**report)
+        inject_response(request, resp.model_dump())
+        return resp
+
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="无法连接 Ollama，请确认已执行 ollama serve 且端口 11434 可用",
+        )
+    except httpx.ReadTimeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Ollama 响应超时，请稍后重试",
+        )
+    except Exception as exc:
+        logger.exception("AI能源分析报告生成失败")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI能源分析报告生成失败: {str(exc)}",
+        )
+
+
+@router.get("/energy-analysis/systems")
+async def list_energy_systems(request: Request) -> dict:
+    """
+    获取能源系统列表
+
+    返回所有可用的能源子系统类型
+    """
+    systems = [
+        {"code": "overview", "name": "全系统概览", "icon": "dashboard"},
+        {"code": "air_condition", "name": "空调机组", "icon": "ac"},
+        {"code": "fresh_air", "name": "新风机组", "icon": "wind"},
+        {"code": "power_distribution", "name": "配电系统", "icon": "electricity"},
+        {"code": "cold_source", "name": "冷源系统", "icon": "snowflake"},
+        {"code": "photovoltaic", "name": "光伏系统", "icon": "sun"},
+        {"code": "all", "name": "全部系统", "icon": "all"},
+    ]
+    return {"items": systems, "total": len(systems)}
