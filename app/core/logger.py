@@ -25,6 +25,7 @@ LOG_LEVEL = logging.INFO
 RETENTION_DAYS = 30  # 日志保留天数
 COMPRESS_AFTER_DAYS = 30  # 压缩超过此天数的日志
 CLEANUP_INTERVAL_HOURS = 6  # 清理检查间隔（小时）
+CONSOLE_LOG_MAX_LENGTH = 200  # 控制台日志最大字符数
 
 
 def setup_logs_directory():
@@ -40,11 +41,35 @@ def get_log_file_path(log_type: str) -> Path:
 
 
 def create_formatter() -> logging.Formatter:
-    """创建日志格式化器"""
+    """创建日志格式化器（用于文件）"""
     return logging.Formatter(
         fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
+
+
+class ConsoleFormatter(logging.Formatter):
+    """控制台日志格式化器，截断过长的消息"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        # 调用父类方法获取完整格式化的消息
+        message = super().format(record)
+
+        # 截断过长的消息（保留前缀信息）
+        if len(message) > CONSOLE_LOG_MAX_LENGTH:
+            # 保留格式：[时间 | 级别 | 位置] 前缀部分
+            prefix_end = message.find(' | ', message.find(' | ') + 1)
+            if prefix_end != -1 and prefix_end < 100:
+                # 保留前缀 + 截断的消息
+                prefix = message[:prefix_end + 3]
+                truncated = message[prefix_end + 3:]
+                truncated = truncated[:CONSOLE_LOG_MAX_LENGTH - prefix_end - 3 - 10]  # 留10字符给省略号
+                message = prefix + f"...[已截断，完整日志见文件，剩余{len(message) - prefix_end - 3}字符]"
+            else:
+                # 直接截断
+                message = message[:CONSOLE_LOG_MAX_LENGTH - 20] + f"...[已截断，完整{len(message)}字符]"
+
+        return message
 
 
 def setup_logger(
@@ -58,13 +83,17 @@ def setup_logger(
     logger.handlers.clear()
 
     formatter = create_formatter()
+    console_formatter = ConsoleFormatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
 
-    # 控制台处理器
+    # 控制台处理器（使用截断格式化器）
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
-    # 文件处理器（如果指定了日志文件）
+    # 文件处理器（如果指定了日志文件，使用完整格式化器）
     if log_file:
         file_handler = TimedRotatingFileHandler(
             filename=str(log_file),
@@ -73,7 +102,7 @@ def setup_logger(
             backupCount=0,  # 我们自己管理备份
             encoding="utf-8"
         )
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(formatter)  # 文件记录完整日志
         file_handler.suffix = "%Y-%m-%d"
         logger.addHandler(file_handler)
 
@@ -97,17 +126,21 @@ class InfoErrorLogger:
     def __init__(self, name: str = "app"):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(LOG_LEVEL)
-        
+
         # 避免重复添加 handler
         if not self.logger.handlers:
             formatter = create_formatter()
-            
-            # 控制台
+            console_formatter = ConsoleFormatter(
+                fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+
+            # 控制台（使用截断格式化器）
             console_handler = logging.StreamHandler()
-            console_handler.setFormatter(formatter)
+            console_handler.setFormatter(console_formatter)
             self.logger.addHandler(console_handler)
-            
-            # Info 文件
+
+            # Info 文件（记录完整日志）
             info_handler = TimedRotatingFileHandler(
                 filename=str(get_log_file_path("info")),
                 when="midnight",
@@ -119,8 +152,8 @@ class InfoErrorLogger:
             info_handler.suffix = "%Y-%m-%d"
             info_handler.setLevel(logging.INFO)
             self.logger.addHandler(info_handler)
-            
-            # Error 文件
+
+            # Error 文件（记录完整日志）
             error_handler = TimedRotatingFileHandler(
                 filename=str(get_log_file_path("error")),
                 when="midnight",
@@ -271,17 +304,26 @@ def init_logging():
     setup_logs_directory()
     rotate_and_cleanup()  # 启动时先执行一次清理
     start_log_cleanup_scheduler()
-    
+
     # 配置根日志器
-    logging.basicConfig(
-        level=LOG_LEVEL,
-        format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+    root_logger = logging.getLogger()
+    root_logger.setLevel(LOG_LEVEL)
+
+    # 清除已有的处理器
+    root_logger.handlers.clear()
+
+    # 添加控制台处理器（使用截断格式化器）
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(ConsoleFormatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    
+    ))
+    root_logger.addHandler(console_handler)
+
     logging.info("日志系统初始化完成")
     logging.info(f"日志目录: {LOGS_DIR}")
     logging.info(f"日志保留天数: {RETENTION_DAYS}")
+    logging.info(f"控制台日志最大长度: {CONSOLE_LOG_MAX_LENGTH}字符")
 
 
 # 便捷函数
