@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.dameng import execute_query, execute_update, execute_insert_return_id
+from app.core.dameng import execute_query, execute_update, get_dameng_connection
 
 logger = logging.getLogger(__name__)
 
@@ -18,21 +18,36 @@ class AIReportHistoryService:
     @classmethod
     def init_table(cls) -> bool:
         """初始化报告历史表"""
-        # 检查表是否存在
+        # 检查表是否存在（使用达梦兼容的查询方式）
         check_sql = '''
-            SELECT COUNT(*) FROM "SYS"."SYSTABLES" 
-            WHERE "NAME" = 'AI_REPORT_HISTORY'
+            SELECT COUNT(*) FROM FWBZ."ai_report_history" WHERE 1=1
         '''
         try:
+            # 尝试查询，如果表不存在会抛出异常
             result = execute_query(check_sql)
-            if result and result[0].get('COUNT(*)', 0) > 0:
-                logger.info("报告历史表已存在")
-                return True
+            logger.info("报告历史表已存在")
+            return True
+        except Exception:
+            # 表不存在，创建它
+            pass
+        
+        # 达梦数据库创建序列
+        try:
+            seq_sql = '''
+                CREATE SEQUENCE FWBZ.SEQ_AI_REPORT_HISTORY 
+                START WITH 1 
+                INCREMENT BY 1 
+                NOMAXVALUE
+            '''
+            execute_update(seq_sql)
+        except Exception as exc:
+            logger.warning(f"创建序列失败（可能已存在）: {exc}")
 
-            # 创建表
+        # 创建表（达梦使用序列替代AUTO_INCREMENT）
+        try:
             create_sql = '''
-                CREATE TABLE "FWBZ"."ai_report_history" (
-                    "id" BIGINT NOT NULL AUTO_INCREMENT,
+                CREATE TABLE FWBZ."ai_report_history" (
+                    "id" BIGINT NOT NULL,
                     "report_type" VARCHAR(50) NOT NULL,
                     "title" VARCHAR(500) NOT NULL,
                     "content" CLOB,
@@ -41,10 +56,10 @@ class AIReportHistoryService:
                     "target_id" BIGINT,
                     "target_name" VARCHAR(255),
                     "scope" VARCHAR(50),
-                    "query_params" TEXT,
-                    "query_data" TEXT,
-                    "created_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    "updated_at" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    "query_params" CLOB,
+                    "query_data" CLOB,
+                    "created_at" TIMESTAMP,
+                    "updated_at" TIMESTAMP,
                     PRIMARY KEY ("id")
                 )
             '''
@@ -81,22 +96,29 @@ class AIReportHistoryService:
         # 序列化JSON字段
         query_params_str = json.dumps(query_params, ensure_ascii=False, default=str) if query_params else None
         query_data_str = json.dumps(query_data, ensure_ascii=False, default=str) if query_data else None
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+        # 达梦自增列，插入时不指定id
         sql = '''
             INSERT INTO FWBZ."ai_report_history" (
                 "report_type", "title", "content", "summary", "time_range",
-                "target_id", "target_name", "scope", "query_params", "query_data"
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "target_id", "target_name", "scope", "query_params", "query_data",
+                "created_at", "updated_at"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         params = (
             report_type, title, content, summary, time_range,
-            target_id, target_name, scope, query_params_str, query_data_str
+            target_id, target_name, scope, query_params_str, query_data_str,
+            now, now
         )
 
         try:
-            report_id = execute_insert_return_id(sql, params)
-            logger.info(f"报告已保存，ID: {report_id}")
-            return report_id
+            execute_update(sql, params)
+            # 获取刚插入的ID
+            result = execute_query('SELECT MAX("id") as new_id FROM FWBZ."ai_report_history"')
+            new_id = result[0].get('NEW_ID', 0) if result else 0
+            logger.info(f"报告已保存，ID: {new_id}")
+            return new_id
         except Exception as exc:
             logger.error(f"保存报告失败: {exc}")
             raise
@@ -184,13 +206,14 @@ class AIReportHistoryService:
             logger.error(f"查询总数失败: {exc}")
             total = 0
 
-        # 查询列表（不含content字段）
+        # 查询列表（含content用于解析data_volume）
         offset = (page - 1) * page_size
         list_sql = f'''
-            SELECT 
+            SELECT
                 "id", "report_type", "title", "time_range",
                 "target_id", "target_name", "scope",
-                "summary", "created_at", "updated_at"
+                "summary", "created_at", "updated_at",
+                "content"
             FROM FWBZ."ai_report_history"
             WHERE {where_clause}
             ORDER BY "created_at" DESC
@@ -200,7 +223,26 @@ class AIReportHistoryService:
         params.append(offset)
 
         try:
-            items = execute_query(list_sql, tuple(params))
+            raw_items = execute_query(list_sql, tuple(params))
+            # 解析content JSON，提取data_volume
+            items = []
+            for raw in (raw_items or []):
+                item = {k: v for k, v in raw.items() if k != "content"}
+                # 从content JSON中提取设备数和告警数
+                content_str = raw.get("content", "")
+                device_count = 0
+                alarm_count = 0
+                try:
+                    if content_str:
+                        content_json = json.loads(content_str)
+                        device_count = content_json.get("device_count", 0) or 0
+                        alarm_stats = content_json.get("alarm_stats", {})
+                        alarm_count = alarm_stats.get("total_alarms", 0) or 0
+                except Exception:
+                    pass
+                item["data_volume"] = f"{device_count}设备/{alarm_count}告警"
+                item["status"] = "已完成"
+                items.append(item)
             return items, total
         except Exception as exc:
             logger.error(f"查询报告列表失败: {exc}")

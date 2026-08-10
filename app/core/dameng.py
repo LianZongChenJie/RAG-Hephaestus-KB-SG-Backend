@@ -97,10 +97,12 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
     Returns:
         查询结果列表，每行是一个字典
     """
-    logger.info("=" * 60)
-    logger.info("执行SQL: %s", sql)
+    logger.info("=" * 80)
+    logger.info(">>> 执行SQL查询 >>>")
+    logger.info("SQL: %s", sql)
     if params:
         logger.info("参数: %s", params)
+    logger.info("-" * 80)
 
     try:
         with dameng_cursor() as cursor:
@@ -118,6 +120,7 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
             logger.info("返回 %d 行数据", len(rows))
             if rows:
                 logger.info("示例数据: %s", dict(zip(columns, rows[0])))
+            logger.info(">>> SQL执行成功 <<<")
 
             # 转换为字典列表
             return [dict(zip(columns, row)) for row in rows]
@@ -125,7 +128,13 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
         logger.warning("达梦驱动未安装: %s", exc)
         return []
     except Exception as exc:
-        logger.error("SQL执行失败: %s", exc)
+        logger.error("=" * 80)
+        logger.error(">>> SQL执行失败 <<<")
+        logger.error("SQL: %s", sql)
+        if params:
+            logger.error("参数: %s", params)
+        logger.error("错误: %s", exc)
+        logger.error("=" * 80)
         return []
 
 
@@ -171,7 +180,8 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
     Returns:
         影响的行数
     """
-    logger.info("执行更新SQL: %s", sql)
+    logger.info(">>> 执行更新SQL >>>")
+    logger.info("SQL: %s", sql)
     if params:
         logger.info("参数: %s", params)
 
@@ -181,6 +191,7 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
                 cursor.execute(sql, params)
             else:
                 cursor.execute(sql)
+            logger.info(">>> 更新成功，影响 %d 行 <<<", cursor.rowcount)
             return cursor.rowcount
     except Exception as exc:
         # 编码错误时，尝试将特殊 Unicode 字符替换后重试
@@ -193,7 +204,13 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
             with dameng_cursor() as cursor:
                 cursor.execute(sql, safe_params)
                 return cursor.rowcount
-        logger.error("SQL执行失败: %s", exc)
+        logger.error("=" * 80)
+        logger.error(">>> SQL执行失败 <<<")
+        logger.error("SQL: %s", sql)
+        if params:
+            logger.error("参数: %s", params)
+        logger.error("错误: %s", exc)
+        logger.error("=" * 80)
         raise
 
 
@@ -208,7 +225,8 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
     Returns:
         新插入记录的自增ID
     """
-    logger.info("执行INSERT SQL: %s", sql)
+    logger.info(">>> 执行INSERT SQL >>>")
+    logger.info("SQL: %s", sql)
     if params:
         logger.info("参数: %s", params)
 
@@ -221,7 +239,9 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
             # 获取最后插入的ID
             cursor.execute("SELECT LAST_INSERT_ID()")
             result = cursor.fetchone()
-            return result[0] if result else 0
+            new_id = result[0] if result else 0
+            logger.info(">>> 插入成功，新记录ID: %d <<<", new_id)
+            return new_id
     except Exception as exc:
         # 编码错误时，尝试将特殊 Unicode 字符替换后重试
         if params and ('gbk' in str(exc).lower() or 'codec' in str(exc).lower()):
@@ -235,5 +255,11 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
                 cursor.execute("SELECT LAST_INSERT_ID()")
                 result = cursor.fetchone()
                 return result[0] if result else 0
-        logger.error("INSERT执行失败: %s", exc)
+        logger.error("=" * 80)
+        logger.error(">>> INSERT执行失败 <<<")
+        logger.error("SQL: %s", sql)
+        if params:
+            logger.error("参数: %s", params)
+        logger.error("错误: %s", exc)
+        logger.error("=" * 80)
         raise

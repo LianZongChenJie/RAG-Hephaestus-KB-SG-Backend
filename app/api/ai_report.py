@@ -14,6 +14,8 @@ from app.schemas.ai_report import (
     AIEnergyReportResponse,
     AIFaultReportRequest,
     AIFaultReportResponse,
+    AICarbonReportRequest,
+    AICarbonReportResponse,
     VenueListResponse,
 )
 from app.services.ai_report_service import AIReportService
@@ -253,6 +255,61 @@ async def generate_ai_fault_report(body: AIFaultReportRequest) -> AIFaultReportR
         raise HTTPException(
             status_code=500,
             detail=f"AI故障分析报告生成失败: {str(exc)}",
+        )
+
+
+@router.post("/carbon", response_model=AICarbonReportResponse)
+async def generate_ai_carbon_report(body: AICarbonReportRequest) -> AICarbonReportResponse:
+    """
+    多模态能碳计算报告
+
+    基于AI对电、水、气、热四类能源的实时计量数据进行分析，融合物理机理模型与机器学习算法，
+    对园区能碳排放进行多维度精准核算。
+
+    **时间范围**：
+    - day: 日报
+    - week: 周报
+    - month: 月报
+    - quarter: 季度报告
+    - year: 年度报告
+
+    **会展名称**：
+    - 可选参数，指定后只统计该会展的数据
+
+    示例请求：
+    ```json
+    {
+        "time_range": "month",
+        "venue_name": "1号馆"
+    }
+    ```
+    """
+    try:
+        service = AIReportService()
+
+        report = await service.generate_carbon_report(
+            time_range=body.time_range.value,
+            venue_name=body.venue_name,
+            zone_name=body.zone_name,
+        )
+
+        return AICarbonReportResponse(**report)
+
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="无法连接 Ollama，请确认已执行 ollama serve 且端口 11434 可用",
+        )
+    except httpx.ReadTimeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Ollama 响应超时，请稍后重试",
+        )
+    except Exception as exc:
+        logger.exception("多模态能碳计算报告生成失败")
+        raise HTTPException(
+            status_code=500,
+            detail=f"多模态能碳计算报告生成失败: {str(exc)}",
         )
 
 

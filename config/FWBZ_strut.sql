@@ -1,19 +1,55 @@
 /*
  Navicat Premium Dump SQL
 
- Source Server         : 51_DM
+ Source Server         : 首钢
  Source Server Type    : Dameng
- Source Server Version : 80000 (08.00.00)
- Source Host           : 192.168.204.51:5238
+ Source Server Version : 801448 (08.01.448)
  Source Schema         : FWBZ
 
  Target Server Type    : Dameng
- Target Server Version : 80000 (08.00.00)
+ Target Server Version : 801448 (08.01.448)
  File Encoding         : 65001
 
- Date: 06/08/2026 16:53:55
+ Date: 10/08/2026 08:15:54
 */
 
+
+-- ----------------------------
+-- Table structure for ai_report_history
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."ai_report_history";
+
+CREATE TABLE "FWBZ"."ai_report_history" (
+  "id" BIGINT NOT NULL IDENTITY(1,1),
+  "report_type" VARCHAR(50) NOT NULL,
+  "title" VARCHAR(500) NOT NULL,
+  "content" CLOB,
+  "summary" VARCHAR(1000),
+  "time_range" VARCHAR(20) NOT NULL,
+  "target_id" BIGINT,
+  "target_name" VARCHAR(255),
+  "scope" VARCHAR(50),
+  "query_params" TEXT,
+  "query_data" TEXT,
+  "created_at" TIMESTAMP(6),
+  "updated_at" TIMESTAMP(6),
+  PRIMARY KEY ("id")
+);
+
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."id" IS '自增主键';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."report_type" IS '报告类型: run-运行报告, predict-预测报告, energy-节能报告, fault-故障分析报告, carbon-能碳计算';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."title" IS '报告标题';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."content" IS '报告完整内容(JSON格式)';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."summary" IS '报告摘要(前500字符)';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."time_range" IS '时间范围: day-日报, week-周报, month-月报, quarter-季度报告, year-年度报告';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."target_id" IS '目标ID(设备ID等)';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."target_name" IS '目标名称';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."scope" IS '范围类型: all/zone/device';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."query_params" IS '查询参数(JSON格式)';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."query_data" IS '原始查询数据(JSON格式)';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."created_at" IS '创建时间';
+COMMENT ON COLUMN "FWBZ"."ai_report_history"."updated_at" IS '更新时间';
+COMMENT ON TABLE "FWBZ"."ai_report_history" IS 'AI报告历史记录表';
 
 -- ----------------------------
 -- Table structure for alarm_category
@@ -379,7 +415,7 @@ CREATE TABLE "FWBZ"."data_day" (
   "id" BIGINT NOT NULL,
   "device_id" BIGINT,
   "value" DECIMAL(38,4),
-  "time" TIMESTAMP
+  "time" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."data_day"."device_id" IS '设备id';
@@ -395,12 +431,12 @@ CREATE TABLE "FWBZ"."data_hour" (
   "id" BIGINT NOT NULL,
   "device_id" BIGINT,
   "value" DECIMAL(38,4),
-  "time" TIMESTAMP,
+  "time" TIMESTAMP(6),
   "start_value" DECIMAL(38,4),
   "end_value" DECIMAL(38,4),
   "compute_value" DECIMAL(38,4),
   "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP
+  "update_time" TIMESTAMP(6)
 )
 ;
 
@@ -411,7 +447,7 @@ DROP TABLE IF EXISTS "FWBZ"."data_minute";
 CREATE TABLE "FWBZ"."data_minute" (
   "id" BIGINT NOT NULL,
   "device_id" BIGINT,
-  "time" TIMESTAMP,
+  "time" TIMESTAMP(6),
   "start_value" DECIMAL(19,2),
   "end_value" DECIMAL(19,2),
   "value" DECIMAL(10,2)
@@ -426,7 +462,7 @@ CREATE TABLE "FWBZ"."data_month" (
   "id" BIGINT NOT NULL,
   "device_id" BIGINT,
   "value" DECIMAL(38,4),
-  "time" TIMESTAMP
+  "time" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."data_month"."device_id" IS '设备id';
@@ -442,7 +478,7 @@ CREATE TABLE "FWBZ"."data_real" (
   "id" BIGINT NOT NULL,
   "device_id" BIGINT,
   "value" DECIMAL(38,4),
-  "time" TIMESTAMP
+  "time" TIMESTAMP(6)
 )
 ;
 
@@ -454,7 +490,7 @@ CREATE TABLE "FWBZ"."data_year" (
   "id" BIGINT NOT NULL,
   "device_id" BIGINT,
   "value" DECIMAL(38,4),
-  "time" TIMESTAMP
+  "time" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."data_year"."device_id" IS '设备id';
@@ -1587,47 +1623,6 @@ COMMENT ON COLUMN "FWBZ"."metering_point"."true_formula" IS '解析后公式（�
 COMMENT ON TABLE "FWBZ"."metering_point" IS '计量点位配置';
 
 -- ----------------------------
--- Table structure for metering_point_2511201615
--- ----------------------------
-DROP TABLE IF EXISTS "FWBZ"."metering_point_2511201615";
-CREATE TABLE "FWBZ"."metering_point_2511201615" (
-  "id" BIGINT NOT NULL,
-  "create_by" VARCHAR(255 CHAR),
-  "create_time" TIMESTAMP,
-  "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP,
-  "sys_org_code" VARCHAR(255 CHAR),
-  "type" VARCHAR(255 CHAR),
-  "node_code" VARCHAR(255 CHAR),
-  "node_name" VARCHAR(255 CHAR),
-  "parent_id" BIGINT,
-  "sort" INT,
-  "category_id" BIGINT,
-  "space_id" BIGINT,
-  "metering_unit" BIGINT,
-  "formula" TEXT,
-  "true_formula" TEXT
-)
-;
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."id" IS '主键';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."create_by" IS '创建人';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."create_time" IS '创建日期';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."update_by" IS '更新人';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."update_time" IS '更新日期';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."sys_org_code" IS '所属部门';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."type" IS '类型。数据字典：energy_flow_type';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."node_code" IS '节点编号';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."node_name" IS '节点名称';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."parent_id" IS '父节点';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."sort" IS '排序';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."category_id" IS '设备类别';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."space_id" IS '空间位置';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."metering_unit" IS '计量单位';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."formula" IS '公式';
-COMMENT ON COLUMN "FWBZ"."metering_point_2511201615"."true_formula" IS '解析后公式（将点位编码替换为设备编码）';
-COMMENT ON TABLE "FWBZ"."metering_point_2511201615" IS '计量点位配置';
-
--- ----------------------------
 -- Table structure for metering_point_cost_data_day
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."metering_point_cost_data_day";
@@ -1707,6 +1702,7 @@ CREATE TABLE "FWBZ"."metering_point_data_hour" (
   "value" DECIMAL(19,4)
 )
 ;
+COMMENT ON TABLE "FWBZ"."metering_point_data_hour" IS '计量点小时数据';
 
 -- ----------------------------
 -- Table structure for metering_point_data_month
@@ -2089,8 +2085,8 @@ CREATE TABLE "FWBZ"."table_acs_device" (
   "capability" VARCHAR(512),
   "dev_serial_num" VARCHAR(128),
   "data_version" VARCHAR(64),
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6),
   "online" VARCHAR2(255)
 )
 ;
@@ -2201,6 +2197,44 @@ COMMENT ON COLUMN "FWBZ"."table_activeMeet_preparation_type"."type_name" IS '筹
 COMMENT ON TABLE "FWBZ"."table_activeMeet_preparation_type" IS '会前筹备类型';
 
 -- ----------------------------
+-- Table structure for table_activeMeet_report
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_activeMeet_report";
+CREATE TABLE "FWBZ"."table_activeMeet_report" (
+  "id" BIGINT NOT NULL,
+  "active_name" VARCHAR2(255) NOT NULL,
+  "start_date" DATE,
+  "end_date" DATE,
+  "status" VARCHAR2(255) DEFAULT '0',
+  "service_personnel" BIGINT,
+  "complaints_total" BIGINT,
+  "recommended_total" BIGINT,
+  "device_failures_total" BIGINT,
+  "consumption_electricity" DOUBLE,
+  "person_energy_consumption" DOUBLE,
+  "day_number" BIGINT,
+  "passenger_flow" BIGINT,
+  "peak_flow" BIGINT,
+  "exhibitors" BIGINT
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."active_name" IS '活动名称';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."start_date" IS '开始日期';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."end_date" IS '结束日期';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."status" IS '状态,0：待总结，1，已总结';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."service_personnel" IS '总服务人数';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."complaints_total" IS '投诉数量';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."recommended_total" IS '建议数量';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."device_failures_total" IS '设备故障数';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."consumption_electricity" IS '总用电量';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."person_energy_consumption" IS '单人次能耗';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."day_number" IS '展会天数';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."passenger_flow" IS '总客流';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."peak_flow" IS '峰值客流';
+COMMENT ON COLUMN "FWBZ"."table_activeMeet_report"."exhibitors" IS '参展商数';
+COMMENT ON TABLE "FWBZ"."table_activeMeet_report" IS '展会总结报告';
+
+-- ----------------------------
 -- Table structure for table_activeMeets_device_type
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."table_activeMeets_device_type";
@@ -2223,34 +2257,34 @@ DROP TABLE IF EXISTS "FWBZ"."table_camera_resource";
 CREATE TABLE "FWBZ"."table_camera_resource" (
   "id" BIGINT NOT NULL,
   "index_code" VARCHAR(64) NOT NULL,
-  "resource_type" VARCHAR(32) DEFAULT NULL,
-  "external_index_code" VARCHAR(64) DEFAULT NULL,
-  "name" VARCHAR(128) DEFAULT NULL,
-  "chan_num" INT DEFAULT NULL,
-  "cascade_code" VARCHAR(64) DEFAULT NULL,
-  "parent_index_code" VARCHAR(64) DEFAULT NULL,
-  "longitude" DECIMAL(12,8) DEFAULT NULL,
-  "latitude" DECIMAL(12,8) DEFAULT NULL,
-  "elevation" VARCHAR(32) DEFAULT NULL,
-  "camera_type" TINYINT DEFAULT NULL,
-  "capability" VARCHAR(512) DEFAULT NULL,
-  "record_location" VARCHAR(32) DEFAULT NULL,
-  "channel_type" VARCHAR(16) DEFAULT NULL,
-  "region_index_code" VARCHAR(64) DEFAULT NULL,
-  "region_path" VARCHAR(512) DEFAULT NULL,
-  "trans_type" TINYINT DEFAULT NULL,
-  "treaty_type" VARCHAR(32) DEFAULT NULL,
-  "install_location" VARCHAR(256) DEFAULT NULL,
-  "create_time" DATETIME(6) DEFAULT NULL,
-  "update_time" DATETIME(6) DEFAULT NULL,
-  "dis_order" INT DEFAULT NULL,
-  "resource_index_code" VARCHAR(64) DEFAULT NULL,
-  "decode_tag" VARCHAR(32) DEFAULT NULL,
-  "camera_relate_talk" VARCHAR(64) DEFAULT NULL,
-  "region_name" VARCHAR(512) DEFAULT NULL,
-  "region_path_name" VARCHAR(512) DEFAULT NULL,
-  "gmt_create" DATETIME(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" DATETIME(6) DEFAULT CURRENT_TIMESTAMP,
+  "resource_type" VARCHAR(32),
+  "external_index_code" VARCHAR(64),
+  "name" VARCHAR(128),
+  "chan_num" INT,
+  "cascade_code" VARCHAR(64),
+  "parent_index_code" VARCHAR(64),
+  "longitude" DECIMAL(12,8),
+  "latitude" DECIMAL(12,8),
+  "elevation" VARCHAR(32),
+  "camera_type" TINYINT,
+  "capability" VARCHAR(512),
+  "record_location" VARCHAR(32),
+  "channel_type" VARCHAR(16),
+  "region_index_code" VARCHAR(64),
+  "region_path" VARCHAR(512),
+  "trans_type" TINYINT,
+  "treaty_type" VARCHAR(32),
+  "install_location" VARCHAR(256),
+  "create_time" DATETIME(6),
+  "update_time" DATETIME(6),
+  "dis_order" INT,
+  "resource_index_code" VARCHAR(64),
+  "decode_tag" VARCHAR(32),
+  "camera_relate_talk" VARCHAR(64),
+  "region_name" VARCHAR(512),
+  "region_path_name" VARCHAR(512),
+  "gmt_create" DATETIME(6),
+  "gmt_modified" DATETIME(6),
   "online" TINYINT
 )
 ;
@@ -2300,10 +2334,10 @@ CREATE TABLE "FWBZ"."table_complaint_info" (
   "content" TEXT,
   "source" VARCHAR(128),
   "handler" VARCHAR(64),
-  "status" VARCHAR(32) DEFAULT '待处理',
+  "status" VARCHAR(32),
   "remark" VARCHAR(512),
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_complaint_info"."id" IS '投诉建议ID，自增主键';
@@ -2333,8 +2367,8 @@ CREATE TABLE "FWBZ"."table_complaint_record" (
   "status_from" VARCHAR(32),
   "status_to" VARCHAR(32),
   "handler" VARCHAR(64),
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_complaint_record"."id" IS '记录ID，自增主键';
@@ -2357,8 +2391,8 @@ CREATE TABLE "FWBZ"."table_complaint_status" (
   "id" BIGINT NOT NULL,
   "status_id" BIGINT NOT NULL,
   "status_name" VARCHAR(64) NOT NULL,
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_complaint_status"."id" IS '主键ID，自增';
@@ -2375,8 +2409,8 @@ DROP TABLE IF EXISTS "FWBZ"."table_complaint_type";
 CREATE TABLE "FWBZ"."table_complaint_type" (
   "id" BIGINT NOT NULL,
   "type_name" VARCHAR(64) NOT NULL,
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_complaint_type"."id" IS '类型ID，自增主键';
@@ -2415,8 +2449,8 @@ CREATE TABLE "FWBZ"."table_door_event" (
   "job_no" VARCHAR(64),
   "student_id" VARCHAR(64),
   "cert_no" VARCHAR(64),
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_door_event"."id" IS '主键，自增';
@@ -2475,8 +2509,8 @@ CREATE TABLE "FWBZ"."table_door_resource" (
   "region_name" VARCHAR(256),
   "region_path_name" VARCHAR(512),
   "install_location" VARCHAR(256),
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6),
   "door_state" VARCHAR2(255)
 )
 ;
@@ -2521,13 +2555,13 @@ CREATE TABLE "FWBZ"."table_event_notify" (
   "src_name" VARCHAR(128),
   "event_type" INT NOT NULL,
   "status" INT NOT NULL,
-  "event_lvl" INT DEFAULT 0,
+  "event_lvl" INT,
   "timeout" INT NOT NULL,
   "happen_time" VARCHAR(64) NOT NULL,
   "src_parent_index" VARCHAR(64),
   "event_data" CLOB,
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_event_notify"."id" IS '主键，自增';
@@ -2559,6 +2593,45 @@ CREATE TABLE "FWBZ"."table_event_type" (
 )
 ;
 COMMENT ON TABLE "FWBZ"."table_event_type" IS '海康事件类型';
+
+-- ----------------------------
+-- Table structure for table_fire_alarm_record
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_fire_alarm_record";
+CREATE TABLE "FWBZ"."table_fire_alarm_record" (
+  "id" BIGINT NOT NULL,
+  "device_id" VARCHAR(64),
+  "alarm_date" DATE,
+  "alarm_time" TIME,
+  "alarm_type" VARCHAR(32),
+  "alarm_level" TINYINT,
+  "alarm_content" VARCHAR(512),
+  "alarm_location" VARCHAR(128),
+  "handle_status" TINYINT,
+  "handler" VARCHAR(64),
+  "handle_time" TIMESTAMP(6),
+  "handle_remark" VARCHAR(512),
+  "status" TINYINT,
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."id" IS '主键ID';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."device_id" IS '消防设备ID(关联消防设备表)';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."alarm_date" IS '报警日期';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."alarm_time" IS '报警时间';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."alarm_type" IS '报警类型: 烟感报警/温感报警/手报报警/设备故障/低电量/离线';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."alarm_level" IS '报警级别: 1低 2中 3高 4紧急';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."alarm_content" IS '报警内容描述';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."alarm_location" IS '报警位置';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."handle_status" IS '处理状态: 0未处理 1处理中 2已处理 3误报 4忽略';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."handler" IS '处理人';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."handle_time" IS '处理时间';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."handle_remark" IS '处理备注';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."status" IS '状态: 1正常 0删除';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."gmt_create" IS '创建时间';
+COMMENT ON COLUMN "FWBZ"."table_fire_alarm_record"."gmt_modified" IS '修改时间';
+COMMENT ON TABLE "FWBZ"."table_fire_alarm_record" IS '消防设备报警记录表';
 
 -- ----------------------------
 -- Table structure for table_http_system
@@ -2617,7 +2690,8 @@ CREATE TABLE "FWBZ"."table_interface_info" (
   "sys_org_code" VARCHAR2(50),
   "test_path" VARCHAR2(255),
   "cycle" VARCHAR2(255),
-  "collection_point_location" BIGINT
+  "collection_point_location" BIGINT,
+  "header" VARCHAR2(255)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."sys_name" IS '系统名称';
@@ -2634,6 +2708,7 @@ COMMENT ON COLUMN "FWBZ"."table_interface_info"."sys_org_code" IS '所属部门'
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."test_path" IS '测试地址';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."cycle" IS '采集周期';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."collection_point_location" IS '采集点位';
+COMMENT ON COLUMN "FWBZ"."table_interface_info"."header" IS 'appkey或其它选项';
 COMMENT ON TABLE "FWBZ"."table_interface_info" IS '接口信息表';
 
 -- ----------------------------
@@ -2670,8 +2745,8 @@ CREATE TABLE "FWBZ"."table_parking_record" (
   "direction" VARCHAR(20),
   "space_no" VARCHAR(30),
   "park_duration" VARCHAR(50),
-  "gmt_create" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP,
+  "gmt_modified" TIMESTAMP
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_parking_record"."id" IS '主键ID';
@@ -2738,8 +2813,8 @@ CREATE TABLE "FWBZ"."table_person_recognition" (
   "direction" VARCHAR(16),
   "venue" VARCHAR(128),
   "employee_no" VARCHAR(64),
-  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+  "gmt_create" TIMESTAMP(6),
+  "gmt_modified" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_person_recognition"."id" IS '主键ID，自增';
@@ -2762,12 +2837,12 @@ DROP TABLE IF EXISTS "FWBZ"."table_personnel_statistics";
 CREATE TABLE "FWBZ"."table_personnel_statistics" (
   "id" BIGINT NOT NULL,
   "stat_date" DATE,
-  "today_entry_count" BIGINT DEFAULT 0,
-  "current_in_count" BIGINT DEFAULT 0,
-  "recognition_record_count" BIGINT DEFAULT 0,
-  "abnormal_warning_count" BIGINT DEFAULT 0,
-  "gmt_create" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  "today_entry_count" BIGINT,
+  "current_in_count" BIGINT,
+  "recognition_record_count" BIGINT,
+  "abnormal_warning_count" BIGINT,
+  "gmt_create" TIMESTAMP,
+  "gmt_modified" TIMESTAMP
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_personnel_statistics"."id" IS '主键ID';
@@ -2816,23 +2891,23 @@ DROP TABLE IF EXISTS "FWBZ"."table_region_resource";
 CREATE TABLE "FWBZ"."table_region_resource" (
   "id" BIGINT NOT NULL,
   "index_code" VARCHAR(64) NOT NULL,
-  "name" VARCHAR(128) DEFAULT NULL,
-  "region_path" VARCHAR(512) DEFAULT NULL,
-  "parent_index_code" VARCHAR(64) DEFAULT NULL,
-  "available" INT DEFAULT NULL,
-  "leaf" INT DEFAULT NULL,
-  "cascade_code" VARCHAR(256) DEFAULT NULL,
-  "cascade_type" TINYINT DEFAULT NULL,
-  "catalog_type" TINYINT DEFAULT NULL,
-  "external_index_code" VARCHAR(64) DEFAULT NULL,
-  "parent_external_index_code" VARCHAR(64) DEFAULT NULL,
-  "sort" INT DEFAULT NULL,
-  "local_quantity" INT DEFAULT NULL,
-  "total_quantity" INT DEFAULT NULL,
-  "create_time" DATETIME(6) DEFAULT NULL,
-  "update_time" DATETIME(6) DEFAULT NULL,
-  "gmt_create" DATETIME(6) DEFAULT CURRENT_TIMESTAMP,
-  "gmt_modified" DATETIME(6) DEFAULT CURRENT_TIMESTAMP
+  "name" VARCHAR(128),
+  "region_path" VARCHAR(512),
+  "parent_index_code" VARCHAR(64),
+  "available" INT,
+  "leaf" INT,
+  "cascade_code" VARCHAR(256),
+  "cascade_type" TINYINT,
+  "catalog_type" TINYINT,
+  "external_index_code" VARCHAR(64),
+  "parent_external_index_code" VARCHAR(64),
+  "sort" INT,
+  "local_quantity" INT,
+  "total_quantity" INT,
+  "create_time" DATETIME(6),
+  "update_time" DATETIME(6),
+  "gmt_create" DATETIME(6),
+  "gmt_modified" DATETIME(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_region_resource"."id" IS '主键ID';
@@ -2864,13 +2939,39 @@ CREATE TABLE "FWBZ"."table_smoke_detector" (
   "id" BIGINT NOT NULL,
   "device_name" VARCHAR2(255),
   "status" VARCHAR2(255),
-  "device_type" VARCHAR2(255)
+  "device_type" VARCHAR2(255),
+  "venue_id" BIGINT,
+  "last_check_time" DATE,
+  "longitude" DECIMAL(12,8),
+  "latitude" DECIMAL(12,8) DEFAULT NULL,
+  "location" VARCHAR2(255),
+  "signal" VARCHAR2(255),
+  "power_level" VARCHAR2(255)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."device_name" IS '设备名称';
 COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."status" IS '状态';
 COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."device_type" IS '设备类型，1：烟感，2，温感，3，光感，4消防栓';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."venue_id" IS '场馆id';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."last_check_time" IS '最后巡检时间';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."longitude" IS '精度，精确到小数点后8位';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."latitude" IS '纬度，精确到小数点后8位';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."location" IS '安装位置';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."signal" IS '信号强度';
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector"."power_level" IS '电量';
 COMMENT ON TABLE "FWBZ"."table_smoke_detector" IS '消防设备';
+
+-- ----------------------------
+-- Table structure for table_smoke_detector_type
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_smoke_detector_type";
+CREATE TABLE "FWBZ"."table_smoke_detector_type" (
+  "id" BIGINT NOT NULL,
+  "type_name" VARCHAR2(255)
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_smoke_detector_type"."type_name" IS '设备类型';
+COMMENT ON TABLE "FWBZ"."table_smoke_detector_type" IS '消防设备类型';
 
 -- ----------------------------
 -- Table structure for table_venue_flow
@@ -2898,6 +2999,33 @@ COMMENT ON COLUMN "FWBZ"."table_venue_flow"."status" IS '状态';
 COMMENT ON TABLE "FWBZ"."table_venue_flow" IS '各场馆客流统计';
 
 -- ----------------------------
+-- Table structure for table_venue_flow_hour
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_venue_flow_hour";
+CREATE TABLE "FWBZ"."table_venue_flow_hour" (
+  "data_date" DATE,
+  "venue_id" BIGINT,
+  "today_in_count" BIGINT,
+  "today_now_count" BIGINT,
+  "max_count" BIGINT,
+  "max_time" TIME,
+  "average_duration" DOUBLE,
+  "id" BIGINT NOT NULL,
+  "status" TINYINT,
+  "data_hour" TIME
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."venue_id" IS '场馆id';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."today_in_count" IS '进场';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."today_now_count" IS '在场';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."max_count" IS '峰值';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."max_time" IS '峰值时间';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."average_duration" IS '平均时长';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."status" IS '状态';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."data_hour" IS '时间';
+COMMENT ON TABLE "FWBZ"."table_venue_flow_hour" IS '各场馆客流分时统计';
+
+-- ----------------------------
 -- Table structure for table_venue_info
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."table_venue_info";
@@ -2911,7 +3039,9 @@ CREATE TABLE "FWBZ"."table_venue_info" (
   "lighting" VARCHAR2(255),
   "basic_facility" VARCHAR2(255),
   "buildable" TINYINT NOT NULL,
-  "floors" BIGINT
+  "floors" BIGINT,
+  "longitude" DECIMAL(12,8),
+  "latitude" DECIMAL(12,8) DEFAULT NULL
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."venue_name" IS '场馆名称';
@@ -2923,6 +3053,8 @@ COMMENT ON COLUMN "FWBZ"."table_venue_info"."lighting" IS '采光条件';
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."basic_facility" IS '基础情况';
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."buildable" IS '可施工 1=是 0=否';
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."floors" IS '楼层';
+COMMENT ON COLUMN "FWBZ"."table_venue_info"."longitude" IS '精度，精确到小数点后8位';
+COMMENT ON COLUMN "FWBZ"."table_venue_info"."latitude" IS '纬度，精确到小数点后8位';
 COMMENT ON TABLE "FWBZ"."table_venue_info" IS '场馆基本信息';
 
 -- ----------------------------
@@ -2975,6 +3107,11 @@ COMMENT ON COLUMN "FWBZ"."unit_management"."english_ame" IS '英文名称';
 COMMENT ON COLUMN "FWBZ"."unit_management"."sort" IS '排序';
 COMMENT ON COLUMN "FWBZ"."unit_management"."remark" IS '说明';
 COMMENT ON TABLE "FWBZ"."unit_management" IS '计量单位管理';
+
+-- ----------------------------
+-- Primary Key structure for table ai_report_history
+-- ----------------------------
+ALTER TABLE "FWBZ"."ai_report_history" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table alarm_category
@@ -3040,31 +3177,6 @@ ALTER TABLE "FWBZ"."carbon_emission_factor" ADD PRIMARY KEY ("id");
 -- Primary Key structure for table data_amend_log
 -- ----------------------------
 ALTER TABLE "FWBZ"."data_amend_log" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table data_day
--- ----------------------------
-ALTER TABLE "FWBZ"."data_day" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table data_hour
--- ----------------------------
-ALTER TABLE "FWBZ"."data_hour" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table data_minute
--- ----------------------------
-ALTER TABLE "FWBZ"."data_minute" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table data_month
--- ----------------------------
-ALTER TABLE "FWBZ"."data_month" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table data_year
--- ----------------------------
-ALTER TABLE "FWBZ"."data_year" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table device
@@ -3252,11 +3364,6 @@ ALTER TABLE "FWBZ"."log_strategy_execute_record" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."metering_point" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Primary Key structure for table metering_point_2511201615
--- ----------------------------
-ALTER TABLE "FWBZ"."metering_point_2511201615" ADD PRIMARY KEY ("id");
-
--- ----------------------------
 -- Primary Key structure for table metering_point_cost_data_day
 -- ----------------------------
 ALTER TABLE "FWBZ"."metering_point_cost_data_day" ADD PRIMARY KEY ("id");
@@ -3352,34 +3459,6 @@ ALTER TABLE "FWBZ"."standard_coal_coefficient" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."table_acs_device" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_acs_device
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_acs_dev_dev_serial_num"
-  ON "FWBZ"."table_acs_device" ("dev_serial_num" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_dev_dev_type_code"
-  ON "FWBZ"."table_acs_device" ("dev_type_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_dev_device_code"
-  ON "FWBZ"."table_acs_device" ("device_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_dev_name"
-  ON "FWBZ"."table_acs_device" ("name" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_dev_net_zone_id"
-  ON "FWBZ"."table_acs_device" ("net_zone_id" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_dev_parent_index"
-  ON "FWBZ"."table_acs_device" ("parent_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_dev_region_index"
-  ON "FWBZ"."table_acs_device" ("region_index_code" ASC)
-   UNUSABLE;
-CREATE UNIQUE INDEX "FWBZ"."uk_acs_dev_index_code"
-  ON "FWBZ"."table_acs_device" ("index_code" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_activeMeet_info
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_activeMeet_info" ADD PRIMARY KEY ("id");
@@ -3393,6 +3472,11 @@ ALTER TABLE "FWBZ"."table_activeMeet_preparation_info" ADD PRIMARY KEY ("id");
 -- Primary Key structure for table table_activeMeet_preparation_type
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_activeMeet_preparation_type" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table table_activeMeet_report
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_activeMeet_report" ADD PRIMARY KEY ("id", "active_name");
 
 -- ----------------------------
 -- Primary Key structure for table table_activeMeets_device_type
@@ -3410,49 +3494,9 @@ ALTER TABLE "FWBZ"."table_camera_resource" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."table_camera_resource" ADD UNIQUE ("index_code");
 
 -- ----------------------------
--- Indexes structure for table table_camera_resource
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_external_index_code"
-  ON "FWBZ"."table_camera_resource" ("external_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_name"
-  ON "FWBZ"."table_camera_resource" ("name" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_parent_index_code"
-  ON "FWBZ"."table_camera_resource" ("parent_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_region_index_code"
-  ON "FWBZ"."table_camera_resource" ("region_index_code" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_complaint_info
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_complaint_info" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Indexes structure for table table_complaint_info
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_ci_date"
-  ON "FWBZ"."table_complaint_info" ("complaint_date" ASC)
-  STORAGE (CLUSTERBTR)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_ci_handler"
-  ON "FWBZ"."table_complaint_info" ("handler" ASC)
-  STORAGE (CLUSTERBTR)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_ci_source"
-  ON "FWBZ"."table_complaint_info" ("source" ASC)
-  STORAGE (CLUSTERBTR)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_ci_status"
-  ON "FWBZ"."table_complaint_info" ("status" ASC)
-  STORAGE (CLUSTERBTR)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_ci_type_id"
-  ON "FWBZ"."table_complaint_info" ("type_id" ASC)
-  STORAGE (CLUSTERBTR)
-   UNUSABLE;
 
 -- ----------------------------
 -- Primary Key structure for table table_complaint_record
@@ -3460,35 +3504,9 @@ CREATE INDEX "FWBZ"."idx_ci_type_id"
 ALTER TABLE "FWBZ"."table_complaint_record" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_complaint_record
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_cr_complaint_id"
-  ON "FWBZ"."table_complaint_record" ("complaint_id" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_cr_handle_date"
-  ON "FWBZ"."table_complaint_record" ("handle_date" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_cr_handler"
-  ON "FWBZ"."table_complaint_record" ("handler" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_cr_status_to"
-  ON "FWBZ"."table_complaint_record" ("status_to" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_complaint_status
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_complaint_status" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Indexes structure for table table_complaint_status
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_complaint_status_name"
-  ON "FWBZ"."table_complaint_status" ("status_name" ASC)
-   UNUSABLE;
-CREATE UNIQUE INDEX "FWBZ"."uk_complaint_status_id"
-  ON "FWBZ"."table_complaint_status" ("status_id" ASC)
-   UNUSABLE;
 
 -- ----------------------------
 -- Primary Key structure for table table_complaint_type
@@ -3496,56 +3514,9 @@ CREATE UNIQUE INDEX "FWBZ"."uk_complaint_status_id"
 ALTER TABLE "FWBZ"."table_complaint_type" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_complaint_type
--- ----------------------------
-CREATE UNIQUE INDEX "FWBZ"."uk_complaint_type_name"
-  ON "FWBZ"."table_complaint_type" ("type_name" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_door_event
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_door_event" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Indexes structure for table table_door_event
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_acs_event_card_no"
-  ON "FWBZ"."table_door_event" ("card_no" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_dev_index"
-  ON "FWBZ"."table_door_event" ("dev_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_door_index"
-  ON "FWBZ"."table_door_event" ("door_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_door_region"
-  ON "FWBZ"."table_door_event" ("door_region_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_event_time"
-  ON "FWBZ"."table_door_event" ("event_time" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_event_type"
-  ON "FWBZ"."table_door_event" ("event_type" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_in_and_out"
-  ON "FWBZ"."table_door_event" ("in_and_out_type" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_job_no"
-  ON "FWBZ"."table_door_event" ("job_no" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_org_index"
-  ON "FWBZ"."table_door_event" ("org_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_person_id"
-  ON "FWBZ"."table_door_event" ("person_id" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_acs_event_receive_time"
-  ON "FWBZ"."table_door_event" ("receive_time" ASC)
-   UNUSABLE;
-CREATE UNIQUE INDEX "FWBZ"."uk_acs_event_event_id"
-  ON "FWBZ"."table_door_event" ("event_id" ASC)
-   UNUSABLE;
 
 -- ----------------------------
 -- Primary Key structure for table table_door_resource
@@ -3553,59 +3524,9 @@ CREATE UNIQUE INDEX "FWBZ"."uk_acs_event_event_id"
 ALTER TABLE "FWBZ"."table_door_resource" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_door_resource
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_door_control_one"
-  ON "FWBZ"."table_door_resource" ("control_one_id" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_door_control_two"
-  ON "FWBZ"."table_door_resource" ("control_two_id" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_door_door_no"
-  ON "FWBZ"."table_door_resource" ("door_no" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_door_name"
-  ON "FWBZ"."table_door_resource" ("name" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_door_parent_index"
-  ON "FWBZ"."table_door_resource" ("parent_index_code" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_door_region_index"
-  ON "FWBZ"."table_door_resource" ("region_index_code" ASC)
-   UNUSABLE;
-CREATE UNIQUE INDEX "FWBZ"."uk_door_index_code"
-  ON "FWBZ"."table_door_resource" ("index_code" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_event_notify
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_event_notify" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Indexes structure for table table_event_notify
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_event_notify_event_type"
-  ON "FWBZ"."table_event_notify" ("event_type" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_event_notify_happen_time"
-  ON "FWBZ"."table_event_notify" ("happen_time" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_event_notify_send_time"
-  ON "FWBZ"."table_event_notify" ("send_time" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_event_notify_src_index"
-  ON "FWBZ"."table_event_notify" ("src_index" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_event_notify_src_parent"
-  ON "FWBZ"."table_event_notify" ("src_parent_index" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_event_notify_status"
-  ON "FWBZ"."table_event_notify" ("status" ASC)
-   UNUSABLE;
-CREATE UNIQUE INDEX "FWBZ"."uk_event_notify_id"
-  ON "FWBZ"."table_event_notify" ("event_id" ASC, "happen_time" ASC)
-   UNUSABLE;
 
 -- ----------------------------
 -- Triggers structure for table table_event_notify
@@ -3622,11 +3543,18 @@ END;
 ALTER TABLE "FWBZ"."table_event_type" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_event_type
+-- Primary Key structure for table table_fire_alarm_record
 -- ----------------------------
-CREATE UNIQUE INDEX "FWBZ"."uk_event_type_code"
-  ON "FWBZ"."table_event_type" ("event_code" ASC)
-   UNUSABLE;
+ALTER TABLE "FWBZ"."table_fire_alarm_record" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Triggers structure for table table_fire_alarm_record
+-- ----------------------------
+CREATE TRIGGER "FWBZ"."trg_far_gmt_modified" BEFORE UPDATE ON "FWBZ"."table_fire_alarm_record" FOR EACH ROW 
+BEGIN
+    :NEW.gmt_modified = CURRENT_TIMESTAMP;
+END;
+/
 
 -- ----------------------------
 -- Primary Key structure for table table_http_system
@@ -3654,22 +3582,6 @@ ALTER TABLE "FWBZ"."table_parking_count" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."table_parking_record" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_parking_record
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_park_date"
-  ON "FWBZ"."table_parking_record" ("park_date" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_park_parking_lot"
-  ON "FWBZ"."table_parking_record" ("parking_lot" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_park_plate_no"
-  ON "FWBZ"."table_parking_record" ("plate_no" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_park_space_no"
-  ON "FWBZ"."table_parking_record" ("space_no" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_patrol_plan
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_patrol_plan" ADD PRIMARY KEY ("id");
@@ -3685,44 +3597,9 @@ ALTER TABLE "FWBZ"."table_patrolHistory" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."table_person_recognition" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Indexes structure for table table_person_recognition
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_pr_direction"
-  ON "FWBZ"."table_person_recognition" ("direction" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_pr_employee_no"
-  ON "FWBZ"."table_person_recognition" ("employee_no" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_pr_location"
-  ON "FWBZ"."table_person_recognition" ("recognize_location" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_pr_person_name"
-  ON "FWBZ"."table_person_recognition" ("person_name" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_pr_person_type"
-  ON "FWBZ"."table_person_recognition" ("person_type" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_pr_recognize_time"
-  ON "FWBZ"."table_person_recognition" ("recognize_time" ASC)
-   UNUSABLE;
-CREATE INDEX "FWBZ"."idx_pr_venue"
-  ON "FWBZ"."table_person_recognition" ("venue" ASC)
-   UNUSABLE;
-
--- ----------------------------
 -- Primary Key structure for table table_personnel_statistics
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_personnel_statistics" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Indexes structure for table table_personnel_statistics
--- ----------------------------
-CREATE INDEX "FWBZ"."idx_personnel_stat_date"
-  ON "FWBZ"."table_personnel_statistics" ("stat_date" ASC)
-   UNUSABLE;
-CREATE UNIQUE INDEX "FWBZ"."uk_personnel_stat_date"
-  ON "FWBZ"."table_personnel_statistics" ("stat_date" ASC)
-   UNUSABLE;
 
 -- ----------------------------
 -- Primary Key structure for table table_plan_camera
@@ -3745,9 +3622,19 @@ ALTER TABLE "FWBZ"."table_region_resource" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."table_smoke_detector" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
+-- Primary Key structure for table table_smoke_detector_type
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_smoke_detector_type" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
 -- Primary Key structure for table table_venue_flow
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_venue_flow" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table table_venue_flow_hour
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_venue_flow_hour" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table table_venue_info

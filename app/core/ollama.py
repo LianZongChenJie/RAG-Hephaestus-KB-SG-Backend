@@ -115,6 +115,32 @@ class OllamaClient:
             logger.warning(f"chat_for_report content 长度: {len(content)}")
             return content
 
+    def call_llm(self, messages: List[Dict[str, str]], *, temperature: float = 0.1) -> str:
+        """同步调用 LLM，返回完整回复（用于 SQL 生成、检测等短文本任务）"""
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "think": self.think,
+            "keep_alive": self.keep_alive,
+            "options": {
+                "num_gpu": self.num_gpu,
+                "temperature": temperature,
+                "num_ctx": settings.model_defaults.num_ctx,
+                "num_predict": 2048,
+            },
+        }
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(self.chat_url, json=payload)
+            if response.status_code != 200:
+                raise httpx.HTTPStatusError(
+                    message=f"Ollama 返回 {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
+            result = response.json()
+            return result.get("message", {}).get("content", "")
+
     async def check_health(self) -> tuple[bool, Optional[str], bool]:
         """检查 Ollama 健康状态"""
         try:

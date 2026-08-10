@@ -1298,7 +1298,142 @@ data: {"done": true}
 
 ---
 
-### 5.5 查询报告列表
+### 5.5 多模态能碳计算报告
+
+**接口地址**: `POST /api/ai-report/carbon`
+
+**功能说明**: 基于 AI 对电、水、气、热四类能源的实时计量数据进行分析，融合物理机理模型与机器学习算法，对园区能碳排放进行多维度精准核算。
+
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|-------|------|------|------|
+| time_range | string | 是 | 时间范围 |
+| venue_name | string | 否 | 会展名称 |
+| zone_name | string | 否 | 分区名称 |
+
+**time_range 可选值**:
+
+| 值 | 说明 |
+|----|------|
+| day | 日报 |
+| week | 周报 |
+| month | 月报 |
+| quarter | 季度报告 |
+| year | 年度报告 |
+
+**请求示例**:
+
+```json
+{
+    "time_range": "month",
+    "venue_name": "1号馆"
+}
+```
+
+**响应参数**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| report_id | int | 报告ID |
+| report_title | string | 报告标题 |
+| report_desc | string | 报告描述 |
+| energy_type_count | int | 监测能源类型数量 |
+| today_carbon | float | 今日碳排放(吨CO₂) |
+| today_carbon_change | float | 今日碳排放环比变化(%) |
+| month_carbon | float | 本月累计碳排放(吨CO₂) |
+| month_carbon_change | float | 本月碳排放环比变化(%) |
+| carbon_intensity | float | 碳强度(kgCO₂/㎡) |
+| carbon_intensity_change | float | 碳强度环比变化(%) |
+| metrics | array | 核心指标 |
+| carbon_sources | array | 碳排放来源占比 |
+| carbon_trends | array | 碳排放月度趋势 |
+| summary | string | AI分析总结 |
+| suggestions | array | 碳减排建议 |
+
+**响应示例**:
+
+```json
+{
+    "report_id": 25,
+    "report_title": "多模态能碳计算报告 - 2026年6月",
+    "report_desc": "本报告基于会展小镇内电、水、气、热四类能源的实时计量数据，融合物理机理模型与机器学习算法，对园区能碳排放进行多维度精准核算。",
+    "energy_type_count": 4,
+    "today_carbon": 28.5,
+    "today_carbon_change": -3.2,
+    "month_carbon": 856.3,
+    "month_carbon_change": -5.8,
+    "carbon_intensity": 0.45,
+    "carbon_intensity_change": -8.2,
+    "metrics": [
+        {
+            "value": "856.3",
+            "label": "本月碳排(吨CO₂)"
+        },
+        {
+            "value": "-5.8%",
+            "label": "环比变化"
+        },
+        {
+            "value": "0.45",
+            "label": "碳强度(kg/㎡)"
+        },
+        {
+            "value": "12.3%",
+            "label": "减排潜力"
+        }
+    ],
+    "carbon_sources": [
+        {
+            "source": "电力",
+            "value": 582.28,
+            "percentage": 68.0
+        },
+        {
+            "source": "天然气",
+            "value": 188.39,
+            "percentage": 22.0
+        },
+        {
+            "source": "热力",
+            "value": 59.94,
+            "percentage": 7.0
+        },
+        {
+            "source": "其他",
+            "value": 25.69,
+            "percentage": 3.0
+        }
+    ],
+    "carbon_trends": [
+        {
+            "month": "2026-01",
+            "actual": 920.5,
+            "target": 950.0
+        },
+        {
+            "month": "2026-02",
+            "actual": 875.3,
+            "target": 920.0
+        },
+        {
+            "month": "2026-03",
+            "actual": 892.1,
+            "target": 900.0
+        }
+    ],
+    "summary": "本月碳排放总量为856.3吨CO₂，较上月下降5.8%。电力是主要碳排放来源，占比68%，建议重点优化用电结构。",
+    "suggestions": [
+        "优化空调系统运行策略，降低电力消耗",
+        "推广绿色能源使用，减少碳排放",
+        "建立碳排放预警机制，实时监控碳排放异常"
+    ]
+}
+```
+
+---
+
+### 5.6 查询报告列表
 
 **接口地址**: `GET /api/ai-report/history`
 
@@ -1367,7 +1502,7 @@ GET /api/ai-report/history?page=1&page_size=10&report_type=run
 
 ---
 
-### 5.6 获取报告详情
+### 5.7 获取报告详情
 
 **接口地址**: `GET /api/ai-report/history/{report_id}`
 
@@ -1430,7 +1565,7 @@ GET /api/ai-report/history/1
 
 ---
 
-### 5.7 获取报告统计
+### 5.8 获取报告统计
 
 **接口地址**: `GET /api/ai-report/stats`
 
@@ -1464,7 +1599,7 @@ GET /api/ai-report/history/1
 
 ---
 
-### 5.8 删除报告
+### 5.9 删除报告
 
 **接口地址**: `DELETE /api/ai-report/history/{report_id}`
 
@@ -1491,7 +1626,7 @@ DELETE /api/ai-report/history/1
 
 ---
 
-### 5.9 获取会展列表
+### 5.10 获取会展列表
 
 **接口地址**: `GET /api/ai-report/venues`
 

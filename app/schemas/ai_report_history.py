@@ -53,6 +53,8 @@ class AIReportHistoryListItem(BaseModel):
     target_name: Optional[str] = None
     scope: Optional[str] = None
     summary: Optional[str] = None
+    data_volume: str = Field(..., description="数据量（如：12设备/8告警）")
+    status: str = Field(..., description="状态: 已完成/生成中/失败")
     created_at: datetime
 
     class Config:

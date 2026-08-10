@@ -6,6 +6,64 @@
     "schema": "FWBZ"
   },
   "tables": {
+    "ai_report_history": {
+      "name": "ai_report_history",
+      "description": "AI报告历史记录表",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键"
+        },
+        "report_type": {
+          "type": "VARCHAR",
+          "desc": "报告类型: run-运行报告, predict-预测报告, energy-节能报告, fault-故障分析报告"
+        },
+        "title": {
+          "type": "VARCHAR",
+          "desc": "报告标题"
+        },
+        "content": {
+          "type": "TEXT",
+          "desc": "报告完整内容(JSON格式)"
+        },
+        "summary": {
+          "type": "VARCHAR",
+          "desc": "报告摘要(前500字符)"
+        },
+        "time_range": {
+          "type": "VARCHAR",
+          "desc": "时间范围: day-日报, week-周报, month-月报, quarter-季度报告, year-年度报告"
+        },
+        "target_id": {
+          "type": "BIGINT",
+          "desc": "目标ID(设备ID等)"
+        },
+        "target_name": {
+          "type": "VARCHAR",
+          "desc": "目标名称"
+        },
+        "scope": {
+          "type": "VARCHAR",
+          "desc": "范围类型: all/zone/device"
+        },
+        "query_params": {
+          "type": "TEXT",
+          "desc": "查询参数(JSON格式)"
+        },
+        "query_data": {
+          "type": "TEXT",
+          "desc": "原始查询数据(JSON格式)"
+        },
+        "created_at": {
+          "type": "TIMESTAMP",
+          "desc": "创建时间"
+        },
+        "updated_at": {
+          "type": "TIMESTAMP",
+          "desc": "更新时间"
+        }
+      }
+    },
     "alarm_record": {
       "name": "alarm_record",
       "description": "告警记录表",
@@ -13,6 +71,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "alarm_rule_id": {
           "type": "BIGINT",
@@ -124,6 +202,26 @@
           "type": "BIGINT",
           "desc": "主键"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "alarm_category_name": {
           "type": "VARCHAR",
           "desc": "类别名称"
@@ -131,6 +229,10 @@
         "alarm_category_code": {
           "type": "VARCHAR",
           "desc": "类别编号"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序字段"
         },
         "status": {
           "type": "VARCHAR",
@@ -146,6 +248,26 @@
           "type": "BIGINT",
           "desc": "主键"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "alarm_level_code": {
           "type": "VARCHAR",
           "desc": "等级编号"
@@ -153,6 +275,10 @@
         "alarm_level_name": {
           "type": "VARCHAR",
           "desc": "等级名称"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序字段"
         },
         "status": {
           "type": "VARCHAR",
@@ -171,6 +297,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键ID"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "rule_code": {
           "type": "VARCHAR",
@@ -230,6 +376,26 @@
           "type": "BIGINT",
           "desc": "主键ID"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "alarm_rule_id": {
           "type": "BIGINT",
           "desc": "告警规则ID"
@@ -271,6 +437,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "device_code": {
           "type": "VARCHAR",
@@ -315,6 +501,14 @@
         "venue_id": {
           "type": "BIGINT",
           "desc": "场馆id"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        },
+        "remark": {
+          "type": "TEXT",
+          "desc": "备注"
         }
       }
     },
@@ -325,6 +519,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "device_id": {
           "type": "BIGINT",
@@ -365,6 +579,10 @@
         "value_config": {
           "type": "VARCHAR",
           "desc": "属性值配置"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序字段"
         }
       }
     },
@@ -375,6 +593,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "model_name": {
           "type": "VARCHAR",
@@ -393,6 +631,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "model_id": {
           "type": "BIGINT",
@@ -421,6 +679,10 @@
         "value_config": {
           "type": "VARCHAR",
           "desc": "属性值配置"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序字段"
         }
       }
     },
@@ -462,6 +724,26 @@
           "type": "BIGINT",
           "desc": "主键"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "pid": {
           "type": "BIGINT",
           "desc": "父级节点"
@@ -489,6 +771,14 @@
         "master_id": {
           "type": "VARCHAR",
           "desc": "master_id"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        },
+        "remark": {
+          "type": "TEXT",
+          "desc": "备注"
         }
       }
     },
@@ -545,6 +835,14 @@
         "compute_value": {
           "type": "DECIMAL",
           "desc": "compute_value"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新时间"
         }
       }
     },
@@ -652,6 +950,26 @@
           "type": "BIGINT",
           "desc": "主键"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "type": {
           "type": "VARCHAR",
           "desc": "类型。数据字典：energy_flow_type"
@@ -687,6 +1005,10 @@
         "true_formula": {
           "type": "VARCHAR",
           "desc": "解析后公式（将点位编码替换为设备编码）"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
         }
       }
     },
@@ -720,6 +1042,26 @@
           "type": "VARCHAR",
           "desc": "id"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "energy_medium": {
           "type": "VARCHAR",
           "desc": "能源介质"
@@ -742,6 +1084,26 @@
           "type": "BIGINT",
           "desc": "主键"
         },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
         "pid": {
           "type": "BIGINT",
           "desc": "父级节点"
@@ -762,19 +1124,47 @@
           "type": "BIGINT",
           "desc": "标准单位"
         },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        },
         "time_sharing": {
           "type": "VARCHAR",
           "desc": "分时计量"
+        },
+        "remark": {
+          "type": "TEXT",
+          "desc": "说明"
         }
       }
     },
     "carbon_emission_factor": {
       "name": "carbon_emission_factor",
-      "description": "carbon_emission_factor",
+      "description": "碳排放因子表",
       "fields": {
         "id": {
           "type": "VARCHAR",
-          "desc": "id"
+          "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "carbon_factor_name": {
           "type": "VARCHAR",
@@ -787,6 +1177,14 @@
         "unit": {
           "type": "VARCHAR",
           "desc": "单位"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        },
+        "remark": {
+          "type": "VARCHAR",
+          "desc": "说明"
         }
       }
     },
@@ -1289,6 +1687,26 @@
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "strategy_code": {
           "type": "VARCHAR",
@@ -2150,11 +2568,31 @@
     },
     "energy_pricing_config": {
       "name": "energy_pricing_config",
-      "description": "energy_pricing_config",
+      "description": "能源定价配置表",
       "fields": {
         "id": {
           "type": "BIGINT",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "category_id": {
           "type": "BIGINT",
@@ -2269,6 +2707,26 @@
         "id": {
           "type": "VARCHAR",
           "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
         },
         "gateway_code": {
           "type": "VARCHAR",
@@ -2487,7 +2945,7 @@
           "desc": "关联id，多个以英文逗号分隔"
         },
         "execution_time": {
-          "type": "TIMESTAMP",
+          "type": "TIME",
           "desc": "执行时间"
         },
         "operation_type": {
@@ -2496,45 +2954,441 @@
         },
         "status": {
           "type": "VARCHAR",
-          "desc": "status"
+          "desc": "状态"
         },
         "version": {
           "type": "BIGINT",
-          "desc": "version"
+          "desc": "版本"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序字段"
         }
       }
     },
-    "lighting_plan_execution_time": {
-      "name": "lighting_plan_execution_time",
-      "description": "lighting_plan_execution_time",
+    "energy_analysis_config": {
+      "name": "energy_analysis_config",
+      "description": "能效分析配置表",
       "fields": {
         "id": {
           "type": "BIGINT",
-          "desc": "id"
+          "desc": "主键"
         },
-        "plan_id": {
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "name": {
+          "type": "VARCHAR",
+          "desc": "名称"
+        },
+        "remark": {
+          "type": "VARCHAR",
+          "desc": "备注"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        },
+        "status": {
+          "type": "VARCHAR",
+          "desc": "状态。启用：1；禁用：0"
+        }
+      }
+    },
+    "energy_analysis_chart": {
+      "name": "energy_analysis_chart",
+      "description": "能效分析图表",
+      "fields": {
+        "id": {
           "type": "BIGINT",
-          "desc": "plan_id"
+          "desc": "主键"
         },
-        "execution_time": {
-          "type": "TIMESTAMP",
-          "desc": "execution_time"
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
         },
-        "start_date": {
+        "create_time": {
           "type": "TIMESTAMP",
-          "desc": "start_date"
+          "desc": "创建日期"
         },
-        "end_date": {
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
           "type": "TIMESTAMP",
-          "desc": "end_date"
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "config_id": {
+          "type": "BIGINT",
+          "desc": "能效分析配置id"
+        },
+        "chart_name": {
+          "type": "VARCHAR",
+          "desc": "图标名称"
+        },
+        "chart_type": {
+          "type": "VARCHAR",
+          "desc": "图表类型。饼：pie；柱状：bar；折线：line；堆叠柱状：stackedColumn；"
+        },
+        "point_id": {
+          "type": "BIGINT",
+          "desc": "计量规则id"
+        },
+        "sort": {
+          "type": "BIGINT",
+          "desc": "排序字段"
+        },
+        "unit": {
+          "type": "VARCHAR",
+          "desc": "单位"
+        }
+      }
+    },
+    "energy_analysis_benchmark": {
+      "name": "energy_analysis_benchmark",
+      "description": "能效分析基准",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键ID"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "config_id": {
+          "type": "BIGINT",
+          "desc": "能效分析配置Id"
+        },
+        "label": {
+          "type": "VARCHAR",
+          "desc": "文本"
+        },
+        "value": {
+          "type": "VARCHAR",
+          "desc": "基准值"
+        },
+        "operator": {
+          "type": "VARCHAR",
+          "desc": "运算符"
+        },
+        "content": {
+          "type": "VARCHAR",
+          "desc": "提示信息"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序字段"
+        }
+      }
+    },
+    "energy_attribute_management": {
+      "name": "energy_attribute_management",
+      "description": "能源属性管理",
+      "fields": {
+        "id": {
+          "type": "VARCHAR",
+          "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "attribute_name": {
+          "type": "VARCHAR",
+          "desc": "属性名称"
+        },
+        "attribute_type": {
+          "type": "VARCHAR",
+          "desc": "属性类别"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        },
+        "remark": {
+          "type": "TEXT",
+          "desc": "说明"
+        }
+      }
+    },
+    "energy_flow_diagram_config": {
+      "name": "energy_flow_diagram_config",
+      "description": "能流图配置",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "type": {
+          "type": "VARCHAR",
+          "desc": "类型。数据字典：energy_flow_type"
+        },
+        "node_name": {
+          "type": "VARCHAR",
+          "desc": "节点名称"
+        },
+        "parent_id": {
+          "type": "BIGINT",
+          "desc": "父节点"
+        },
+        "metering_point_id": {
+          "type": "BIGINT",
+          "desc": "计量点位"
+        },
+        "sort": {
+          "type": "INT",
+          "desc": "排序"
+        }
+      }
+    },
+    "patterning_execution_time": {
+      "name": "patterning_execution_time",
+      "description": "场景策略执行时间配置表",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "patterning_id": {
+          "type": "BIGINT",
+          "desc": "模式化管理策略ID"
+        },
+        "begin_date": {
+          "type": "DATE",
+          "desc": "策略起始日期"
+        },
+        "begin_time": {
+          "type": "TIME",
+          "desc": "策略执行时间"
         },
         "enabled_week": {
           "type": "VARCHAR",
-          "desc": "enabled_week"
+          "desc": "周策略执行日，例如：1,2,3 表示周一、周二、周三"
+        },
+        "end_date": {
+          "type": "DATE",
+          "desc": "策略结束日期"
         },
         "version": {
           "type": "VARCHAR",
-          "desc": "version"
+          "desc": "版本"
+        }
+      }
+    },
+    "patterning_point": {
+      "name": "patterning_point",
+      "description": "模式化管理策略点位表",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键ID"
+        },
+        "create_by": {
+          "type": "VARCHAR",
+          "desc": "创建人"
+        },
+        "create_time": {
+          "type": "TIMESTAMP",
+          "desc": "创建日期"
+        },
+        "update_by": {
+          "type": "VARCHAR",
+          "desc": "更新人"
+        },
+        "update_time": {
+          "type": "TIMESTAMP",
+          "desc": "更新日期"
+        },
+        "sys_org_code": {
+          "type": "VARCHAR",
+          "desc": "所属部门"
+        },
+        "pattern_strategy_id": {
+          "type": "BIGINT",
+          "desc": "模式化管理策略ID"
+        },
+        "device_id": {
+          "type": "BIGINT",
+          "desc": "设备ID"
+        },
+        "device_name": {
+          "type": "VARCHAR",
+          "desc": "设备名称"
+        },
+        "space_name": {
+          "type": "VARCHAR",
+          "desc": "空间名称"
+        },
+        "point_id": {
+          "type": "BIGINT",
+          "desc": "点位ID"
+        },
+        "point_name": {
+          "type": "VARCHAR",
+          "desc": "点位名称"
+        },
+        "control_value": {
+          "type": "VARCHAR",
+          "desc": "控制值"
+        }
+      }
+    },
+    "metering_point_data_hour": {
+      "name": "metering_point_data_hour",
+      "description": "计量点小时数据",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键"
+        },
+        "metering_point_id": {
+          "type": "BIGINT",
+          "desc": "点位ID"
+        },
+        "time": {
+          "type": "TIMESTAMP",
+          "desc": "时间"
+        },
+        "value": {
+          "type": "DECIMAL",
+          "desc": "值"
+        }
+      }
+    },
+    "metering_point_rel": {
+      "name": "metering_point_rel",
+      "description": "计量点关联设备点位",
+      "fields": {
+        "id": {
+          "type": "BIGINT",
+          "desc": "主键ID"
+        },
+        "metering_point_id": {
+          "type": "BIGINT",
+          "desc": "计量点ID"
+        },
+        "rel_id": {
+          "type": "BIGINT",
+          "desc": "关联ID"
+        },
+        "rel_type": {
+          "type": "VARCHAR",
+          "desc": "关联类型。设备：1；计量点：2"
         }
       }
     },

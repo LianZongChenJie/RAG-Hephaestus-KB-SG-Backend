@@ -26,10 +26,12 @@ model_defaults:
 
 # PostgreSQL - 访问日志存储
 database:
-  host: "192.168.204.197"
+#  host: "192.168.204.197"
+  host: "localhost"
   port: 5432
   user: "postgres"
-  password: "PG_617871572"
+#  password: "PG_617871572"
+  password: "postgres"
   name: "Hephaestus"
   min_size: 1
   max_size: 5
