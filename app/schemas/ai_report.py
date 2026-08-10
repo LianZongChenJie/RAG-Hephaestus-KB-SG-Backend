@@ -2,7 +2,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ReportScope(str, Enum):
@@ -57,9 +57,28 @@ class DeviceCategoryItem(BaseModel):
 
 class AlarmDistributionItem(BaseModel):
     """告警分布项"""
-    category: str = Field(..., description="告警类别")
+    category: Optional[str] = Field(None, description="告警类别")
+    alarm_category_name: Optional[str] = Field(None, description="告警类别(LLM原始字段)")
     count: int = Field(..., description="告警数量")
     percentage: Optional[float] = Field(None, description="占比")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_alarm_category_name(cls, data):
+        if isinstance(data, dict):
+            # 兼容 LLM 返回 alarm_category_name 的情况：映射到 category
+            if "alarm_category_name" in data and data.get("alarm_category_name"):
+                data["category"] = data["alarm_category_name"]
+            # 也兼容 category 写错为 alarm_category
+            elif "alarm_category" in data and data.get("alarm_category"):
+                data["category"] = data["alarm_category"]
+            # 兜底：尝试从其他常见字段找
+            elif data.get("category") is None:
+                for k in ("name", "type", "alarm_type"):
+                    if data.get(k):
+                        data["category"] = data[k]
+                        break
+        return data
 
 
 class SpaceAlarmItem(BaseModel):
@@ -198,9 +217,20 @@ class AIFaultReportRequest(BaseModel):
 
 class AIFaultDistribution(BaseModel):
     """故障分布"""
-    category: str = Field(..., description="类别")
+    category: Optional[str] = Field(None, description="类别")
+    alarm_category_name: Optional[str] = Field(None, description="告警类别(LLM原始字段)")
     count: int = Field(..., description="数量")
     percentage: Optional[float] = Field(None, description="占比")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_alarm_category_name(cls, data):
+        if isinstance(data, dict):
+            if "alarm_category_name" in data and data.get("alarm_category_name"):
+                data["category"] = data["alarm_category_name"]
+            elif "alarm_category" in data and data.get("alarm_category"):
+                data["category"] = data["alarm_category"]
+        return data
 
 
 class MaintenancePriorityItem(BaseModel):

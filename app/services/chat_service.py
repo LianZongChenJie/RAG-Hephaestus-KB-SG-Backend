@@ -605,6 +605,7 @@ class ChatService:
         access_time: datetime,
         client_ip: Optional[str] = None,
         user_agent: Optional[str] = None,
+        on_summary: Optional[callable] = None,
     ) -> AsyncIterator[str]:
         """
         执行流式对话，产出 SSE 格式数据。
@@ -614,6 +615,16 @@ class ChatService:
         """
         full_reply = ""
         mode = "unknown"
+        # 收集流式结果摘要，供日志记录
+        stream_summary = {
+            "mode": None,
+            "sql": None,
+            "table": None,
+            "chart": None,
+            "summary": None,
+            "row_count": 0,
+            "error": None,
+        }
 
         try:
             # ========== 阶段1：判断是否数据库相关 ==========
@@ -622,38 +633,56 @@ class ChatService:
 
             if is_db_related:
                 mode = "db"
+                stream_summary["mode"] = "db"
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在分析数据库...'})}\n\n"
 
                 # ========== 阶段2：生成 SQL ==========
                 sql = self._generate_sql(question)
                 if not sql:
+                    stream_summary["error"] = "无法生成查询语句"
+                    stream_summary["summary"] = None
                     yield f"data: {self._safe_json_dumps({'type': 'error', 'message': '无法生成查询语句'})}\n\n"
                     yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                    if on_summary:
+                        await on_summary(stream_summary)
                     return
 
+                stream_summary["sql"] = sql
                 yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': sql})}\n\n"
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在执行查询...'})}\n\n"
 
                 # ========== 阶段3：执行 SQL ==========
                 data, err = self._execute_sql(sql)
                 if err:
+                    stream_summary["error"] = f"查询执行失败: {err}"
+                    stream_summary["summary"] = None
                     yield f"data: {self._safe_json_dumps({'type': 'error', 'message': f'查询执行失败: {err}'})}\n\n"
                     yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                    if on_summary:
+                        await on_summary(stream_summary)
                     return
 
                 if not data:
+                    stream_summary["error"] = "查询结果为空"
+                    stream_summary["summary"] = "查询结果为空"
                     yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '查询结果为空，请尝试调整查询条件。'})}\n\n"
                     yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                    if on_summary:
+                        await on_summary(stream_summary)
                     return
+
+                stream_summary["row_count"] = len(data)
 
                 # ========== 阶段4：构建 Vue 表格 ==========
                 vue_table = self._build_vue_table(data)
+                stream_summary["table"] = vue_table
                 yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
                 await asyncio.sleep(0)
 
                 # ========== 阶段5：构建 ECharts ==========
                 echarts = self._build_echarts(data, question)
                 if echarts:
+                    stream_summary["chart"] = {"chartType": echarts.get("chartType"), "chartId": echarts.get("chartId")}
                     yield f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n"
                     await asyncio.sleep(0)
 
@@ -661,15 +690,19 @@ class ChatService:
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
                 summary = self._generate_summary(question, data, vue_table)
                 summary = summary.replace('\n', ' ').replace('\r', '').strip()
+                stream_summary["summary"] = summary
                 yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
                 await asyncio.sleep(0)
 
                 full_reply = f"[数据库查询结果] {summary}"
                 yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                if on_summary:
+                    await on_summary(stream_summary)
 
             else:
                 # ========== 非数据库相关：直接流式 LLM 回答 ==========
                 mode = "llm"
+                stream_summary["mode"] = "llm"
                 response_parts = []
                 prompt_tokens = None
                 completion_tokens = None
@@ -679,6 +712,9 @@ class ChatService:
                         prompt_tokens = chunk.get("prompt_eval_count")
                         completion_tokens = chunk.get("eval_count")
                         yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                        stream_summary["summary"] = full_reply
+                        if on_summary:
+                            await on_summary(stream_summary)
                         break
 
                     message = chunk.get("message") or {}
@@ -690,15 +726,27 @@ class ChatService:
                         await asyncio.sleep(0)
 
         except httpx.ConnectError:
+            stream_summary["error"] = "无法连接 Ollama"
+            stream_summary["summary"] = full_reply or None
             yield f"data: {self._safe_json_dumps({'type': 'error', 'message': '无法连接 Ollama，请确认已执行 ollama serve 且端口 11434 可用'})}\n\n"
             yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
         except httpx.ReadTimeout:
+            stream_summary["error"] = "Ollama 响应超时"
+            stream_summary["summary"] = full_reply or None
             yield f"data: {self._safe_json_dumps({'type': 'error', 'message': 'Ollama 响应超时，请稍后重试'})}\n\n"
             yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
         except Exception as exc:
             logger.exception("stream error")
+            stream_summary["error"] = f"服务异常: {exc}"
+            stream_summary["summary"] = full_reply or None
             yield f"data: {self._safe_json_dumps({'type': 'error', 'message': f'服务异常: {exc}'})}\n\n"
             yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
         finally:
             # 写入访问日志
             total = None

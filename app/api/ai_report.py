@@ -3,8 +3,9 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from app.middlewares.access_log import inject_response
 from app.schemas.ai_report import (
     AIRunReportRequest,
     AIRunReportResponse,
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/api/ai-report", tags=["AI报告"])
 
 
 @router.post("/run", response_model=AIRunReportResponse)
-async def generate_ai_run_report(body: AIRunReportRequest) -> AIRunReportResponse:
+async def generate_ai_run_report(request: Request, body: AIRunReportRequest) -> AIRunReportResponse:
     """
     AI运行报告
 
@@ -68,7 +69,9 @@ async def generate_ai_run_report(body: AIRunReportRequest) -> AIRunReportRespons
             device_name=body.device_name,
         )
 
-        return AIRunReportResponse(**report)
+        resp = AIRunReportResponse(**report)
+        inject_response(request, resp.model_dump())
+        return resp
 
     except httpx.ConnectError:
         raise HTTPException(
@@ -316,7 +319,7 @@ async def generate_ai_carbon_report(body: AICarbonReportRequest) -> AICarbonRepo
 # ==================== 会展信息接口 ====================
 
 @router.get("/venues", response_model=VenueListResponse)
-async def list_venues() -> VenueListResponse:
+async def list_venues(request: Request) -> VenueListResponse:
     """
     获取会展列表
 
@@ -324,10 +327,9 @@ async def list_venues() -> VenueListResponse:
     """
     try:
         venues = AIReportService.list_venues()
-        return VenueListResponse(
-            items=venues,
-            total=len(venues)
-        )
+        resp = VenueListResponse(items=venues, total=len(venues))
+        inject_response(request, resp.model_dump())
+        return resp
     except Exception as exc:
         logger.exception("获取会展列表失败")
         raise HTTPException(
@@ -349,6 +351,7 @@ from fastapi import Query
 
 @router.get("/history", response_model=AIReportHistoryListResponse)
 async def list_ai_reports(
+    request: Request,
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     report_type: str = Query(None, description="报告类型: run/predict/energy/fault"),
@@ -375,13 +378,15 @@ async def list_ai_reports(
 
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 
-        return AIReportHistoryListResponse(
+        resp = AIReportHistoryListResponse(
             items=items,
             total=total,
             page=page,
             page_size=page_size,
             total_pages=total_pages,
         )
+        inject_response(request, resp.model_dump())
+        return resp
     except Exception as exc:
         logger.exception("查询报告列表失败")
         raise HTTPException(
@@ -391,7 +396,7 @@ async def list_ai_reports(
 
 
 @router.get("/history/{report_id}", response_model=AIReportHistoryResponse)
-async def get_ai_report(report_id: int) -> AIReportHistoryResponse:
+async def get_ai_report(request: Request, report_id: int) -> AIReportHistoryResponse:
     """
     获取AI报告详情
 
@@ -402,7 +407,9 @@ async def get_ai_report(report_id: int) -> AIReportHistoryResponse:
         if not report:
             raise HTTPException(status_code=404, detail="报告不存在")
 
-        return AIReportHistoryResponse(**report)
+        resp = AIReportHistoryResponse(**report)
+        inject_response(request, resp.model_dump())
+        return resp
     except HTTPException:
         raise
     except Exception as exc:
@@ -414,7 +421,7 @@ async def get_ai_report(report_id: int) -> AIReportHistoryResponse:
 
 
 @router.get("/stats", response_model=AIReportStatsResponse)
-async def get_ai_report_stats() -> AIReportStatsResponse:
+async def get_ai_report_stats(request: Request) -> AIReportStatsResponse:
     """
     获取AI报告统计
 
@@ -422,7 +429,9 @@ async def get_ai_report_stats() -> AIReportStatsResponse:
     """
     try:
         stats = AIReportHistoryService.get_stats()
-        return AIReportStatsResponse(**stats)
+        resp = AIReportStatsResponse(**stats)
+        inject_response(request, resp.model_dump())
+        return resp
     except Exception as exc:
         logger.exception("获取报告统计失败")
         raise HTTPException(
@@ -432,7 +441,7 @@ async def get_ai_report_stats() -> AIReportStatsResponse:
 
 
 @router.delete("/history/{report_id}")
-async def delete_ai_report(report_id: int) -> dict:
+async def delete_ai_report(request: Request, report_id: int) -> dict:
     """
     删除AI报告
 
@@ -443,7 +452,9 @@ async def delete_ai_report(report_id: int) -> dict:
         if not success:
             raise HTTPException(status_code=404, detail="报告不存在或删除失败")
 
-        return {"message": "报告删除成功", "id": report_id}
+        resp = {"message": "报告删除成功", "id": report_id}
+        inject_response(request, resp)
+        return resp
     except HTTPException:
         raise
     except Exception as exc:

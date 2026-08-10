@@ -1,4 +1,6 @@
 """聊天流式接口"""
+import json
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,8 +9,10 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas.chat import ChatMessage, ChatStreamRequest
 from app.services.chat_service import ChatService
+from app.core.logger import get_logger
 
 router = APIRouter(prefix="/api", tags=["聊天"])
+log = get_logger("access")
 
 
 def _client_ip(request: Request) -> Optional[str]:
@@ -41,6 +45,29 @@ async def chat_stream(
     user_agent = request.headers.get("user-agent")
     payload = chat_service.build_payload(body)
 
+    start_time = time.time()
+
+    # 回调：流式结束后记日志
+    async def on_summary(summary: dict):
+        duration = time.time() - start_time
+        # 脱敏
+        req_body = {"messages": body.messages[-1:]}  # 只记最后一条
+        log_data = {
+            "ip": client_ip or "unknown",
+            "method": "POST",
+            "path": "/api/chat-stream",
+            "query": None,
+            "request": {
+                "messages": [{"role": "user", "content": question}],
+                "temperature": body.temperature,
+                "num_ctx": body.num_ctx,
+            },
+            "response": summary,
+            "status": 200,
+            "duration_ms": round(duration * 1000, 2),
+        }
+        log.info(f"访问日志: {json.dumps(log_data, ensure_ascii=False, default=str)}")
+
     return StreamingResponse(
         chat_service.stream_chat(
             payload,
@@ -48,6 +75,7 @@ async def chat_stream(
             access_time=access_time,
             client_ip=client_ip,
             user_agent=user_agent,
+            on_summary=on_summary,
         ),
         media_type="text/event-stream",
         headers={

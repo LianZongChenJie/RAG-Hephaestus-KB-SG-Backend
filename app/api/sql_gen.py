@@ -3,8 +3,9 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
+from app.middlewares.access_log import inject_response
 from app.schemas.sql import (
     ExecuteSQLRequest,
     ExecuteSQLResponse,
@@ -26,11 +27,18 @@ from app.core.dameng import execute_query
 from app.services.sql_service import SQLService, SuggestionService
 
 logger = logging.getLogger(__name__)
+def _wrap_resp(request, resp):
+    try:
+        inject_response(request, resp.model_dump())
+    except Exception:
+        pass
+    return resp
+
 router = APIRouter(prefix="/api", tags=["SQL 生成"])
 
 
 @router.post("/generate-sql", response_model=GenerateSQLResponse)
-async def generate_sql(body: GenerateSQLRequest) -> GenerateSQLResponse:
+async def generate_sql(request: Request, body: GenerateSQLRequest) -> GenerateSQLResponse:
     """
     根据用户问题和历史上下文，调用大模型生成 SQL 语句。
 
@@ -45,10 +53,9 @@ async def generate_sql(body: GenerateSQLRequest) -> GenerateSQLResponse:
             body.history,
         )
 
-        return GenerateSQLResponse(
-            sql=sql,
-            explanation=explanation,
-        )
+        resp = GenerateSQLResponse(sql=sql, explanation=explanation)
+        inject_response(request, resp.model_dump())
+        return resp
 
     except httpx.ConnectError:
         raise HTTPException(
@@ -68,8 +75,9 @@ async def generate_sql(body: GenerateSQLRequest) -> GenerateSQLResponse:
         )
 
 
+
 @router.post("/device/sql", response_model=GenerateSQLByDeviceResponse)
-async def generate_sql_by_device(body: GenerateSQLByDeviceRequest) -> GenerateSQLByDeviceResponse:
+async def generate_sql_by_device(request: Request, body: GenerateSQLByDeviceRequest) -> GenerateSQLByDeviceResponse:
     """
     根据设备ID生成 SQL 查询语句。
 
@@ -103,12 +111,12 @@ async def generate_sql_by_device(body: GenerateSQLByDeviceRequest) -> GenerateSQ
                 detail="大模型未能生成有效的SQL语句，请尝试简化问题描述",
             )
 
-        return GenerateSQLByDeviceResponse(
+        return _wrap_resp(request, GenerateSQLByDeviceResponse(
             device_id=body.device_id,
             question=body.question,
             sql=sql,
             explanation=explanation,
-        )
+        ))
 
     except httpx.ConnectError:
         raise HTTPException(
@@ -131,7 +139,7 @@ async def generate_sql_by_device(body: GenerateSQLByDeviceRequest) -> GenerateSQ
 
 
 @router.post("/generate-report-sql", response_model=GenerateReportSQLResponse)
-async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportSQLResponse:
+async def generate_report_sql(request: Request, body: GenerateReportSQLRequest) -> GenerateReportSQLResponse:
     """
     根据报告类型和目标名称，生成包含所有指标的SQL列表。
 
@@ -179,12 +187,12 @@ async def generate_report_sql(body: GenerateReportSQLRequest) -> GenerateReportS
                 description=metric.get("description"),
             ))
 
-        return GenerateReportSQLResponse(
+        return _wrap_resp(request, GenerateReportSQLResponse(
             report_type=body.report_type.value,
             target_id=resolved_target_id,
             target_name=body.target_name,
             metrics=metrics,
-        )
+        ))
 
     except httpx.ConnectError:
         raise HTTPException(
@@ -242,12 +250,21 @@ def _build_metric_sql(metric: Dict[str, Any], target_id: Optional[int], target_n
     # 构建 SELECT 子句
     if aggregate and aggregate_field:
         agg_func = aggregate.upper()
-        if agg_func == "DATEDIFF":
-            select_clause = f'DATEDIFF(DAY, MIN("{aggregate_field}"), CURRENT_DATE) as result'
-        elif distinct:
-            select_clause = f'COUNT(DISTINCT "{aggregate_field}") as result'
+        # 去掉字段名中的表别名（如 "t1.id" → "id"），达梦不支持别名写法
+        if "." in aggregate_field:
+            agg_field = aggregate_field.split(".", 1)[1]
         else:
-            select_clause = f'{agg_func}("{aggregate_field}") as result'
+            agg_field = aggregate_field
+        # 达梦在 JOIN 中 COUNT(列名) 有歧义，统一用 COUNT(*)
+        # 但带 DISTINCT 时需要保留列名（去重计数）
+        if agg_func == "COUNT" and not distinct:
+            select_clause = 'COUNT(*) as result'
+        elif agg_func == "DATEDIFF":
+            select_clause = f'DATEDIFF(DAY, MIN("{agg_field}"), CURRENT_DATE) as result'
+        elif distinct:
+            select_clause = f'COUNT(DISTINCT "{agg_field}") as result'
+        else:
+            select_clause = f'{agg_func}("{agg_field}") as result'
     else:
         select_clause = "*"
 
@@ -446,7 +463,7 @@ def _execute_metric_sql(sql: str) -> str:
 
 
 @router.post("/generate-suggestions", response_model=GenerateSuggestionsResponse)
-async def generate_suggestions(body: GenerateSuggestionsRequest) -> GenerateSuggestionsResponse:
+async def generate_suggestions(request: Request, body: GenerateSuggestionsRequest) -> GenerateSuggestionsResponse:
     """
     根据报告数据调用大模型生成优化建议。
 
@@ -527,11 +544,11 @@ async def generate_suggestions(body: GenerateSuggestionsRequest) -> GenerateSugg
             for s in suggestions_raw
         ]
 
-        return GenerateSuggestionsResponse(
+        return _wrap_resp(request, GenerateSuggestionsResponse(
             report_type=body.report_type.value,
             target_id=body.target_id,
             suggestions=suggestions,
-        )
+        ))
 
     except httpx.ConnectError:
         raise HTTPException(
@@ -552,7 +569,7 @@ async def generate_suggestions(body: GenerateSuggestionsRequest) -> GenerateSugg
 
 
 @router.post("/execute-sql", response_model=ExecuteSQLResponse)
-async def execute_sql(body: ExecuteSQLRequest) -> ExecuteSQLResponse:
+async def execute_sql(request: Request, body: ExecuteSQLRequest) -> ExecuteSQLResponse:
     """
     执行SQL查询（达梦数据库）
 
@@ -588,12 +605,12 @@ async def execute_sql(body: ExecuteSQLRequest) -> ExecuteSQLResponse:
         # 获取列名
         columns = list(rows[0].keys()) if rows else []
 
-        return ExecuteSQLResponse(
+        return _wrap_resp(request, ExecuteSQLResponse(
             columns=columns,
             rows=rows,
             row_count=len(rows),
             execution_time=round(execution_time, 3),
-        )
+        ))
 
     except Exception as exc:
         logger.exception("SQL执行失败")
@@ -604,7 +621,7 @@ async def execute_sql(body: ExecuteSQLRequest) -> ExecuteSQLResponse:
 
 
 @router.post("/report/full", response_model=GenerateFullReportResponse)
-async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullReportResponse:
+async def generate_full_report(request: Request, body: GenerateFullReportRequest) -> GenerateFullReportResponse:
     """
     生成完整报告（串联流程：生成SQL → 执行SQL → 生成优化建议）
 
@@ -757,13 +774,13 @@ async def generate_full_report(body: GenerateFullReportRequest) -> GenerateFullR
             for s in suggestions_raw
         ]
 
-        return GenerateFullReportResponse(
+        return _wrap_resp(request, GenerateFullReportResponse(
             report_type=body.report_type.value,
             target_id=body.target_id,
             target_name=body.target_name,
             data=report_data,
             suggestions=suggestions,
-        )
+        ))
 
     except httpx.ConnectError:
         raise HTTPException(

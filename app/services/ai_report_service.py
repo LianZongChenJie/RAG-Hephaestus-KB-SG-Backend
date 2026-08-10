@@ -149,7 +149,7 @@ class AIReportService:
             device_sql = f'''
                 SELECT 
                     COUNT(*) as total_count,
-                    SUM(CASE WHEN "run_state" = '运行中' THEN 1 ELSE 0 END) as online_count,
+                    SUM(CASE WHEN "run_state" = '在线' THEN 1 ELSE 0 END) as online_count,
                     SUM(CASE WHEN "run_state" = '离线' THEN 1 ELSE 0 END) as offline_count,
                     COUNT(DISTINCT "device_type") as device_type_count
                 FROM FWBZ."device" d
@@ -473,10 +473,10 @@ class AIReportService:
                     ec."category_name",
                     ec."full_name",
                     COUNT(d."id") as device_count,
-                    SUM(CASE WHEN d."run_state" = '运行中' THEN 1 ELSE 0 END) as online_count,
+                    SUM(CASE WHEN d."run_state" = '在线' THEN 1 ELSE 0 END) as online_count,
                     SUM(CASE WHEN d."run_state" = '离线' THEN 1 ELSE 0 END) as offline_count
                 FROM FWBZ."equipment_category" ec
-                LEFT JOIN FWBZ."device" d ON d."category_id" = ec."id"
+                INNER JOIN FWBZ."device" d ON d."category_id" = ec."id"
                 WHERE 1=1 {venue_filter}
                 GROUP BY ec."category_name", ec."full_name"
                 ORDER BY device_count DESC
@@ -489,8 +489,8 @@ class AIReportService:
             device_online_rate_sql = f'''
                 SELECT
                     COUNT(*) as total_devices,
-                    SUM(CASE WHEN d."run_state" = '运行中' THEN 1 ELSE 0 END) as online_count,
-                    ROUND(SUM(CASE WHEN d."run_state" = '运行中' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as online_rate
+                    SUM(CASE WHEN d."run_state" = '在线' THEN 1 ELSE 0 END) as online_count,
+                    ROUND(SUM(CASE WHEN d."run_state" = '在线' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as online_rate
                 FROM FWBZ."device" d
                 WHERE 1=1 {venue_filter}
             '''

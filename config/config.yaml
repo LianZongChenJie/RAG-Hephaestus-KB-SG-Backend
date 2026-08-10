@@ -11,7 +11,9 @@ app:
     - "*"
 
 ollama:
+#  chat_url: "http://192.168.204.169:11434/api/chat"
   chat_url: "http://localhost:11434/api/chat"
+#  tags_url: "http://192.168.204.169:11434/api/tags"
   tags_url: "http://localhost:11434/api/tags"
   model: "qwen3.5:9b"
   timeout: 300.0          # 请求超时（秒）
@@ -39,12 +41,14 @@ database:
 # 达梦数据库 - 业务数据查询
 dameng:
 #  host: "localhost"
-  host: "192.168.204.51"
-  port: 5238
-#  port: 5236
-  user: "SYSDBA"
+  host: "10.168.56.103"
+#  port: 5238
+  port: 5236
+#  user: "SYSDBA"
+  user: "fwbz"
 #  password: "Dameng123"
-  password: "Liming@2026"
+#  password: "Liming@2026"
+  password: "Fwbz@123456"
   schema: "FWBZ"
   charset: "UTF-8"
 

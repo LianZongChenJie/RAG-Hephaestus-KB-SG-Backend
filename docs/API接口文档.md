@@ -58,13 +58,15 @@
 
 ---
 
-## 三、聊天接口
+## 三、聊天接口（智能数据问答）
 
 ### 3.1 流式对话
 
 **接口地址**: `POST /api/chat-stream`
 
-**功能说明**: 通过 SSE 流式返回 AI 对话响应。
+**功能说明**: 支持智能数据问答的流式对话接口。系统自动判断用户问题是否与达梦数据库相关：
+- **数据库相关问题**（含关键词：设备、告警、能耗、碳排放、场馆、客流、停车、照明、统计等）→ 生成 SQL 查询 → 返回 ECharts 图表 + Vue 表格 + 总结
+- **非数据库相关问题**（闲聊、知识问答等）→ 直接流式 LLM 回答
 
 **请求头**:
 
@@ -79,6 +81,7 @@
 | messages | array | 是 | 对话历史消息列表 |
 | temperature | float | 否 | 温度参数（0.1-2.0），默认 0.7 |
 | stream | bool | 否 | 是否流式返回，默认 true |
+| num_ctx | int | 否 | 上下文窗口大小，默认 2048 |
 
 **messages 格式**:
 
@@ -95,37 +98,136 @@
 }
 ```
 
-**响应格式**: Server-Sent Events (SSE) 流式响应
+**响应格式**: Server-Sent Events (SSE) 流式响应，每行以 `data: ` 开头
+
+#### 数据库相关问题 SSE 事件流（7类事件）
+
+| 事件类型 | 触发时机 | 说明 |
+|---------|---------|------|
+| `mode` | 开始检测 | 告知当前处理阶段 |
+| `sql` | SQL 生成后 | 返回生成的 SQL 语句 |
+| `table` | 数据查询后 | 返回 Vue 表格结构 |
+| `chart` | 图表生成后 | 返回 ECharts 图表配置 |
+| `summary` | 总结生成后 | 返回 ≤200 字分析总结 |
+| `error` | 出错时 | 返回错误信息 |
+| `done` | 结束时 | 标识流式响应结束 |
+
+**SSE 响应示例**（数据库相关问题）:
 
 ```
-data: {"content": "你好"}
-data: {"content": "！"}
-data: {"content": "有什么"}
-data: {"content": "我"}
-data: {"content": "可以帮助"}
-data: {"content": "你的"}
-data: {"content": "吗"}
-data: {"content": "？"}
-data: {"content": "😊"}
+data: {"type": "mode", "value": "detecting"}
+
+data: {"type": "mode", "value": "db", "message": "正在分析数据库..."}
+
+data: {"type": "sql", "sql": "SELECT \"venue_name\", \"location\", \"area\", \"floors\" FROM FWBZ.\"table_venue_info\" ORDER BY \"id\" LIMIT 100;"}
+
+data: {"type": "mode", "value": "db", "message": "正在执行查询..."}
+
+data: {"type": "table", "columns": [{"key": "venue_name", "label": "场馆名称", "width": "auto"}, {"key": "location", "label": "位置", "width": "auto"}, {"key": "area", "label": "面积", "width": "auto"}, {"key": "floors", "label": "Floors", "width": "auto"}], "rows": [{"venue_name": "1号馆", "location": "首钢产业园", "area": "1500", "floors": 4}, {"venue_name": "2号馆", "location": "园区北部", "area": "1000", "floors": 4}, {"venue_name": "3号馆", "location": "一高炉", "area": "2500", "floors": 12}, {"venue_name": "4号馆", "location": "金安桥", "area": "34", "floors": 4}]}
+
+data: {"type": "chart", "chartType": "pie", "chartId": "chart_104132670458", "option": {"title": {"text": "我想知道演唱会会展的具体信息 Floors分布", "left": "center"}, "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"}, "legend": {"bottom": 10, "left": "center"}, "series": [{"type": "pie", "radius": ["35%", "60%"], "avoidLabelOverlap": false, "itemStyle": {"borderRadius": 6, "borderColor": "#fff", "borderWidth": 2}, "label": {"show": true, "formatter": "{b}\n{c} ({d}%)"}, "data": [{"name": "1号馆", "value": 4.0}, {"name": "2号馆", "value": 4.0}, {"name": "3号馆", "value": 12.0}, {"name": "4号馆", "value": 4.0}]}]}}
+
+data: {"type": "mode", "value": "db", "message": "正在生成分析总结..."}
+
+data: {"type": "summary", "content": "本次演唱会将在首钢产业园内举行，共涉及四个场馆：1 号馆位于园区中部，面积 1500 平方米；2 号馆在北部区域，面积为 1000 平方米；3 号馆设在一高炉位置，面积达 2500 平方米且楼层数最多为 12 层；4 号馆位于金安桥附近，面积最小仅 34 平方米。各场馆规模差异显著，其中一高炉场地最为宏大，适合大型演出活动。"}
+
 data: {"done": true}
 ```
+
+**SSE 响应示例**（非数据库问题）:
+
+```
+data: {"type": "message", "content": "您好！"}
+data: {"type": "message", "content": "我是"}
+data: {"type": "message", "content": "Hephaestus"}
+data: {"type": "message", "content": "智能助手"}
+...
+data: {"done": true}
+```
+
+#### 各事件字段说明
+
+**mode 事件**
+```json
+{"type": "mode", "value": "detecting" | "db" | "llm", "message": "当前状态描述"}
+```
+
+**sql 事件**
+```json
+{"type": "sql", "sql": "SELECT ..."}
+```
+
+**table 事件（Vue 表格结构）**
+```json
+{
+  "type": "table",
+  "columns": [
+    {"key": "date", "label": "日期", "width": "auto"},
+    {"key": "today_entry_count", "label": "入场数量(总和)", "width": "auto"}
+  ],
+  "rows": [
+    {"date": "2026-08-07", "today_entry_count": 3377},
+    {"date": "2026-08-06", "today_entry_count": 5233}
+  ]
+}
+```
+> 说明：key 为英文字段名，label 为中文标签。id/bigint 列自动排除，聚合列自动添加后缀（总和/平均值/计数）。
+
+**chart 事件（ECharts 配置）**
+```json
+{
+  "type": "chart",
+  "chartType": "bar" | "pie",
+  "chartId": "chart_103045123456",
+  "option": {
+    "title": {"text": "停车记录 入场数量分布"},
+    "series": [{"type": "bar" | "pie", "data": [...]}]
+  }
+}
+```
+> 说明：数据量 ≤6 条自动选择饼图（pie），>6 条自动选择柱状图（bar）。
+
+**summary 事件**
+```json
+{"type": "summary", "content": "分析总结内容（≤200字）..."}
+```
+
+**error 事件**
+```json
+{"type": "error", "message": "错误描述"}
+```
+
+**done 事件**
+```json
+{"done": true}
+```
+
+#### 支持的数据库相关问题类型
+
+| 类别 | 关键词示例 | 查询表 |
+|------|-----------|--------|
+| 设备统计 | 设备、离线、在线、运行状态、设备数量 | device, equipment_category |
+| 告警分析 | 告警、报警、故障、停机、异常 | alarm_record |
+| 能耗统计 | 能耗、电耗、水耗、用电、用能 | data_day, data_hour, metering_point_data_day |
+| 碳排放 | 碳排放、碳强度、碳核算 | data_day + carbon_emission_factor |
+| 场馆信息 | 场馆、场馆信息、会展、展厅 | table_venue_info |
+| 空间分布 | 空间、区域、楼层、建筑 | space |
+| 客流数据 | 客流、人流量、入场、出场、访客 | table_venue_flow |
+| 人员统计 | 人员统计、入场人数 | table_personnel_statistics |
+| 停车数据 | 停车、车位、车辆、停车场 | table_parking_count |
+| 照明管理 | 照明、灯光、回路 | lighting_area, lighting_circuit |
+| 计量分析 | 计量点、分时用电、峰谷 | metering_point, metering_point_data_day |
+| AI 报告 | 报告、AI报告、历史报表 | ai_report_history |
 
 ---
 
 ## 四、SQL 生成接口
 
-### 4.1 自然语言生成 SQL
+### 4.1 自然语言生成 SQL（已废弃）
+
+> ⚠️ 此接口已废弃，功能已整合至 `/api/chat-stream`，请使用聊天接口。
 
 **接口地址**: `POST /api/generate-sql`
-
-**功能说明**: 根据用户问题调用大模型生成 SQL 语句。
-
-**请求参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|-------|------|------|------|
-| question | string | 是 | 用户的问题 |
-| history | array | 否 | 对话历史（用于理解上下文） |
 
 **请求示例**:
 
@@ -141,29 +243,22 @@ data: {"done": true}
 }
 ```
 
-**响应参数**:
-
-| 参数名 | 类型 | 说明 |
-|-------|------|------|
-| sql | string | 生成的 SQL 语句 |
-| explanation | string | SQL 语句的说明 |
-
 **响应示例**:
 
 ```json
 {
-    "sql": "SELECT \n    COUNT(*) as alarm_count,\n    r.id as region_id,\n    r.name as region_name,\n    MIN(e.happen_time) as first_alarm_time,\n    MAX(e.happen_time) as last_alarm_time\nFROM \n    table_event_log e\nJOIN \n    table_region_resource r ON 1=1 -- 假设告警事件表中有区域ID字段，或者通过设备编码关联。\n                                -- 如果告警表中没有直接的区域ID，通常需要通过 src_parent_index (父设备) -> device_table -> region_path 进行多层级联。\nWHERE \n    e.happen_time >= DATE_SUB(NOW(), INTERVAL 7 DAY) -- 最近一周\n    AND r.name LIKE '%1号馆%'                         -- 匹配区域名称\nGROUP BY \n    r.id, r.name",
-    "explanation": "为了查询\"1 号馆”最近一周的设备告警数量，我们需要关联以下几个表并执行聚合操作：\n\n1.  **区域定位**：在 `table_region_resource` 表中查找名称包含“1 号馆”的区域记录。由于该表有树形结构（通过 `region_path`），通常直接匹配 `name` 或遍历路径即可找到对应节点 ID (`id`)，然后利用其作为过滤条件关联下级资源或直接统计挂载在该区域下的告警事件。\n2.  **时间筛选**：在 `table_event_log` (假设表名为此，根据字段推断) 中筛选 `happen_time` 在最近一周内的记录。\n3.  **数据聚合**：按区域分组（或针对该特定区域）统计告警数量 (`COUNT(*)`)。\n\n*注：由于提供的 schema 中没有明确列出存储“设备告警原始日志”的主表名（通常此类系统会有 `table_event_log`、`device_alarm_record` 等），以下 SQL **假设**存在一张名为 `table_event_log` (或类似命名，如 `alarm_logs`) 的表来存储具体的事件记录。如果实际库中该表名称不同，请替换 `FROM table_event_log AS e` 部分。*\n\n```sql"
+    "sql": "SELECT COUNT(*) as alarm_count FROM FWBZ.\"alarm_record\" ar JOIN FWBZ.\"device\" d ON ar.\"device_id\" = d.\"id\" JOIN FWBZ.\"table_venue_info\" vi ON d.\"venue_id\" = vi.\"id\" WHERE vi.\"venue_name\" LIKE '%1号馆%' AND ar.\"alarm_time\" >= DATE_SUB(NOW(), INTERVAL 7 DAY)",
+    "explanation": "查询 1 号馆最近一周的设备告警数量"
 }
 ```
 
 ---
 
-### 4.2 根据设备生成 SQL
+### 4.2 根据设备生成 SQL（已废弃）
+
+> ⚠️ 此接口已废弃，功能已整合至 `/api/chat-stream`。
 
 **接口地址**: `POST /api/device/sql`
-
-**功能说明**: 根据设备ID生成获取设备相关数据的SQL。
 
 **请求参数**:
 
@@ -938,7 +1033,7 @@ data: {"done": true}
 {
     "scope": "all",
     "time_range": "week",
-    "venue_name": "1号馆"
+    "venue_name": "演唱会"
 }
 ```
 
@@ -1795,6 +1890,7 @@ print(response.json())
 | v1.0 | 2026-08-07 | 初始版本，支持 SQL 生成、报告生成、聊天接口 |
 | v1.1 | 2026-08-07 | AI报告支持会展名称筛选 |
 | v1.2 | 2026-08-07 | AI报告自动保存到数据库 |
+| v1.3 | 2026-08-10 | chat-stream 支持智能数据问答，自动生成 SQL 查询达梦数据库，返回 ECharts 图表 + Vue 表格 + 总结；SQL 生成/执行增加 GROUP BY 修复；旧版 SQL 接口标记为废弃 |
 
 ---
 
