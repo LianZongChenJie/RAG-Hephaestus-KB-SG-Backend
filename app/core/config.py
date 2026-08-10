@@ -17,9 +17,12 @@ class ModelDefaultsConfig:
     num_ctx: int
     temperature: float
 
-    def __init__(self, num_ctx: int = 2048, temperature: float = 0.6):
+    def __init__(self, num_ctx: int = 2048, temperature: float = 0.6,
+                 num_predict: int = 2048, num_predict_report: int = 8192):
         self.num_ctx = num_ctx
         self.temperature = temperature
+        self.num_predict = num_predict
+        self.num_predict_report = num_predict_report
 
 
 class OllamaConfig:

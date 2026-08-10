@@ -26,9 +26,46 @@ def json_serial(obj):
 SYSTEM_PROMPT = """你是一个专业的会展小镇智慧园区AI分析专家，服务于首钢会展小镇管理系统。
 
 ## 数据库信息
-- 类型：Dameng (08.00.000)
+- 类型：达梦 Dameng 8.0（08.00.000）
 - Schema：FWBZ
-- 标识符引号：表名和字段名必须用双引号包裹
+- 标识符引号：表名和字段名必须用双引号包裹（如 "device", "device_name"）
+
+## ⚠️ 语法限制（严格遵守，禁止使用以下 MySQL 语法）
+
+| 错误写法（MySQL）     | 正确写法（达梦 8.0）                           |
+|---------------------|----------------------------------------------|
+| DATE(col)           | CAST(col AS DATE) 或 TRUNC(col)               |
+| DATE_FORMAT(col,f)  | TO_CHAR(col, 'YYYY-MM-DD')                   |
+| IFNULL(a,b)         | NVL(a, b)                                     |
+| IF(cond, a, b)       | CASE WHEN cond THEN a ELSE b END              |
+| NOW()               | SYSDATE                                       |
+| TIMESTAMPDIFF(MINUTE, a, b) | (b - a) * 1440（返回分钟差）              |
+| DATE_SUB(col, ...)   | col - INTERVAL N DAY（达梦不支持DATE_SUB）     |
+| DATE_ADD(col, ...)   | col + INTERVAL N DAY                          |
+| DATEDIFF(a, b)      | (a - b)                                       |
+| GROUP_CONCAT(...)   | LISTAGG(...) WITHIN GROUP (...)              |
+| LIMIT n, m          | ROWNUM < n+1 AND ROWNUM <= m+1（两层子查询）   |
+| LIMIT n              | ROWNUM <= n 或 FETCH FIRST n ROWS ONLY        |
+| YEAR(col)           | EXTRACT(YEAR FROM col) 或 TO_CHAR(col,'YYYY') |
+| MONTH(col)          | EXTRACT(MONTH FROM col) 或 TO_CHAR(col,'MM')  |
+| DAY(col)            | EXTRACT(DAY FROM col) 或 TO_CHAR(col,'DD')    |
+| WEEK(col)           | TO_CHAR(col, 'IW')（ISO周）                   |
+| CONCAT_WS(sep, ...) | col1 || sep || col2 || ...                   |
+| FLOOR(col)          | TRUNC(col) 或 CAST(col AS INT)               |
+
+## 时间差计算示例
+- 计算告警处理时长（分钟）：(process_time - alarm_time) * 1440
+- 计算告警处理时长（小时）：(process_time - alarm_time) * 24
+- 日期截断：TRUNC(alarm_time) 或 CAST(alarm_time AS DATE)
+
+## LIMIT 分页示例（达梦）
+```sql
+SELECT * FROM (
+    SELECT t.*, ROWNUM AS rn FROM (
+        SELECT "id", "device_name" FROM FWBZ."device" ORDER BY "create_time" DESC
+    ) t WHERE ROWNUM <= 20
+) WHERE rn > 10
+```
 
 ## 你的职责
 根据提供的真实数据库查询结果，进行专业的AI数据分析，生成结构化的分析报告。
@@ -217,9 +254,9 @@ class AIReportService:
             # 5. 告警响应时间统计
             response_time_sql = f'''
                 SELECT 
-                    AVG(TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time")) as avg_response_minutes,
-                    MIN(TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time")) as min_response_minutes,
-                    MAX(TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time")) as max_response_minutes
+                    AVG(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as avg_response_minutes,
+                    MIN(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as min_response_minutes,
+                    MAX(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as max_response_minutes
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
@@ -236,7 +273,7 @@ class AIReportService:
                 SELECT 
                     SUM(dd."value") as total_energy,
                     AVG(dd."value") as avg_daily_energy,
-                    COUNT(DISTINCT DATE(dd."time")) as active_days
+                    COUNT(DISTINCT CAST(dd."time" AS DATE)) as active_days
                 FROM FWBZ."data_day" dd
                 LEFT JOIN FWBZ."device" d ON dd."device_id" = d."id"
                 WHERE dd."time" >= '{start_date}'
@@ -250,14 +287,14 @@ class AIReportService:
             # 7. 能耗按日统计
             energy_daily_sql = f'''
                 SELECT 
-                    DATE(dd."time") as stat_date,
+                    CAST(dd."time" AS DATE) as stat_date,
                     SUM(dd."value") as daily_value
                 FROM FWBZ."data_day" dd
                 LEFT JOIN FWBZ."device" d ON dd."device_id" = d."id"
                 WHERE dd."time" >= '{start_date}'
                 AND dd."time" <= '{end_date} 23:59:59'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
-                GROUP BY DATE(dd."time")
+                GROUP BY CAST(dd."time" AS DATE)
                 ORDER BY stat_date
             '''
             result = execute_query(energy_daily_sql)
@@ -598,7 +635,7 @@ class AIReportService:
             # 1. 能耗历史趋势（通过设备关联会展）
             energy_sql = f'''
                 SELECT
-                    DATE(dd."time") as stat_date,
+                    CAST(dd."time" AS DATE) as stat_date,
                     SUM(dd."value") as daily_value,
                     AVG(dd."value") as avg_value
                 FROM FWBZ."data_day" dd
@@ -607,7 +644,7 @@ class AIReportService:
                 AND dd."time" <= '{end_date} 23:59:59'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
                 {f' AND dd."device_id" = {device_id}' if device_id else ''}
-                GROUP BY DATE(dd."time")
+                GROUP BY CAST(dd."time" AS DATE)
                 ORDER BY stat_date
             '''
 
@@ -617,14 +654,14 @@ class AIReportService:
             # 2. 告警趋势（通过设备关联会展）
             alarm_trend_sql = f'''
                 SELECT
-                    DATE(ar."alarm_time") as stat_date,
+                    CAST(ar."alarm_time" AS DATE) as stat_date,
                     COUNT(*) as alarm_count
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
-                GROUP BY DATE(ar."alarm_time")
+                GROUP BY CAST(ar."alarm_time" AS DATE)
                 ORDER BY stat_date
             '''
             result = execute_query(alarm_trend_sql)
@@ -715,7 +752,7 @@ class AIReportService:
             metering_daily_sql = f'''
                 SELECT
                     mp."node_name",
-                    DATE(mpd."time") as stat_date,
+                    CAST(mpd."time" AS DATE) as stat_date,
                     SUM(mpd."value") as daily_value,
                     AVG(mpd."value") as avg_value
                 FROM FWBZ."metering_point_data_day" mpd
@@ -723,7 +760,7 @@ class AIReportService:
                 WHERE mpd."time" >= '{start_date}'
                 AND mpd."time" <= '{end_date} 23:59:59'
                 {f' AND mp."space_id" IN (SELECT "space_id" FROM FWBZ."device" WHERE "venue_id" = {venue_id})' if venue_id else ''}
-                GROUP BY mp."node_name", DATE(mpd."time")
+                GROUP BY mp."node_name", CAST(mpd."time" AS DATE)
                 ORDER BY stat_date, mp."node_name"
                 LIMIT 200
             '''
@@ -802,14 +839,14 @@ class AIReportService:
             # 3. 日能耗趋势（按会展过滤）
             daily_sql = f'''
                 SELECT
-                    DATE(dd."time") as stat_date,
+                    CAST(dd."time" AS DATE) as stat_date,
                     SUM(dd."value") as daily_value
                 FROM FWBZ."data_day" dd
                 LEFT JOIN FWBZ."device" d ON dd."device_id" = d."id"
                 WHERE dd."time" >= '{start_date}'
                 AND dd."time" <= '{end_date} 23:59:59'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
-                GROUP BY DATE(dd."time")
+                GROUP BY CAST(dd."time" AS DATE)
                 ORDER BY stat_date
             '''
             result = execute_query(daily_sql)
@@ -917,7 +954,7 @@ class AIReportService:
             # 10. 峰谷分时用电分析（基于计量点小时数据）
             peak_valley_sql = f'''
                 SELECT
-                    COUNT(DISTINCT DATE(mph."time")) as total_days,
+                    COUNT(DISTINCT CAST(mph."time" AS DATE)) as total_days,
                     SUM(CASE WHEN EXTRACT(HOUR FROM mph."time") >= 8 AND EXTRACT(HOUR FROM mph."time") < 11 THEN mph."value" ELSE 0 END) as peak_value,
                     SUM(CASE WHEN EXTRACT(HOUR FROM mph."time") >= 23 OR EXTRACT(HOUR FROM mph."time") < 7 THEN mph."value" ELSE 0 END) as valley_value,
                     SUM(CASE WHEN EXTRACT(HOUR FROM mph."time") >= 7 AND EXTRACT(HOUR FROM mph."time") < 23 THEN mph."value" ELSE 0 END) as flat_value
@@ -939,7 +976,7 @@ class AIReportService:
                     d."device_type",
                     SUM(dd."value") as total_value,
                     AVG(dd."value") as avg_daily_value,
-                    COUNT(DISTINCT DATE(dd."time")) as active_days
+                    COUNT(DISTINCT CAST(dd."time" AS DATE)) as active_days
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."data_day" dd ON d."id" = dd."device_id"
                 WHERE dd."time" >= '{start_date}'
@@ -971,14 +1008,14 @@ class AIReportService:
             # 13. 能耗环比分析
             energy_comparison_sql = f'''
                 SELECT
-                    DATE(dd."time") as stat_date,
+                    CAST(dd."time" AS DATE) as stat_date,
                     SUM(dd."value") as daily_value
                 FROM FWBZ."data_day" dd
                 LEFT JOIN FWBZ."device" d ON dd."device_id" = d."id"
                 WHERE dd."time" >= '{start_date}'
                 AND dd."time" <= '{end_date} 23:59:59'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
-                GROUP BY DATE(dd."time")
+                GROUP BY CAST(dd."time" AS DATE)
                 ORDER BY stat_date
             '''
             result = execute_query(energy_comparison_sql)
@@ -1087,7 +1124,7 @@ class AIReportService:
                 SELECT
                     ar."id", ar."device_name", ar."alarm_category_name", ar."alarm_level_name",
                     ar."alarm_time", ar."alarm_content", ar."alarm_status",
-                    TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") as duration_minutes
+                    NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) as duration_minutes
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
@@ -1119,7 +1156,7 @@ class AIReportService:
             # 6. 平均修复时长
             repair_time_sql = f'''
                 SELECT
-                    AVG(TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time")) as avg_repair_minutes
+                    AVG(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as avg_repair_minutes
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
@@ -1332,12 +1369,12 @@ class AIReportService:
             response_rate_sql = f'''
                 SELECT
                     COUNT(*) as total_alarms,
-                    COUNT(CASE WHEN TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") <= 30 THEN 1 END) as within_30min,
-                    COUNT(CASE WHEN TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") > 30
-                        AND TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") <= 60 THEN 1 END) as within_1hour,
-                    COUNT(CASE WHEN TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") > 60
-                        AND TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") <= 240 THEN 1 END) as within_4hour,
-                    COUNT(CASE WHEN TIMESTAMPDIFF(SQL_TSI_MINUTE, ar."alarm_time", ar."process_time") > 240 THEN 1 END) as over_4hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 30 THEN 1 END) as within_30min,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 30
+                        AND NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 60 THEN 1 END) as within_1hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 60
+                        AND NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 240 THEN 1 END) as within_4hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 240 THEN 1 END) as over_4hour,
                     COUNT(CASE WHEN ar."process_time" IS NULL THEN 1 END) as not_processed
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
@@ -1733,7 +1770,7 @@ class AIReportService:
                     COALESCE(SUM(dd."value") * 0.884, 0) as carbon_today
                 FROM FWBZ."data_day" dd
                 LEFT JOIN FWBZ."device" d ON dd."device_id" = d."id"
-                WHERE DATE(dd."time") = '{today}'
+                WHERE CAST(dd."time" AS DATE) = '{today}'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
             '''
             result = execute_query(today_carbon_sql)
@@ -1994,7 +2031,7 @@ class AIReportService:
         logger.info(f"生成{report_type}，调用大模型...")
 
         try:
-            payload = self.ollama.build_sql_payload(messages)
+            payload = self.ollama.build_report_payload(messages)
             response_text = await self.ollama.chat_for_report(payload)
             return self._parse_response(response_text, report_type)
         except Exception as exc:

@@ -21,12 +21,52 @@ settings = get_settings()
 # 达梦数据库 Schema 上下文（供 LLM 生成 SQL 使用）
 DAMENG_SCHEMA_CONTEXT = """
 ## 达梦数据库信息
-- 类型：Dameng (08.00.000)
+- 类型：Dameng 8.0 (08.00.000)
 - Schema：FWBZ
 - 标识符引号：表名和字段名必须用双引号包裹，如 "device"."device_name"
 - 自增列：使用序列 FWBZ.SEQ_xxx，不支持 AUTO_INCREMENT
-- 日期函数：DATE_FORMAT → TO_CHAR(), DATE_SUB → ADD_MONTHS()
-- 分页：LIMIT ? OFFSET ?
+
+## ⚠️ 语法限制（严格遵守，禁止使用 MySQL 语法）
+
+| 错误写法（MySQL）     | 正确写法（达梦 8.0）                           |
+|---------------------|----------------------------------------------|
+| DATE(col)           | CAST(col AS DATE) 或 TRUNC(col)               |
+| DATE_FORMAT(col,f)  | TO_CHAR(col, 'YYYY-MM-DD')                   |
+| IFNULL(a,b)         | NVL(a, b)                                     |
+| IF(cond,a,b)        | CASE WHEN cond THEN a ELSE b END              |
+| NOW()               | SYSDATE                                       |
+| TIMESTAMPDIFF(MINUTE,a,b) | (b - a) * 1440                            |
+| DATE_SUB / DATE_ADD | col +/- INTERVAL N DAY                        |
+| DATEDIFF(a,b)       | (a - b)                                       |
+| YEAR(col)/MONTH/DAY | EXTRACT(YEAR FROM col) / TO_CHAR(col,'YYYY') |
+| LIMIT n, m           | 两层子查询 + ROWNUM（见下方示例）               |
+| LIMIT n              | ROWNUM <= n 或 FETCH FIRST n ROWS ONLY        |
+| CONCAT_WS(sep,...)  | col1 || sep || col2 || ...                    |
+| FLOOR(col)          | TRUNC(col)                                    |
+
+## LIMIT 分页示例（达梦）
+```sql
+-- 取第 11~20 条（OFFSET 10, LIMIT 10）
+SELECT * FROM (
+    SELECT t.*, ROWNUM AS rn FROM (
+        SELECT "id", "device_name" FROM FWBZ."device"
+        ORDER BY "create_time" DESC
+    ) t WHERE ROWNUM <= 20
+) WHERE rn > 10
+
+-- 取前 100 条
+SELECT * FROM (
+    SELECT t.*, ROWNUM AS rn FROM (
+        SELECT "id", "device_name" FROM FWBZ."device"
+        ORDER BY "create_time" DESC
+    ) t WHERE ROWNUM <= 100
+)
+```
+
+## 时间差计算（告警处理时长，单位：分钟）
+```sql
+(ar."process_time" - ar."alarm_time") * 1440
+```
 
 ## 核心业务表结构
 
@@ -224,13 +264,16 @@ class ChatService:
 用户问题：{question}
 
 ## 要求
-1. 只生成 SELECT 查询，禁止 INSERT/UPDATE/DELETE
+1. 只生成 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等任何修改操作
 2. 表名格式：FWBZ."table_name"
-3. 字段名格式：用双引号包裹（如 "device_name"）
+3. 字段名格式：用双引号包裹（如 "device_name"），禁止裸列名
 4. 日期常量用单引号（如 '2026-08-01'）
 5. 合理使用聚合函数（COUNT/SUM/AVG/MAX/MIN）和 GROUP BY
-6. 添加 ORDER BY 和合理的 LIMIT（最多100条）
+6. LIMIT 最多100条（达梦用 ROWNUM 或 FETCH FIRST n ROWS ONLY）
 7. 必须可以实际执行，不要生成假设性数据
+8. 禁止使用 DATE() 函数，用 CAST(col AS DATE) 或 TRUNC(col)
+9. 时间差计算用 (end_time - start_time) * 1440，不用 TIMESTAMPDIFF()
+10. NULL 处理用 NVL(a, b)，不用 IFNULL()
 
 ## 输出格式
 直接输出 SQL 语句，不要任何解释，不要用 markdown 代码块包裹。
@@ -268,10 +311,22 @@ class ChatService:
     def _execute_sql(self, sql: str) -> tuple[Optional[List[dict]], Optional[str]]:
         """执行 SQL 并返回结果"""
         try:
-            # 安全检查：禁止危险操作
+            # 安全检查：禁止危险操作（单词边界匹配，避免误伤 create_time 等列名）
+            import re
             sql_upper = sql.upper()
-            if any(kw in sql_upper for kw in ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'TRUNCATE', 'ALTER', 'CREATE']):
+            # INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER 用单词边界检测
+            if re.search(r'\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER)\b', sql_upper):
+                logger.warning(f"SQL 安全检查拒绝（危险关键词）: {sql[:100]}")
                 return None, "禁止执行非查询语句"
+            if re.search(r'\bCREATE\b', sql_upper):
+                # CREATE 作为独立单词检测（排除 CREATE_TIME 这类列名）
+                # 只有出现在句首或前面有分号的才是 DDL
+                safe_pattern = r'(?:^|[;])\s*CREATE\b|^\s*CREATE\s+'
+                if not re.search(safe_pattern, sql_upper):
+                    pass  # CREATE_TIME 等列名是安全的
+                else:
+                    logger.warning(f"SQL 安全检查拒绝（CREATE DDL）: {sql[:100]}")
+                    return None, "禁止执行非查询语句"
 
             results = execute_query(sql)
             return results, None

@@ -58,7 +58,29 @@ class OllamaClient:
                 "num_gpu": self.num_gpu,
                 "temperature": 0.3,
                 "num_ctx": settings.model_defaults.num_ctx,
-                "num_predict": 2048,
+                "num_predict": settings.model_defaults.num_predict,
+            },
+        }
+
+    def build_report_payload(
+        self,
+        messages: List[Dict[str, str]],
+        num_predict: int = None,
+    ) -> Dict[str, Any]:
+        """构建报告生成请求 payload（长输出，高 num_predict）"""
+        if num_predict is None:
+            num_predict = settings.model_defaults.num_predict_report
+        return {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "think": self.think,
+            "keep_alive": self.keep_alive,
+            "options": {
+                "num_gpu": self.num_gpu,
+                "temperature": 0.3,
+                "num_ctx": settings.model_defaults.num_ctx,
+                "num_predict": num_predict,
             },
         }
 
@@ -127,7 +149,7 @@ class OllamaClient:
                 "num_gpu": self.num_gpu,
                 "temperature": temperature,
                 "num_ctx": settings.model_defaults.num_ctx,
-                "num_predict": 2048,
+                "num_predict": settings.model_defaults.num_predict,
             },
         }
         with httpx.Client(timeout=self.timeout) as client:

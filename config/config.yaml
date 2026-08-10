@@ -11,10 +11,10 @@ app:
     - "*"
 
 ollama:
-#  chat_url: "http://192.168.204.169:11434/api/chat"
-  chat_url: "http://localhost:11434/api/chat"
-#  tags_url: "http://192.168.204.169:11434/api/tags"
-  tags_url: "http://localhost:11434/api/tags"
+  chat_url: "http://192.168.204.169:11434/api/chat"
+#  chat_url: "http://localhost:11434/api/chat"
+  tags_url: "http://192.168.204.169:11434/api/tags"
+#  tags_url: "http://localhost:11434/api/tags"
   model: "qwen3.5:9b"
   timeout: 300.0          # 请求超时（秒）
   num_gpu: 99            # GPU 加速，99 表示全 GPU
@@ -23,8 +23,10 @@ ollama:
   think: false
 
 model_defaults:
-  num_ctx: 2048          # 上下文窗口大小
-  temperature: 0.6       # 温度参数
+  num_ctx: 20480          # 上下文窗口大小
+  temperature: 0.6        # 温度参数
+  num_predict: 20480      # 默认最大生成 token 数（SQL、检测等短输出场景）
+  num_predict_report: 20480  # 报告生成场景的最大 token 数（长输出）
 
 # PostgreSQL - 访问日志存储
 database:
