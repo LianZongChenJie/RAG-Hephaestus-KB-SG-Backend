@@ -35,32 +35,43 @@ ALTER TABLE chat_access_logs ADD COLUMN IF NOT EXISTS user_agent TEXT;
 
 
 async def init_db() -> None:
-    """创建连接池并确保访问日志表存在"""
+    """创建连接池并确保访问日志表存在（连接失败时优雅降级）"""
     global _pool
     db = settings.database
-    _pool = await asyncpg.create_pool(
-        host=db.host,
-        port=db.port,
-        user=db.user,
-        password=db.password,
-        database=db.name,
-        min_size=db.min_size,
-        max_size=db.max_size,
-    )
-    async with _pool.acquire() as conn:
-        await conn.execute(_CREATE_TABLE_SQL)
-        await conn.execute(_MIGRATE_COLUMNS_SQL)
-    logger.info(
-        "PostgreSQL ready: %s@%s:%s/%s",
-        db.user, db.host, db.port, db.name
-    )
+    try:
+        _pool = await asyncpg.create_pool(
+            host=db.host,
+            port=db.port,
+            user=db.user,
+            password=db.password,
+            database=db.name,
+            min_size=db.min_size,
+            max_size=db.max_size,
+            command_timeout=10,
+        )
+        async with _pool.acquire() as conn:
+            await conn.execute(_CREATE_TABLE_SQL)
+            await conn.execute(_MIGRATE_COLUMNS_SQL)
+        logger.info(
+            "PostgreSQL ready: %s@%s:%s/%s",
+            db.user, db.host, db.port, db.name
+        )
+    except Exception as exc:
+        logger.warning(
+            "PostgreSQL 连接失败，访问日志功能已禁用（不影响主服务）: %s",
+            exc
+        )
+        _pool = None
 
 
 async def close_db() -> None:
     """关闭数据库连接池"""
     global _pool
     if _pool is not None:
-        await _pool.close()
+        try:
+            await _pool.close()
+        except Exception:
+            pass
         _pool = None
 
 
