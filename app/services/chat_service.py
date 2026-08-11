@@ -41,7 +41,7 @@ DAMENG_SCHEMA_CONTEXT = """
 | DATEDIFF(a,b)       | (a - b)                                       |
 | YEAR(col)/MONTH/DAY | EXTRACT(YEAR FROM col) / TO_CHAR(col,'YYYY') |
 | LIMIT n, m           | 两层子查询 + ROWNUM（见下方示例）               |
-| LIMIT n              | ROWNUM <= n 或 FETCH FIRST n ROWS ONLY        |
+| LIMIT n              | ROWNUM <= n（❌ 禁止使用 FETCH FIRST，达梦不支持） |
 | CONCAT_WS(sep,...)  | col1 || sep || col2 || ...                    |
 | FLOOR(col)          | TRUNC(col)                                    |
 
@@ -298,6 +298,7 @@ class ChatService:
 ### 分页查询
 ❌ 错误：LIMIT 10, 20
 ❌ 错误：LIMIT 20 OFFSET 10
+❌ 错误：FETCH FIRST 100 ROWS ONLY（达梦不支持！）
 ✅ 正确（达梦 8.0）：
 ```sql
 SELECT * FROM (
@@ -330,7 +331,7 @@ SELECT * FROM (
 2. 表名格式：FWBZ."table_name"（Schema + 双引号表名）
 3. 字段名格式：双引号包裹，如 "device_name"
 4. 日期常量用单引号，如 '2026-08-01'（不是 #2026-08-01#）
-5. LIMIT 最多100条，用 ROWNUM 实现分页
+5. LIMIT 限制：明细查询（无 GROUP BY）最多500条，聚合查询（有 GROUP BY）最多200条，用 ROWNUM 实现分页
 6. 必须可以实际执行，不要生成假设性数据
 
 ## 输出格式
@@ -349,7 +350,8 @@ SELECT * FROM (
                 sql = re.sub(r'^```sql\s*', '', sql, flags=re.IGNORECASE)
                 sql = re.sub(r'^```\s*', '', sql)
                 sql = re.sub(r'\s*```$', '', sql)
-                sql = sql.strip()
+                # 清理末尾分号和空白
+                sql = sql.rstrip(';').strip()
 
                 logger.info("LLM原始输出: %s", sql[:500] if len(sql) > 500 else sql)
 
@@ -361,20 +363,64 @@ SELECT * FROM (
                     sql = re.sub(r'\s+AS\s+"[^"]+"\s*', ' ', sql, flags=re.IGNORECASE)
                     sql = re.sub(r'\s+AS\s+\'[^\']*\'\s*', ' ', sql, flags=re.IGNORECASE)
 
-                    # 2. 修复 MySQL/通用 LIMIT 语法 → 达梦 ROWNUM
-                    # LIMIT 100 或 LIMIT 0, 100 或 LIMIT 100 OFFSET 0
-                    if re.search(r'\bLIMIT\s+\d+', sql, re.IGNORECASE):
+                    # 2. 修复分页语法 → 达梦 ROWNUM
+                    # 支持：LIMIT N, FETCH FIRST N ROWS ONLY
+                    # 分场景限制：明细查询（无 GROUP BY）500条，聚合查询（有 GROUP BY）200条
+                    has_group_by = bool(re.search(r'\bGROUP\s+BY\b', sql, re.IGNORECASE))
+
+                    limit_n = None
+                    # 2.1 处理 FETCH FIRST N ROWS ONLY（PostgreSQL/Oracle 语法）
+                    fetch_match = re.search(r'\bFETCH\s+FIRST\s+(\d+)\s+ROWS\s+ONLY\b', sql, re.IGNORECASE)
+                    if fetch_match:
+                        limit_n = int(fetch_match.group(1))
+                        # 移除 FETCH FIRST 子句
+                        sql = re.sub(r'\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\b', '', sql, flags=re.IGNORECASE)
+                    # 2.2 处理 LIMIT N
+                    elif re.search(r'\bLIMIT\s+\d+', sql, re.IGNORECASE):
                         limit_match = re.search(r'LIMIT\s+(\d+)', sql, re.IGNORECASE)
                         if limit_match:
                             limit_n = int(limit_match.group(1))
                             # 移除原 LIMIT 子句
                             sql = re.sub(r'\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?', '', sql, flags=re.IGNORECASE)
                             sql = re.sub(r'\s+LIMIT\s+\d+\s*,\s*\d+', '', sql, flags=re.IGNORECASE)
-                            # 添加达梦分页
-                            if limit_n <= 100:
-                                sql = f'SELECT * FROM (SELECT t.*, ROWNUM AS rn FROM ({sql}) t WHERE ROWNUM <= {limit_n}) WHERE rn > 0'
-                            else:
-                                sql = f'SELECT * FROM (SELECT t.*, ROWNUM AS rn FROM ({sql}) t WHERE ROWNUM <= 100) WHERE rn > 0'
+                    # 2.3 没有分页语法，自动加上限制防止全表扫描
+                    if limit_n is None:
+                        limit_n = 200 if has_group_by else 500
+
+                    # 根据场景限制最终数量
+                    if has_group_by:
+                        final_limit = min(limit_n, 200)
+                    else:
+                        final_limit = min(limit_n, 500)
+
+                    # 添加达梦分页
+                    # 达梦分页标准结构：
+                    # SELECT * FROM (
+                    #   SELECT t.*, ROWNUM AS rn FROM (
+                    #     <原SQL>
+                    #   ) t WHERE ROWNUM <= {limit}
+                    # ) WHERE rn > {offset}
+                    # ORDER BY 始终放在最内层子查询中（先排序再取前N条）
+                    if final_limit:
+                        # 先把 LLM 生成的 WHERE ROWNUM <= N 提取出来（如果有的话）
+                        # LLM 可能会生成错误的顺序：ORDER BY ... WHERE ROWNUM <= N
+                        where_rownum_match = re.search(r'\s+WHERE\s+ROWNUM\s*<=\s*\d+', sql, re.IGNORECASE)
+                        if where_rownum_match:
+                            # 提取并移除 LLM 的 WHERE ROWNUM
+                            sql = sql[:where_rownum_match.start()] + sql[where_rownum_match.end():]
+                        
+                        # 分离 ORDER BY 和主 SQL
+                        order_match = re.search(r'(\s+ORDER\s+BY\s+.+)$', sql, re.IGNORECASE | re.DOTALL)
+                        if order_match:
+                            # 有 ORDER BY：ORDER BY 放内层，WHERE ROWNUM 放 ORDER BY 之前
+                            order_clause = order_match.group(1).strip()
+                            base_sql = sql[:order_match.start()].strip()
+                            sql = f'SELECT * FROM (SELECT t.*, ROWNUM AS rn FROM ({base_sql} WHERE ROWNUM <= {final_limit} {order_clause}) t) WHERE rn > 0'
+                        else:
+                            # 无 ORDER BY：WHERE ROWNUM 直接放后面
+                            sql = f'SELECT * FROM (SELECT t.*, ROWNUM AS rn FROM ({sql} WHERE ROWNUM <= {final_limit}) t) WHERE rn > 0'
+                    
+                    logger.info("包装后SQL: %s", sql)
 
                     # 3. 修复 DATE() 函数 → TRUNC()
                     sql = re.sub(r'\bDATE\(("?[\w.]+"?)\)', r'TRUNC(\1)', sql, flags=re.IGNORECASE)
@@ -484,7 +530,7 @@ SELECT * FROM (
                 "width": "auto"
             })
 
-        for row in data[:100]:
+        for row in data[:500]:
             formatted_row = {}
             for k, v in row.items():
                 # 提取原始列名
