@@ -2402,94 +2402,109 @@ class AIReportService:
         }
 
     def _query_venue_electricity_compare(self, time_range: str, venue_name: Optional[str] = None) -> Dict[str, Any]:
-        """查询各场馆用电对比数据"""
-        venue_filter = self._build_venue_filter(venue_name)
+        """查询各场馆用电对比数据 - 按场馆聚合统计各场馆用电量"""
+        start_date, end_date = self._get_time_range_dates(time_range)
         
-        # 基于时间范围确定查询日期
-        if time_range == "day":
-            target_date = datetime.now().strftime("%Y-%m-%d")
-        elif time_range == "week":
-            target_date = datetime.now().strftime("%Y-%m")
-        elif time_range == "month":
-            target_date = datetime.now().strftime("%Y-%m")
-        elif time_range == "quarter":
-            target_date = datetime.now().strftime("%Y-%m")
-        else:  # year
-            target_date = datetime.now().strftime("%Y")
-        
-        # 查询各分类用电数据
+        # 查询各场馆用电量数据 - 通过 device.venue_id 关联 table_venue_info
         compare_sql = f'''
             SELECT 
-                ec."category_name" as category,
-                COALESCE(SUM(er."energy_value"), 0) as value
-            FROM FWBZ."energy_record" er
-            INNER JOIN FWBZ."device" d ON er."device_id" = d."id"
-            INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-            WHERE er."record_date" LIKE '{target_date}%'
-            {venue_filter}
-            GROUP BY ec."category_name"
-            ORDER BY value DESC
+                vi."venue_name" as venue_name,
+                COALESCE(SUM(dd."value"), 0) as total_electricity
+            FROM FWBZ."table_venue_info" vi
+            LEFT JOIN FWBZ."device" d ON d."venue_id" = vi."id"
+            LEFT JOIN FWBZ."data_day" dd ON dd."device_id" = d."id"
+                AND dd."time" >= '{start_date}'
+                AND dd."time" <= '{end_date} 23:59:59'
+            GROUP BY vi."venue_name"
+            ORDER BY total_electricity DESC
         '''
         
         try:
             result = execute_query(compare_sql)
-            if result:
-                categories = [r.get("category", "") for r in result]
-                data = {r.get("category", ""): [r.get("value", 0)] for r in result}
+            if result and any(r.get("total_electricity", 0) > 0 for r in result):
+                venues = [r.get("venue_name", "") for r in result if r.get("venue_name")]
+                data = {r.get("venue_name", ""): [r.get("total_electricity", 0)] 
+                       for r in result if r.get("venue_name")}
             else:
-                # 使用图片中的默认数据
-                categories = ["公共用电", "应急照明", "办公用电", "商业用电"]
-                data = {
-                    "公共用电": [150],
-                    "应急照明": [120],
-                    "办公用电": [80],
-                    "商业用电": [50]
-                }
-        except:
-            categories = ["公共用电", "应急照明", "办公用电", "商业用电"]
+                # 查询场馆列表（即使没有用电数据也显示场馆）
+                venue_list_sql = '''
+                    SELECT "venue_name" FROM FWBZ."table_venue_info" ORDER BY "id"
+                '''
+                venue_result = execute_query(venue_list_sql)
+                if venue_result:
+                    venues = [r.get("venue_name", "") for r in venue_result]
+                    data = {v: [0] for v in venues}
+                else:
+                    venues = ["演唱会", "智能制造博览会", "国际车展"]
+                    data = {
+                        "演唱会": [1250],
+                        "智能制造博览会": [980],
+                        "国际车展": [760]
+                    }
+        except Exception as exc:
+            logger.warning(f"查询场馆用电对比失败: {exc}")
+            venues = ["演唱会", "智能制造博览会", "国际车展"]
             data = {
-                "公共用电": [150],
-                "应急照明": [120],
-                "办公用电": [80],
-                "商业用电": [50]
+                "演唱会": [1250],
+                "智能制造博览会": [980],
+                "国际车展": [760]
             }
         
         return {
-            "categories": categories,
+            "categories": venues,
             "data": data
         }
 
     def _query_energy_structure(self, venue_name: Optional[str] = None) -> Dict[str, Any]:
-        """查询用能结构分析数据"""
-        venue_filter = self._build_venue_filter(venue_name)
-        today = datetime.now().strftime("%Y-%m")
+        """查询用能结构分析数据 - 按能源类型（电/水/热等）聚合统计用能占比"""
+        venue_id = self._get_venue_id(venue_name) if venue_name else None
+        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        end_date = datetime.now().strftime("%Y-%m-%d")
         
-        # 查询各分类用能占比
+        # 查询用能结构 - 通过设备类型区分能源类型（如：电表类、水表类、热量表类）
+        # 注意：这里的 categories 是能源类型（如：电力、用水、用热），不是设备分类
         structure_sql = f'''
             SELECT 
-                ec."category_name" as category,
-                COALESCE(SUM(er."energy_value"), 0) as value
-            FROM FWBZ."energy_record" er
-            INNER JOIN FWBZ."device" d ON er."device_id" = d."id"
-            INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-            WHERE er."record_date" LIKE '{today}%'
-            {venue_filter}
-            GROUP BY ec."category_name"
-            HAVING SUM(er."energy_value") > 0
+                CASE 
+                    WHEN ec."category_name" LIKE '%电表%' OR ec."full_name" LIKE '%电力%' OR ec."full_name" LIKE '%用电%' THEN '电力'
+                    WHEN ec."category_name" LIKE '%水表%' OR ec."full_name" LIKE '%用水%' OR ec."full_name" LIKE '%水耗%' THEN '用水'
+                    WHEN ec."category_name" LIKE '%热%' OR ec."full_name" LIKE '%热%' THEN '热力'
+                    WHEN ec."category_name" LIKE '%气%' OR ec."full_name" LIKE '%燃气%' THEN '燃气'
+                    ELSE '其他'
+                END as energy_type,
+                COALESCE(SUM(dd."value"), 0) as total_value
+            FROM FWBZ."device" d
+            LEFT JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
+            LEFT JOIN FWBZ."data_day" dd ON dd."device_id" = d."id"
+                AND dd."time" >= '{start_date}'
+                AND dd."time" <= '{end_date} 23:59:59'
+            WHERE d."device_type" = '1'  -- 只统计仪表类设备
+            {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+            GROUP BY 
+                CASE 
+                    WHEN ec."category_name" LIKE '%电表%' OR ec."full_name" LIKE '%电力%' OR ec."full_name" LIKE '%用电%' THEN '电力'
+                    WHEN ec."category_name" LIKE '%水表%' OR ec."full_name" LIKE '%用水%' OR ec."full_name" LIKE '%水耗%' THEN '用水'
+                    WHEN ec."category_name" LIKE '%热%' OR ec."full_name" LIKE '%热%' THEN '热力'
+                    WHEN ec."category_name" LIKE '%气%' OR ec."full_name" LIKE '%燃气%' THEN '燃气'
+                    ELSE '其他'
+                END
+            HAVING COALESCE(SUM(dd."value"), 0) > 0
+            ORDER BY total_value DESC
         '''
         
         try:
             result = execute_query(structure_sql)
             if result:
-                categories = [r.get("category", "") for r in result]
-                data = [r.get("value", 0) for r in result]
+                categories = [r.get("energy_type", "") for r in result]
+                data = [r.get("total_value", 0) for r in result]
             else:
-                # 使用图片中的默认数据
-                categories = ["公共用电", "应急照明", "办公用电", "商业用电"]
-                data = [45, 25, 20, 10]
-        except:
-            categories = ["公共用电", "应急照明", "办公用电", "商业用电"]
-            data = [45, 25, 20, 10]
+                # 使用默认的能源结构数据（电力、用水、热力、燃气）
+                categories = ["电力", "用水", "热力", "燃气"]
+                data = [65, 20, 10, 5]
+        except Exception as exc:
+            logger.warning(f"查询用能结构失败: {exc}")
+            categories = ["电力", "用水", "热力", "燃气"]
+            data = [65, 20, 10, 5]
         
         return {
             "categories": categories,
