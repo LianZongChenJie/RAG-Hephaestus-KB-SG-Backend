@@ -267,6 +267,55 @@ class AIFaultReportResponse(BaseModel):
     suggestions: List[str] = Field(default_factory=list, description="维保建议")
 
 
+# ============ AI故障分析报告（拆分接口）============
+
+class AIFaultQueryResponse(BaseModel):
+    """AI故障数据查询响应（快速返回，不调用LLM）"""
+    query_params: Dict[str, Any] = Field(..., description="查询参数")
+    fault_stats: Dict[str, Any] = Field(default_factory=dict, description="故障统计")
+    fault_by_category: List[Dict[str, Any]] = Field(default_factory=list, description="故障按类别分布")
+    fault_by_level: List[Dict[str, Any]] = Field(default_factory=list, description="故障按级别分布")
+    fault_list: List[Dict[str, Any]] = Field(default_factory=list, description="故障列表")
+    device_fault_count: List[Dict[str, Any]] = Field(default_factory=list, description="设备故障频次")
+    fault_time_distribution: List[Dict[str, Any]] = Field(default_factory=list, description="故障时段分布")
+    fault_space_distribution: List[Dict[str, Any]] = Field(default_factory=list, description="故障空间分布")
+    fault_device_category: List[Dict[str, Any]] = Field(default_factory=list, description="故障设备类型分布")
+    response_rate_stats: Dict[str, Any] = Field(default_factory=dict, description="响应及时率统计")
+    complaint_stats: Dict[str, Any] = Field(default_factory=dict, description="投诉建议统计")
+    complaint_list: List[Dict[str, Any]] = Field(default_factory=list, description="投诉建议列表")
+
+
+class AIFaultAnalyzeRequest(BaseModel):
+    """AI故障分析请求（调用LLM生成分析报告）
+
+    支持两种传参方式：
+    1. 前端自行查询后传入的平铺结构（推荐）
+    2. time_range + query_data 嵌套结构（兼容性）
+    """
+    # 方式1：平铺结构（前端直接传 query_params/fault_stats 等字段）
+    query_params: Optional[Dict[str, Any]] = Field(None, description="查询参数（time_range, venue_name, device_id 等）")
+    fault_stats: Optional[Dict[str, Any]] = Field(None, description="故障统计")
+    fault_by_category: Optional[List[Dict[str, Any]]] = Field(None, description="按类别统计")
+    fault_by_level: Optional[List[Dict[str, Any]]] = Field(None, description="按级别统计")
+    fault_list: Optional[List[Dict[str, Any]]] = Field(None, description="故障明细列表")
+    device_fault_count: Optional[List[Dict[str, Any]]] = Field(None, description="按设备统计TOP10")
+    fault_time_distribution: Optional[List[Dict[str, Any]]] = Field(None, description="故障时间分布")
+    fault_space_distribution: Optional[List[Dict[str, Any]]] = Field(None, description="故障空间分布")
+    fault_device_category: Optional[List[Dict[str, Any]]] = Field(None, description="故障设备类别")
+    response_rate_stats: Optional[Dict[str, Any]] = Field(None, description="响应及时率统计")
+    complaint_stats: Optional[Dict[str, Any]] = Field(None, description="投诉建议统计")
+    complaint_list: Optional[List[Dict[str, Any]]] = Field(None, description="投诉建议列表")
+    recent_trends: Optional[Dict[str, Any]] = Field(None, description="近7天趋势")
+
+    # 方式2：time_range 单独 + query_data 嵌套结构（兼容性）
+    time_range: Optional[str] = Field(None, description="时间范围（单独传参时）")
+    venue_name: Optional[str] = Field(None, description="会展名称")
+    device_id: Optional[int] = Field(None, description="设备ID")
+    device_name: Optional[str] = Field(None, description="设备名称")
+    zone_name: Optional[str] = Field(None, description="分区名称")
+    query_data: Optional[Dict[str, Any]] = Field(None, description="查询数据（由 /fault/query 接口返回，嵌套结构）")
+
+
 # ============ 多模态能碳计算 ============
 
 class AICarbonReportRequest(BaseModel):
@@ -489,3 +538,47 @@ class EnergyAnalysisResponse(BaseModel):
     summary: str = Field("", description="分析总结")
     suggestions: List[str] = Field(default_factory=list, description="优化建议")
     warnings: List[str] = Field(default_factory=list, description="异常警告")
+
+
+# ============ AI能源分析报告（拆分接口）============
+
+class EnergyAnalysisQueryResponse(BaseModel):
+    """AI能源数据查询响应（快速返回，不调用LLM）"""
+    query_params: Dict[str, Any] = Field(..., description="查询参数")
+    overview: Dict[str, Any] = Field(default_factory=dict, description="概览数据")
+    air_condition: Dict[str, Any] = Field(default_factory=dict, description="空调机组数据")
+    fresh_air: Dict[str, Any] = Field(default_factory=dict, description="新风机组数据")
+    power_distribution: Dict[str, Any] = Field(default_factory=dict, description="配电系统数据")
+    cold_source: Dict[str, Any] = Field(default_factory=dict, description="冷源系统数据")
+    photovoltaic: Dict[str, Any] = Field(default_factory=dict, description="光伏系统数据")
+    meter_data: Dict[str, Any] = Field(default_factory=dict, description="计费表计数据")
+    today_usage: Dict[str, Any] = Field(default_factory=dict, description="今日用水用电量")
+    venue_electricity_compare: Dict[str, Any] = Field(default_factory=dict, description="各场馆用电对比")
+    energy_structure: Dict[str, Any] = Field(default_factory=dict, description="用能结构分析")
+
+
+class EnergyAnalysisAnalyzeRequest(BaseModel):
+    """AI能源分析请求（调用LLM生成分析报告）
+
+    支持两种传参方式：
+    1. 前端自行查询后传入的平铺结构（推荐）
+    2. 嵌套结构（兼容性）
+    """
+    # 方式1：平铺结构（前端直接传）
+    query_params: Optional[Dict[str, Any]] = Field(None, description="查询参数")
+    overview: Optional[Dict[str, Any]] = Field(None, description="概览数据")
+    air_condition: Optional[Dict[str, Any]] = Field(None, description="空调机组数据")
+    fresh_air: Optional[Dict[str, Any]] = Field(None, description="新风机组数据")
+    power_distribution: Optional[Dict[str, Any]] = Field(None, description="配电系统数据")
+    cold_source: Optional[Dict[str, Any]] = Field(None, description="冷源系统数据")
+    photovoltaic: Optional[Dict[str, Any]] = Field(None, description="光伏系统数据")
+    meter_data: Optional[Dict[str, Any]] = Field(None, description="计费表计数据")
+    today_usage: Optional[Dict[str, Any]] = Field(None, description="今日用水用电量")
+    venue_electricity_compare: Optional[Dict[str, Any]] = Field(None, description="各场馆用电对比")
+    energy_structure: Optional[Dict[str, Any]] = Field(None, description="用能结构分析")
+
+    # 方式2：单独参数
+    system_type: Optional[str] = Field(None, description="子系统类型")
+    venue_name: Optional[str] = Field(None, description="会展名称")
+    time_range: Optional[str] = Field(None, description="时间范围")
+    device_name: Optional[str] = Field(None, description="设备名称")
