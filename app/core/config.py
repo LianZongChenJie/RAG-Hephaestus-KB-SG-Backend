@@ -17,8 +17,8 @@ class ModelDefaultsConfig:
     num_ctx: int
     temperature: float
 
-    def __init__(self, num_ctx: int = 2048, temperature: float = 0.6,
-                 num_predict: int = 2048, num_predict_report: int = 8192):
+    def __init__(self, num_ctx: int = 2048, temperature: float = 0.3,
+                 num_predict: int = 1024, num_predict_report: int = 2048):
         self.num_ctx = num_ctx
         self.temperature = temperature
         self.num_predict = num_predict

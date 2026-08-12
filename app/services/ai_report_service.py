@@ -1,11 +1,12 @@
 """AI报告生成服务"""
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from app.core.dameng import execute_query
+from app.core.dameng import execute_query, execute_query_async
 from app.core.ollama import OllamaClient
 from app.services.ai_report_history_service import AIReportHistoryService
 
@@ -1026,9 +1027,9 @@ class AIReportService:
         
         return data
 
-    # ==================== AI故障分析报告数据查询 ====================
+    # ==================== AI故障分析报告数据查询（异步并行版） ====================
 
-    def _query_fault_report_data(
+    async def _query_fault_report_data(
         self,
         time_range: str,
         venue_name: Optional[str] = None,
@@ -1036,7 +1037,7 @@ class AIReportService:
         device_name: Optional[str] = None,
         zone_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """查询AI故障分析报告所需数据"""
+        """查询AI故障分析报告所需数据（异步并行执行所有SQL）"""
         start_date, end_date = self._get_time_range_dates(time_range)
 
         data = {
@@ -1059,7 +1060,17 @@ class AIReportService:
         try:
             venue_id = self._get_venue_id(venue_name) if venue_name else None
 
-            # 1. 故障统计（通过设备关联会展）
+            # 构建各查询的过滤条件
+            venue_filter = f' AND d."venue_id" = {venue_id}' if venue_id else ''
+            device_filter = f' AND ar."device_id" = {device_id}' if device_id else ''
+            device_name_filter = f" AND ar.\"device_name\" LIKE '%{device_name}%'" if device_name else ''
+
+            # ========== 并行执行所有查询 ==========
+            import time
+            t_query = time.time()
+            logger.info("开始并行查询故障报告数据...")
+
+            # 1. 故障统计
             stats_sql = f'''
                 SELECT
                     COUNT(*) as total_faults,
@@ -1072,36 +1083,22 @@ class AIReportService:
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
             '''
-            if device_id:
-                stats_sql += f' AND ar."device_id" = {device_id}'
-            if device_name:
-                stats_sql += f' AND ar."device_name" LIKE \'%{device_name}%\''
 
-            result = execute_query(stats_sql)
-            if result:
-                data["fault_stats"] = result[0]
-
-            # 2. 故障按类别分布
+            # 2. 故障按类别分布（去掉子查询，在Python里算百分比）
             by_category_sql = f'''
                 SELECT
                     ar."alarm_category_name" as category,
-                    COUNT(*) as count,
-                    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM FWBZ."alarm_record" ar
-                        LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
-                        WHERE ar."alarm_time" >= '{start_date}' AND ar."alarm_time" <= '{end_date} 23:59:59'
-                        {f' AND d."venue_id" = {venue_id}' if venue_id else ''}), 1) as percentage
+                    COUNT(*) as count
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 GROUP BY ar."alarm_category_name"
                 ORDER BY count DESC
             '''
-            result = execute_query(by_category_sql)
-            data["fault_by_category"] = result or []
 
             # 3. 故障按级别分布
             by_level_sql = f'''
@@ -1112,12 +1109,10 @@ class AIReportService:
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 GROUP BY ar."alarm_level_name"
                 ORDER BY count DESC
             '''
-            result = execute_query(by_level_sql)
-            data["fault_by_level"] = result or []
 
             # 4. 故障列表
             fault_list_sql = f'''
@@ -1129,12 +1124,10 @@ class AIReportService:
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 ORDER BY ar."alarm_time" DESC
                 LIMIT 30
             '''
-            result = execute_query(fault_list_sql)
-            data["fault_list"] = result or []
 
             # 5. 设备故障频次
             device_count_sql = f'''
@@ -1145,13 +1138,11 @@ class AIReportService:
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 GROUP BY ar."device_name"
                 ORDER BY fault_count DESC
                 LIMIT 10
             '''
-            result = execute_query(device_count_sql)
-            data["device_fault_count"] = result or []
 
             # 6. 平均修复时长
             repair_time_sql = f'''
@@ -1162,33 +1153,21 @@ class AIReportService:
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
                 AND ar."process_time" IS NOT NULL
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
             '''
-            result = execute_query(repair_time_sql)
-            if result and result[0].get("avg_repair_minutes"):
-                data["fault_stats"]["avg_repair_minutes"] = result[0]["avg_repair_minutes"]
-            
+
             # 7. 投诉建议记录
             complaint_sql = f'''
                 SELECT 
-                    "id",
-                    "title",
-                    "complaint_date",
-                    "type_id",
-                    "content",
-                    "source",
-                    "handler",
-                    "status",
-                    "remark"
+                    "id", "title", "complaint_date", "type_id", "content",
+                    "source", "handler", "status", "remark"
                 FROM FWBZ."table_complaint_info"
                 WHERE "complaint_date" >= '{start_date}'
                 AND "complaint_date" <= '{end_date}'
                 ORDER BY "complaint_date" DESC
                 LIMIT 30
             '''
-            result = execute_query(complaint_sql)
-            data["complaint_list"] = result or []
-            
+
             # 8. 投诉建议统计
             complaint_stats_sql = f'''
                 SELECT 
@@ -1203,15 +1182,10 @@ class AIReportService:
                 WHERE "complaint_date" >= '{start_date}'
                 AND "complaint_date" <= '{end_date}'
             '''
-            result = execute_query(complaint_stats_sql)
-            if result:
-                data["complaint_stats"] = result[0]
-            
+
             # 9. 投诉建议按来源统计
             complaint_by_source_sql = f'''
-                SELECT 
-                    "source",
-                    COUNT(*) as count
+                SELECT "source", COUNT(*) as count
                 FROM FWBZ."table_complaint_info"
                 WHERE "complaint_date" >= '{start_date}'
                 AND "complaint_date" <= '{end_date}'
@@ -1219,14 +1193,10 @@ class AIReportService:
                 GROUP BY "source"
                 ORDER BY count DESC
             '''
-            result = execute_query(complaint_by_source_sql)
-            data["complaint_by_source"] = result or []
-            
+
             # 10. 投诉建议按状态分布
             complaint_by_status_sql = f'''
-                SELECT 
-                    "status",
-                    COUNT(*) as count
+                SELECT "status", COUNT(*) as count
                 FROM FWBZ."table_complaint_info"
                 WHERE "complaint_date" >= '{start_date}'
                 AND "complaint_date" <= '{end_date}'
@@ -1234,14 +1204,10 @@ class AIReportService:
                 GROUP BY "status"
                 ORDER BY count DESC
             '''
-            result = execute_query(complaint_by_status_sql)
-            data["complaint_by_status"] = result or []
-            
+
             # 11. 投诉建议处理人统计
             complaint_by_handler_sql = f'''
-                SELECT 
-                    "handler",
-                    COUNT(*) as count
+                SELECT "handler", COUNT(*) as count
                 FROM FWBZ."table_complaint_info"
                 WHERE "complaint_date" >= '{start_date}'
                 AND "complaint_date" <= '{end_date}'
@@ -1250,20 +1216,13 @@ class AIReportService:
                 ORDER BY count DESC
                 LIMIT 10
             '''
-            result = execute_query(complaint_by_handler_sql)
-            data["complaint_by_handler"] = result or []
-            
+
             # 12. 投诉建议处理记录
             complaint_record_sql = f'''
                 SELECT 
-                    tcr."id",
-                    tcr."complaint_id",
-                    tci."title",
-                    tcr."handle_date",
-                    tcr."handle_content",
-                    tcr."status_from",
-                    tcr."status_to",
-                    tcr."handler"
+                    tcr."id", tcr."complaint_id", tci."title",
+                    tcr."handle_date", tcr."handle_content",
+                    tcr."status_from", tcr."status_to", tcr."handler"
                 FROM FWBZ."table_complaint_record" tcr
                 LEFT JOIN FWBZ."table_complaint_info" tci ON tcr."complaint_id" = tci."id"
                 WHERE tcr."handle_date" >= '{start_date}'
@@ -1271,14 +1230,11 @@ class AIReportService:
                 ORDER BY tcr."handle_date" DESC
                 LIMIT 30
             '''
-            result = execute_query(complaint_record_sql)
-            data["complaint_record_list"] = result or []
 
-            # 13. 故障设备空间分布分析
+            # 13. 故障设备空间分布
             fault_space_sql = f'''
                 SELECT
-                    s."space_name",
-                    s."full_name",
+                    s."space_name", s."full_name",
                     COUNT(ar."id") as fault_count,
                     COUNT(DISTINCT ar."device_id") as affected_devices
                 FROM FWBZ."alarm_record" ar
@@ -1286,63 +1242,45 @@ class AIReportService:
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 GROUP BY s."space_name", s."full_name"
                 HAVING s."space_name" IS NOT NULL
                 ORDER BY fault_count DESC
                 LIMIT 15
             '''
-            result = execute_query(fault_space_sql)
-            data["fault_space_distribution"] = result or []
 
-            # 14. 故障设备类型分布分析
+            # 14. 故障设备类型分布（去掉子查询）
             fault_device_category_sql = f'''
                 SELECT
                     ec."category_name" as category,
                     ec."full_name",
                     COUNT(ar."id") as fault_count,
-                    COUNT(DISTINCT ar."device_id") as affected_devices,
-                    ROUND(COUNT(ar."id") * 100.0 / NULLIF((
-                        SELECT COUNT(*) FROM FWBZ."alarm_record" ar2
-                        LEFT JOIN FWBZ."device" d2 ON ar2."device_id" = d2."id"
-                        WHERE ar2."alarm_time" >= '{start_date}'
-                        AND ar2."alarm_time" <= '{end_date} 23:59:59'
-                        {f' AND d2."venue_id" = {venue_id}' if venue_id else ''}
-                    ), 0), 2) as percentage
+                    COUNT(DISTINCT ar."device_id") as affected_devices
                 FROM FWBZ."alarm_record" ar
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 LEFT JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 GROUP BY ec."category_name", ec."full_name"
                 HAVING ec."category_name" IS NOT NULL
                 ORDER BY fault_count DESC
                 LIMIT 15
             '''
-            result = execute_query(fault_device_category_sql)
-            data["fault_device_category"] = result or []
 
-            # 15. 设备最后采集时间分析（识别潜在离线设备）
+            # 15. 设备最后采集时间
             device_last_gather_sql = f'''
                 SELECT
-                    d."id",
-                    d."device_name",
-                    d."device_code",
-                    d."run_state",
-                    d."last_gather_time",
-                    ec."category_name",
-                    s."space_name"
+                    d."id", d."device_name", d."device_code", d."run_state",
+                    d."last_gather_time", ec."category_name", s."space_name"
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 WHERE d."last_gather_time" IS NOT NULL
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}
                 ORDER BY d."last_gather_time" ASC
                 LIMIT 20
             '''
-            result = execute_query(device_last_gather_sql)
-            data["device_last_gather"] = result or []
 
             # 16. 故障时段分析
             fault_time_sql = f'''
@@ -1358,12 +1296,10 @@ class AIReportService:
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
                 GROUP BY time_period
                 ORDER BY fault_count DESC
             '''
-            result = execute_query(fault_time_sql)
-            data["fault_time_distribution"] = result or []
 
             # 17. 告警响应及时率统计
             response_rate_sql = f'''
@@ -1380,15 +1316,125 @@ class AIReportService:
                 LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
-                {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
+                {venue_filter}{device_filter}{device_name_filter}
             '''
-            result = execute_query(response_rate_sql)
-            if result:
-                data["response_rate_stats"] = result[0]
+
+            # 并行执行所有查询
+            (
+                stats_result,
+                by_category_result,
+                by_level_result,
+                fault_list_result,
+                device_count_result,
+                repair_time_result,
+                complaint_result,
+                complaint_stats_result,
+                complaint_by_source_result,
+                complaint_by_status_result,
+                complaint_by_handler_result,
+                complaint_record_result,
+                fault_space_result,
+                fault_device_category_result,
+                device_last_gather_result,
+                fault_time_result,
+                response_rate_result,
+            ) = await asyncio.gather(
+                execute_query_async(stats_sql),
+                execute_query_async(by_category_sql),
+                execute_query_async(by_level_sql),
+                execute_query_async(fault_list_sql),
+                execute_query_async(device_count_sql),
+                execute_query_async(repair_time_sql),
+                execute_query_async(complaint_sql),
+                execute_query_async(complaint_stats_sql),
+                execute_query_async(complaint_by_source_sql),
+                execute_query_async(complaint_by_status_sql),
+                execute_query_async(complaint_by_handler_sql),
+                execute_query_async(complaint_record_sql),
+                execute_query_async(fault_space_sql),
+                execute_query_async(fault_device_category_sql),
+                execute_query_async(device_last_gather_sql),
+                execute_query_async(fault_time_sql),
+                execute_query_async(response_rate_sql),
+                return_exceptions=True
+            )
+
+            query_ms = (time.time() - t_query) * 1000
+            logger.info(f"[耗时] 故障报告数据查询: {query_ms:.0f}ms")
+            logger.info("并行查询完成，开始组装数据...")
+
+            # 组装故障统计
+            if not isinstance(stats_result, Exception) and stats_result:
+                data["fault_stats"] = stats_result[0]
+
+            # 计算故障按类别分布的百分比（从Python端计算，去掉SQL子查询）
+            if not isinstance(by_category_result, Exception):
+                total_category = sum(r.get("count", 0) for r in by_category_result)
+                for r in by_category_result:
+                    r["percentage"] = round(r.get("count", 0) * 100.0 / total_category, 1) if total_category > 0 else 0
+                data["fault_by_category"] = by_category_result
+
+            # 计算设备类型分布的百分比
+            if not isinstance(fault_device_category_result, Exception):
+                total_cat = sum(r.get("fault_count", 0) for r in fault_device_category_result)
+                for r in fault_device_category_result:
+                    r["percentage"] = round(r.get("fault_count", 0) * 100.0 / total_cat, 2) if total_cat > 0 else 0
+                data["fault_device_category"] = fault_device_category_result
+
+            # 组装其他结果
+            if not isinstance(by_level_result, Exception):
+                data["fault_by_level"] = by_level_result
+            if not isinstance(fault_list_result, Exception):
+                data["fault_list"] = fault_list_result
+            if not isinstance(device_count_result, Exception):
+                data["device_fault_count"] = device_count_result
+            if not isinstance(repair_time_result, Exception) and repair_time_result:
+                if repair_time_result[0].get("avg_repair_minutes"):
+                    data["fault_stats"]["avg_repair_minutes"] = repair_time_result[0]["avg_repair_minutes"]
+            if not isinstance(complaint_result, Exception):
+                data["complaint_list"] = complaint_result
+            if not isinstance(complaint_stats_result, Exception) and complaint_stats_result:
+                data["complaint_stats"] = complaint_stats_result[0]
+            if not isinstance(complaint_by_source_result, Exception):
+                data["complaint_by_source"] = complaint_by_source_result
+            if not isinstance(complaint_by_status_result, Exception):
+                data["complaint_by_status"] = complaint_by_status_result
+            if not isinstance(complaint_by_handler_result, Exception):
+                data["complaint_by_handler"] = complaint_by_handler_result
+            if not isinstance(complaint_record_result, Exception):
+                data["complaint_record_list"] = complaint_record_result
+            if not isinstance(fault_space_result, Exception):
+                data["fault_space_distribution"] = fault_space_result
+            if not isinstance(device_last_gather_result, Exception):
+                data["device_last_gather"] = device_last_gather_result
+            if not isinstance(fault_time_result, Exception):
+                data["fault_time_distribution"] = fault_time_result
+            if not isinstance(response_rate_result, Exception) and response_rate_result:
+                data["response_rate_stats"] = response_rate_result[0]
+
+            # 记录异常（不中断）
+            query_names = [
+                "stats", "by_category", "by_level", "fault_list", "device_count",
+                "repair_time", "complaint", "complaint_stats", "complaint_by_source",
+                "complaint_by_status", "complaint_by_handler", "complaint_record",
+                "fault_space", "fault_device_category", "device_last_gather",
+                "fault_time", "response_rate"
+            ]
+            for i, result in enumerate([
+                stats_result, by_category_result, by_level_result, fault_list_result,
+                device_count_result, repair_time_result, complaint_result, complaint_stats_result,
+                complaint_by_source_result, complaint_by_status_result, complaint_by_handler_result,
+                complaint_record_result, fault_space_result, fault_device_category_result,
+                device_last_gather_result, fault_time_result, response_rate_result
+            ]):
+                if isinstance(result, Exception):
+                    logger.warning(f"查询 {query_names[i]} 出错（不影响其他结果）: {result}")
+
+            logger.info("故障报告数据查询完成")
 
         except Exception as exc:
             logger.error(f"查询故障报告数据失败: {exc}")
-        
+
         return data
 
     # ==================== 报告生成 ====================
@@ -1658,7 +1704,7 @@ class AIReportService:
 
         return result
 
-    async def generate_fault_report(
+    async def query_fault_data(
         self,
         time_range: str,
         venue_name: Optional[str] = None,
@@ -1666,25 +1712,64 @@ class AIReportService:
         device_name: Optional[str] = None,
         zone_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """生成AI故障分析报告"""
-        # 1. 先查询真实数据
-        query_data = self._query_fault_report_data(time_range, venue_name, device_id, device_name, zone_name)
+        """查询故障数据（不调用LLM，快速返回）"""
+        logger.info("[开始] 查询故障数据（快速模式）")
+        query_data = await self._query_fault_report_data(
+            time_range, venue_name, device_id, device_name, zone_name
+        )
+        logger.info("[完成] 查询故障数据完成")
+        return query_data
 
-        # 2. 构建Prompt
+    async def analyze_fault_data(
+        self,
+        time_range: str,
+        query_data: Dict[str, Any],
+        venue_name: Optional[str] = None,
+        device_id: Optional[int] = None,
+        device_name: Optional[str] = None,
+        zone_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """基于查询数据调用LLM生成分析报告"""
+        import time
+        t_total = time.time()
+        logger.info("[开始] AI故障分析（LLM推理模式）")
+
+        # 构建精简的 Prompt 数据
+        fault_stats = query_data.get("fault_stats", {})
+        query_params = query_data.get("query_params", {})
+        start_date = query_params.get("start_date", "")
+        end_date = query_params.get("end_date", "")
+        fault_summary = {
+            "total_faults": fault_stats.get("total_faults", 0),
+            "affected_devices": fault_stats.get("affected_devices", 0),
+            "category_count": fault_stats.get("category_count", 0),
+            "unresolved_count": fault_stats.get("unresolved_count", 0),
+            "resolved_count": fault_stats.get("resolved_count", 0),
+            "unplanned_stop_count": fault_stats.get("unplanned_stop_count", 0),
+            "avg_repair_minutes": fault_stats.get("avg_repair_minutes"),
+            "fault_by_category": query_data.get("fault_by_category", [])[:5],
+            "fault_by_level": query_data.get("fault_by_level", [])[:3],
+            "device_fault_count": query_data.get("device_fault_count", [])[:5],
+            "fault_time_distribution": query_data.get("fault_time_distribution", []),
+            "response_rate_stats": query_data.get("response_rate_stats", {}),
+            "fault_space_distribution": query_data.get("fault_space_distribution", [])[:3],
+            "fault_device_category": query_data.get("fault_device_category", [])[:3],
+        }
+
         user_prompt = f"""## 任务：生成AI故障分析报告
 
 ### 时间范围
-{time_range}（{query_data['query_params']['start_date']} 至 {query_data['query_params']['end_date']}）
+{time_range}（{start_date} 至 {end_date}）
 {f'- 设备名称：{device_name}' if device_name else ''}
 {f'- 分区名称：{zone_name}' if zone_name else ''}
 
-### 故障数据查询结果
+### 故障数据（关键统计）
 ```json
-{json.dumps(query_data, ensure_ascii=False, indent=2, default=str)}
+{json.dumps(fault_summary, ensure_ascii=False, indent=2, default=str)}
 ```
 
 ### 输出要求
-请基于真实故障数据，生成故障分析报告JSON。**fault_items 最多5条，maintenance_priorities 最多5条，所有字段必须完整填写，禁止返回 null，summary 和 suggestions 尽量简短**：
+请基于以上故障统计数据，生成故障分析报告JSON。**fault_items 最多5条，maintenance_priorities 最多5条，所有字段必须完整填写，禁止返回 null，summary 和 suggestions 尽量简短**：
 ```json
 {{
   "report_title": "报告标题（如：设备故障智能分析报告 - 2026年X月）",
@@ -1708,7 +1793,7 @@ class AIReportService:
 
         result = await self._call_llm_and_parse(user_prompt, "AI故障分析报告")
 
-        # 3. 保存报告到数据库
+        # 保存报告到数据库
         try:
             report_id = AIReportHistoryService.save_report(
                 report_type="fault",
@@ -1726,6 +1811,39 @@ class AIReportService:
         except Exception as exc:
             logger.error(f"保存故障分析报告失败: {exc}")
 
+        total_ms = (time.time() - t_total) * 1000
+        logger.info(f"[耗时] AI故障分析（LLM推理）完成: {total_ms:.0f}ms")
+        return result
+
+    async def generate_fault_report(
+        self,
+        time_range: str,
+        venue_name: Optional[str] = None,
+        device_id: Optional[int] = None,
+        device_name: Optional[str] = None,
+        zone_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """生成AI故障分析报告（便捷模式：查询 + 分析一体化）"""
+        import time
+        t_total = time.time()
+        logger.info("[开始] 生成AI故障分析报告（便捷模式）")
+
+        # 1. 先查询真实数据（异步并行）
+        query_data = await self._query_fault_report_data(time_range, venue_name, device_id, device_name, zone_name)
+        t_after_query = time.time()
+
+        # 2. 调用 LLM 分析
+        result = await self.analyze_fault_data(
+            time_range=time_range,
+            query_data=query_data,
+            venue_name=venue_name,
+            device_id=device_id,
+            device_name=device_name,
+            zone_name=zone_name
+        )
+
+        total_ms = (time.time() - t_total) * 1000
+        logger.info(f"[耗时] 生成AI故障分析报告总计: {total_ms:.0f}ms (查询: {(t_after_query - t_total)*1000:.0f}ms)")
         return result
 
     # ==================== 多模态能碳计算 ====================
@@ -2023,20 +2141,150 @@ class AIReportService:
         report_type: str
     ) -> Dict[str, Any]:
         """调用大模型并解析返回结果"""
+        import time
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
 
-        logger.info(f"生成{report_type}，调用大模型...")
+        logger.info(f"生成{report_type}，调用大模型... (prompt长度={len(user_prompt)})")
 
         try:
             payload = self.ollama.build_report_payload(messages)
+            t0 = time.time()
             response_text = await self.ollama.chat_for_report(payload)
+            llm_ms = (time.time() - t0) * 1000
+            logger.info(f"[耗时] {report_type} LLM推理: {llm_ms:.0f}ms, 返回长度: {len(response_text)}")
+            # 记录大模型原始返回值（用于调试）
+            logger.info(f"[LLM原始返回-{report_type}]:\n{response_text}")
             return self._parse_response(response_text, report_type)
         except Exception as exc:
             logger.error(f"LLM调用失败: {exc}")
             return self._get_default_report(report_type)
+
+    async def _call_llm_and_parse_full(
+        self,
+        user_prompt: str,
+        report_type: str
+    ) -> Dict[str, Any]:
+        """调用大模型并解析完整格式的返回结果"""
+        import time
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        logger.info(f"生成{report_type}完整格式，调用大模型... (prompt长度={len(user_prompt)})")
+
+        try:
+            payload = self.ollama.build_report_payload(messages)
+            t0 = time.time()
+            response_text = await self.ollama.chat_for_report(payload)
+            llm_ms = (time.time() - t0) * 1000
+            logger.info(f"[耗时] {report_type} LLM推理: {llm_ms:.0f}ms, 返回长度: {len(response_text)}")
+            # 记录大模型原始返回值（用于调试）
+            logger.info(f"[LLM原始返回-{report_type}]:\n{response_text}")
+            return self._parse_full_response(response_text, report_type)
+        except Exception as exc:
+            logger.error(f"LLM调用失败: {exc}")
+            return {}
+
+    def _parse_full_response(self, response: str, report_type: str) -> Dict[str, Any]:
+        """解析大模型返回的完整格式结果"""
+        import re
+
+        # 完整打印原始返回，便于排查
+        logger.warning(f"LLM原始返回({report_type})，长度={len(response)}:\n{response}")
+
+        result = None
+
+        # 方法1：直接解析原始文本（去掉可能的首尾空白）
+        stripped = response.strip()
+
+        # 方法2：提取单个代码块内容
+        for pattern in [
+            r"```json\s*(\{[\s\S]*?\})\s*```",
+            r"```\s*(\{[\s\S]*?\})\s*```",
+        ]:
+            match = re.search(pattern, stripped, re.IGNORECASE)
+            if match:
+                try:
+                    result = json.loads(match.group(1))
+                    logger.info(f"成功从代码块解析JSON，keys: {list(result.keys())}")
+                    break
+                except json.JSONDecodeError as e:
+                    logger.warning(f"代码块解析失败: {e}")
+
+        # 方法3：剥掉所有 markdown 代码块标记后，找第一个 { 到最后一个 }
+        if result is None:
+            stripped_no_markdown = re.sub(r"```json|```", "", stripped, flags=re.IGNORECASE).strip()
+            try:
+                start = stripped_no_markdown.find("{")
+                end = stripped_no_markdown.rfind("}") + 1
+                if start != -1 and end > start:
+                    candidate = stripped_no_markdown[start:end]
+                    result = json.loads(candidate)
+                    logger.info(f"成功解析JSON（去掉markdown后），keys: {list(result.keys())}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"去掉markdown后解析失败: {e}")
+
+        # 方法4：暴力找第一个 { 到最后一个 }
+        if result is None:
+            start = stripped.find("{")
+            end = stripped.rfind("}") + 1
+            if start != -1 and end > start:
+                try:
+                    candidate = stripped[start:end]
+                    result = json.loads(candidate)
+                    logger.info(f"成功暴力解析JSON，keys: {list(result.keys())}")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"暴力解析失败: {e}")
+
+        if result is None:
+            logger.warning(f"无法解析LLM返回结果，返回空字典")
+            return {}
+
+        # 修复 LLM 常见问题
+        result = self._fix_full_response(result)
+
+        return result
+
+    def _fix_full_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """修复 LLM 返回的完整响应中的常见问题"""
+        import numbers
+
+        def to_int(val):
+            """将数字转为 int，float 向下取整"""
+            if isinstance(val, float) and val.is_integer():
+                return int(val)
+            if isinstance(val, float):
+                return int(val)
+            return val
+
+        # 修复数值类型
+        int_fields = [
+            "meter_total", "subsystem_count", "remote_control_count", "today_command_count",
+            "total_count", "running_count", "fault_count", "online_devices", "offline_devices",
+            "total_devices", "total_alarms", "pending_alarms", "page", "page_size", "total_pages",
+            "id"
+        ]
+
+        def fix_dict(d):
+            if not isinstance(d, dict):
+                return d
+            result = {}
+            for k, v in d.items():
+                if k in int_fields and isinstance(v, numbers.Number) and not isinstance(v, bool):
+                    result[k] = to_int(v)
+                elif isinstance(v, dict):
+                    result[k] = fix_dict(v)
+                elif isinstance(v, list):
+                    result[k] = [fix_dict(item) if isinstance(item, dict) else item for item in v]
+                else:
+                    result[k] = v
+            return result
+
+        return fix_dict(result)
 
     def _parse_response(self, response: str, report_type: str) -> Dict[str, Any]:
         """解析大模型返回的结果"""
@@ -2088,6 +2336,36 @@ class AIReportService:
 
         # 修复 LLM 常见拼写错误
         result = self._fix_llm_typos(result, report_type)
+
+        # 修复 LLM 返回的类型问题（如 float → int）
+        result = self._normalize_llm_types(result, report_type)
+        return result
+
+    def _normalize_llm_types(self, result: Dict[str, Any], report_type: str) -> Dict[str, Any]:
+        """修复 LLM 返回的类型问题（如 count 返回 float 而 schema 要求 int）"""
+        import numbers
+
+        def to_int(val):
+            """将数字转为 int，float 向下取整"""
+            if isinstance(val, float) and val.is_integer():
+                return int(val)
+            if isinstance(val, float):
+                return int(val)  # 向下取整
+            return val
+
+        # 故障报告：fault_distribution 中的 count 必须是 int
+        if "fault_distribution" in result and isinstance(result["fault_distribution"], list):
+            for item in result["fault_distribution"]:
+                if isinstance(item, dict) and "count" in item:
+                    item["count"] = to_int(item["count"])
+
+        # metrics 中的 value 如果是数字也转为 int
+        if "metrics" in result and isinstance(result["metrics"], list):
+            for item in result["metrics"]:
+                if isinstance(item, dict) and "value" in item:
+                    if isinstance(item["value"], numbers.Number) and not isinstance(item["value"], bool):
+                        item["value"] = str(int(item["value"]))
+
         return result
 
     def _fix_llm_typos(self, result: Dict[str, Any], report_type: str) -> Dict[str, Any]:
@@ -2106,14 +2384,14 @@ class AIReportService:
                 "report_title": "园区设备运行综合分析报告",
                 "report_desc": "基于真实数据的设备运行分析",
                 "metrics": [],
-                "summary": "报告生成中，请稍后查看详细数据",
+                "summary": "AI分析服务暂时不可用，请检查Ollama服务状态",
                 "suggestions": []
             },
             "AI预测报告": {
                 "report_title": "设备运行趋势预测报告",
                 "predict_items": [],
                 "warning_items": [],
-                "summary": "预测分析生成中",
+                "summary": "AI预测服务暂时不可用，请检查Ollama服务状态",
                 "suggestions": []
             },
             "AI节能报告": {
@@ -2121,7 +2399,7 @@ class AIReportService:
                 "report_desc": "基于真实能耗数据的节能分析",
                 "metrics": [],
                 "strategy_items": [],
-                "summary": "节能分析生成中",
+                "summary": "AI节能分析服务暂时不可用，请检查Ollama服务状态",
                 "suggestions": []
             },
             "AI故障分析报告": {
@@ -2131,7 +2409,7 @@ class AIReportService:
                 "fault_distribution": [],
                 "fault_items": [],
                 "maintenance_priorities": [],
-                "summary": "故障分析生成中",
+                "summary": "AI故障分析服务暂时不可用，请检查Ollama服务状态",
                 "suggestions": []
             },
                     "多模态能碳计算报告": {
@@ -2140,15 +2418,15 @@ class AIReportService:
                 "metrics": [],
                 "carbon_sources": [],
                 "carbon_trends": [],
-                "summary": "能碳计算分析生成中",
+                "summary": "AI能碳分析服务暂时不可用，请检查Ollama服务状态",
                 "suggestions": []
             },
             "AI能源分析报告": {
                 "report_title": "AI能源分析报告",
                 "report_desc": "基于实时数据的能源系统综合分析",
-                "summary": "能源分析生成中",
+                "summary": "AI能源分析服务暂时不可用，请检查Ollama服务状态或稍后重试",
                 "suggestions": [],
-                "warnings": [],
+                "warnings": ["AI分析服务连接失败，请确保Ollama服务正在运行"],
                 "analysis_dimensions": []
             }
         }
@@ -2160,7 +2438,7 @@ class AIReportService:
         self,
         system_type: str,
         venue_name: Optional[str] = None,
-        time_range: str = "day",
+        time_range: str = "month",
         device_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -2247,6 +2525,253 @@ class AIReportService:
             logger.error(f"保存能源分析报告失败: {exc}")
 
         return result
+
+    async def query_energy_data(
+        self,
+        system_type: str,
+        venue_name: Optional[str] = None,
+        time_range: str = "month",
+        device_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """查询能源数据（不调用LLM，快速返回）"""
+        import time
+        t_start = time.time()
+        logger.info("[开始] 查询能源数据（快速模式）")
+
+        # 并行执行所有查询（注意：_query_energy_analysis_data 是 async 函数，直接 await）
+        results = await asyncio.gather(
+            self._query_energy_analysis_data(system_type, venue_name, time_range, device_name),  # async 函数，直接 await
+            asyncio.to_thread(self._query_meter_data, venue_name),  # 同步函数，用 to_thread
+            asyncio.to_thread(self._query_today_usage, venue_name),  # 同步函数
+            asyncio.to_thread(self._query_venue_electricity_compare, time_range, venue_name),  # 同步函数
+            asyncio.to_thread(self._query_energy_structure, venue_name),  # 同步函数
+        )
+
+        energy_data, meter_data, today_usage, venue_electricity_compare, energy_structure = results
+
+        total_ms = (time.time() - t_start) * 1000
+        logger.info(f"[耗时] 查询能源数据完成: {total_ms:.0f}ms")
+
+        return {
+            "query_params": energy_data.get("query_params", {}),
+            "overview": energy_data.get("overview", {}),
+            "air_condition": energy_data.get("air_condition", {}),
+            "fresh_air": energy_data.get("fresh_air", {}),
+            "power_distribution": energy_data.get("power_distribution", {}),
+            "cold_source": energy_data.get("cold_source", {}),
+            "photovoltaic": energy_data.get("photovoltaic", {}),
+            "meter_data": meter_data,
+            "today_usage": today_usage,
+            "venue_electricity_compare": venue_electricity_compare,
+            "energy_structure": energy_structure,
+        }
+
+    async def analyze_energy_data(
+        self,
+        system_type: str,
+        query_data: Dict[str, Any],
+        venue_name: Optional[str] = None,
+        time_range: str = "month",
+        device_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """基于查询数据调用LLM生成能源分析报告"""
+        import time
+        t_total = time.time()
+        logger.info("[开始] AI能源分析（LLM推理模式）")
+
+        # 提取关键数据
+        overview = query_data.get("overview", {})
+        air_condition = query_data.get("air_condition", {})
+        fresh_air = query_data.get("fresh_air", {})
+        power_distribution = query_data.get("power_distribution", {})
+        cold_source = query_data.get("cold_source", {})
+        photovoltaic = query_data.get("photovoltaic", {})
+        meter_data = query_data.get("meter_data", {})
+        today_usage = query_data.get("today_usage", {})
+        venue_electricity_compare = query_data.get("venue_electricity_compare", {})
+        energy_structure = query_data.get("energy_structure", {})
+        query_params = query_data.get("query_params", {})
+
+        system_name = self._get_system_display_name(system_type)
+        start_date = query_params.get("start_date", "")
+        end_date = query_params.get("end_date", "")
+
+        # 构建精简的数据结构（用于 LLM 分析）- 只保留关键统计，不传设备列表等大数据
+        def _summarize_devices(devices: List[Dict], max_count: int = 3) -> List[Dict]:
+            """精简设备列表，只取关键字段和少量样本"""
+            if not devices:
+                return []
+            return [
+                {k: v for k, v in (d if isinstance(d, dict) else {}).items() 
+                 if k in ["device_name", "device_code", "run_state", "value", "status"]}
+                for d in devices[:max_count]
+            ]
+
+        full_data = {
+            "report_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "system_type": system_type,
+            # 表计概览
+            "meter_total": meter_data.get("total", 0),
+            "meter_online_rate": meter_data.get("online_rate", "0%"),
+            # 今日用能
+            "today_electricity": today_usage.get("electricity", {"value": 0, "change": "0%"}),
+            "today_water": today_usage.get("water", {"value": 0, "change": "0%"}),
+            # 对比和结构
+            "venue_electricity_compare": venue_electricity_compare,
+            "energy_structure": energy_structure,
+            # 子系统关键指标（只传统计值，不传完整设备列表）
+            "overview": {
+                "subsystem_count": overview.get("subsystem_count", 0),
+                "device_online_rate": overview.get("device_online_rate"),
+                "remote_control_count": overview.get("remote_control_count", 0),
+                "today_command_count": overview.get("today_command_count", 0),
+            },
+            "air_condition": {
+                "total_count": air_condition.get("total_count", 0),
+                "running_count": air_condition.get("running_count", 0),
+                "fault_count": air_condition.get("fault_count", 0),
+                "avg_cop": air_condition.get("avg_cop"),
+                "today_energy": air_condition.get("today_energy", 0),
+                "devices_sample": _summarize_devices(air_condition.get("devices", [])),
+            },
+            "fresh_air": {
+                "total_count": fresh_air.get("total_count", 0),
+                "running_count": fresh_air.get("running_count", 0),
+                "avg_pm25": fresh_air.get("avg_pm25", 0),
+                "today_energy": fresh_air.get("today_energy", 0),
+                "devices_sample": _summarize_devices(fresh_air.get("devices", [])),
+            },
+            "power_distribution": {
+                "total_count": power_distribution.get("total_count", 0),
+                "running_count": power_distribution.get("running_count", 0),
+                "today_energy": power_distribution.get("today_energy", 0),
+                "power_factor": power_distribution.get("power_factor", 0),
+                "devices_sample": _summarize_devices(power_distribution.get("devices", [])),
+            },
+            "cold_source": {
+                "total_count": cold_source.get("total_count", 0),
+                "running_count": cold_source.get("running_count"),
+                "today_cooling": cold_source.get("today_cooling", 0),
+                "avg_cop": cold_source.get("avg_cop", 0),
+            },
+            "photovoltaic": {
+                "total_count": photovoltaic.get("total_count", 0),
+                "installed_capacity": photovoltaic.get("installed_capacity", 0),
+                "today_generation": photovoltaic.get("today_generation", 0),
+                "efficiency": photovoltaic.get("efficiency", 0),
+            },
+        }
+
+        user_prompt = f"""## 任务：基于以下能源数据，生成完整的AI能源分析报告JSON
+
+### 分析系统
+{system_name}（{system_type}）
+
+### 时间范围
+{time_range}（{start_date} 至 {end_date}）
+{f'- 会展名称：{venue_name}' if venue_name else ''}
+
+### 能源数据（完整结构）
+```json
+{json.dumps(full_data, ensure_ascii=False, indent=2, default=str)}
+```
+
+### 输出要求
+请基于以上能源数据，生成完整的能源分析报告JSON。**必须返回完整的数据结构，所有字段必须填写，禁止返回 null**：
+
+```json
+{{
+  "report_id": 0,
+  "report_title": "报告标题（如：会展小镇能源分析报告 - 2026年X月X日）",
+  "report_time": "{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+  "system_type": "{system_type}",
+  "meter_total": 数值（表计总数）,
+  "meter_online_rate": "百分比字符串（如：99.08%）",
+  "today_electricity": {{"value": 数值, "change": "变化百分比字符串（如：-100.00%）", "unit": null}},
+  "today_water": {{"value": 数值, "change": "变化百分比字符串（如：-100.00%）", "unit": null}},
+  "venue_electricity_compare": {{"categories": ["场馆1", "场馆2"], "data": {{"场馆1": [数值], "场馆2": [数值]}}}},
+  "energy_structure": {{"categories": ["类型1", "类型2"], "data": [数值, 数值]}},
+  "meter_data": {{"items": [表计数据列表], "total": 总数, "page": 1, "page_size": 10, "total_pages": 总页数}},
+  "overview": {{"subsystem_count": 子系统数量, "device_online_rate": null, "remote_control_count": 0, "today_command_count": 0, "air_conditions": null, "fresh_air": null, "power_distribution": null, "cold_source": null, "photovoltaic": null}},
+  "air_condition": {{"total_count": 总数, "running_count": 运行数, "fault_count": 故障数, "avg_cop": null, "today_energy": 数值, "devices": [设备列表]}},
+  "fresh_air": {{"total_count": 总数, "running_count": 运行数, "avg_pm25": 数值, "today_energy": 数值, "devices": [设备列表]}},
+  "power_distribution": {{"total_count": 总数, "running_count": 运行数, "today_energy": 数值, "power_factor": 数值, "devices": [设备列表]}},
+  "cold_source": {{"total_count": 总数, "running_count": null, "today_cooling": 数值, "avg_cop": 数值, "devices": []}},
+  "photovoltaic": {{"total_count": 总数, "installed_capacity": 数值, "today_generation": 数值, "efficiency": 数值, "devices": []}},
+  "summary": "分析总结（50-150字，基于真实数据分析）",
+  "suggestions": ["建议1（具体可操作）", "建议2", "建议3"],
+  "warnings": ["警告1（如有异常）", "警告2（如有）"]
+}}
+```
+
+**重要**：
+1. 直接返回完整的JSON，不要用代码块包裹
+2. devices 列表最多返回20个设备
+3. meter_data 中的 items 只返回必要字段
+4. summary 要基于真实数据生成，不能全是套话
+5. 如果某个字段数据为空或缺失，用0或空数组/null填充，不要省略字段
+"""
+
+        result = await self._call_llm_and_parse_full(user_prompt, "AI能源分析报告")
+        if not result:
+            result = {}
+
+        # 构建完整报告（优先使用 LLM 返回的数据，否则使用原始数据）
+        now = datetime.now()
+        report = {
+            "report_id": 0,
+            "report_title": result.get("report_title", f"{system_name}分析报告 - {now.strftime('%Y-%m-%d')}"),
+            "report_time": result.get("report_time", now.strftime("%Y-%m-%d %H:%M:%S")),
+            "system_type": system_type,
+
+            # 核心指标卡片
+            "meter_total": result.get("meter_total", meter_data.get("total", 0)),
+            "meter_online_rate": result.get("meter_online_rate", meter_data.get("online_rate", "0%")),
+            "today_electricity": result.get("today_electricity", today_usage.get("electricity", {"value": 0, "change": "0%"})),
+            "today_water": result.get("today_water", today_usage.get("water", {"value": 0, "change": "0%"})),
+
+            # 图表数据
+            "venue_electricity_compare": result.get("venue_electricity_compare", venue_electricity_compare),
+            "energy_structure": result.get("energy_structure", energy_structure),
+
+            # 表计实时数据
+            "meter_data": result.get("meter_data", meter_data),
+
+            # 原始子系统数据（优先使用 LLM 返回的）
+            "overview": result.get("overview", overview),
+            "air_condition": result.get("air_condition", air_condition),
+            "fresh_air": result.get("fresh_air", fresh_air),
+            "power_distribution": result.get("power_distribution", power_distribution),
+            "cold_source": result.get("cold_source", cold_source),
+            "photovoltaic": result.get("photovoltaic", photovoltaic),
+
+            # AI分析结果
+            "summary": result.get("summary", ""),
+            "suggestions": result.get("suggestions", []),
+            "warnings": result.get("warnings", []),
+        }
+
+        # 保存报告到数据库
+        try:
+            report_id = AIReportHistoryService.save_report(
+                report_type="energy_analysis",
+                title=report.get("report_title", f"{system_name}分析报告"),
+                content=json.dumps(report, ensure_ascii=False, default=json_serial),
+                summary=report.get("summary", "")[:500] if report.get("summary") else None,
+                time_range=time_range,
+                target_name=venue_name,
+                scope=system_type,
+                query_params={"system_type": system_type, "venue_name": venue_name, "time_range": time_range},
+                query_data=query_data
+            )
+            report["report_id"] = report_id
+            logger.info(f"能源分析报告已保存，ID: {report_id}")
+        except Exception as exc:
+            logger.error(f"保存能源分析报告失败: {exc}")
+
+        total_ms = (time.time() - t_total) * 1000
+        logger.info(f"[耗时] AI能源分析（LLM推理）完成: {total_ms:.0f}ms")
+        return report
 
     def _query_meter_data(self, venue_name: Optional[str] = None) -> Dict[str, Any]:
         """查询计费表计数据"""
@@ -2360,25 +2885,28 @@ class AIReportService:
         """查询今日用水用电量"""
         venue_filter = self._build_venue_filter(venue_name)
         today = datetime.now().strftime("%Y-%m-%d")
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        # 查询今日用电量
+        # 查询今日用电量（使用 data_day 表）
         electricity_sql = f'''
-            SELECT COALESCE(SUM(er."energy_value"), 0) as total
-            FROM FWBZ."energy_record" er
-            INNER JOIN FWBZ."device" d ON er."device_id" = d."id"
+            SELECT COALESCE(SUM(dd."value"), 0) as total
+            FROM FWBZ."device" d
+            INNER JOIN FWBZ."data_day" dd ON d."id" = dd."device_id"
             INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-            WHERE er."record_date" = '{today}'
+            WHERE dd."time" >= TO_DATE('{today}', 'YYYY-MM-DD')
+            AND dd."time" < TO_DATE('{tomorrow}', 'YYYY-MM-DD')
             AND (ec."category_name" LIKE '%电表%' OR ec."full_name" LIKE '%用电%')
             {venue_filter}
         '''
         
-        # 查询今日用水量
+        # 查询今日用水量（使用 data_day 表）
         water_sql = f'''
-            SELECT COALESCE(SUM(er."energy_value"), 0) as total
-            FROM FWBZ."energy_record" er
-            INNER JOIN FWBZ."device" d ON er."device_id" = d."id"
+            SELECT COALESCE(SUM(dd."value"), 0) as total
+            FROM FWBZ."device" d
+            INNER JOIN FWBZ."data_day" dd ON d."id" = dd."device_id"
             INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-            WHERE er."record_date" = '{today}'
+            WHERE dd."time" >= TO_DATE('{today}', 'YYYY-MM-DD')
+            AND dd."time" < TO_DATE('{tomorrow}', 'YYYY-MM-DD')
             AND (ec."category_name" LIKE '%水表%' OR ec."full_name" LIKE '%用水%')
             {venue_filter}
         '''
@@ -2386,13 +2914,15 @@ class AIReportService:
         try:
             elec_result = execute_query(electricity_sql)
             electricity = elec_result[0].get("total", 0) if elec_result else 0
-        except:
+        except Exception as e:
+            logger.warning(f"查询今日用电量失败: {e}")
             electricity = 0
         
         try:
             water_result = execute_query(water_sql)
             water = water_result[0].get("total", 0) if water_result else 0
-        except:
+        except Exception as e:
+            logger.warning(f"查询今日用水量失败: {e}")
             water = 0
         
         # 默认值（来自图片）
@@ -2524,37 +3054,45 @@ class AIReportService:
         }
         return names.get(system_type, system_type)
 
-    def _query_energy_analysis_data(
+    async def _query_energy_analysis_data(
         self,
         system_type: str,
         venue_name: Optional[str] = None,
-        time_range: str = "day",
+        time_range: str = "month",
         device_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """查询能源分析所需数据"""
+        """查询能源分析所需数据（并行执行所有SQL）"""
         start_date, end_date = self._get_time_range_dates(time_range)
         venue_id = self._get_venue_id(venue_name) if venue_name else None
         venue_filter = self._build_venue_filter(venue_name)
 
-        data = {
-            "query_params": {
-                "system_type": system_type,
-                "venue_name": venue_name,
-                "start_date": start_date,
-                "end_date": end_date,
-                "device_name": device_name
-            },
-            "overview": {},
-            "air_condition": {},
-            "fresh_air": {},
-            "power_distribution": {},
-            "cold_source": {},
-            "photovoltaic": {}
-        }
-
-        try:
-            # ==================== 概览数据 ====================
-            overview_sql = f'''
+        # 并行执行所有查询
+        (
+            overview_result,
+            air_stats_result,
+            air_devices_result,
+            air_energy_result,
+            fresh_stats_result,
+            fresh_devices_result,
+            fresh_pm25_result,
+            fresh_energy_result,
+            power_stats_result,
+            power_devices_result,
+            power_energy_result,
+            power_factor_result,
+            cold_stats_result,
+            cold_devices_result,
+            cold_energy_result,
+            cold_cop_result,
+            pv_stats_result,
+            pv_devices_result,
+            pv_energy_result,
+            pv_capacity_result,
+            pv_efficiency_result,
+            alarm_result,
+        ) = await asyncio.gather(
+            # 概览
+            asyncio.to_thread(execute_query, f'''
                 SELECT 
                     COUNT(DISTINCT ec."id") as subsystem_count,
                     COUNT(DISTINCT d."id") as total_devices,
@@ -2564,24 +3102,12 @@ class AIReportService:
                     SUM(CASE WHEN ar."alarm_status" = '1' THEN 1 ELSE 0 END) as pending_alarms
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-                LEFT JOIN FWBZ."alarm_record" ar ON d."id" = ar."device_id" 
+                LEFT JOIN FWBZ."alarm_record" ar ON d."id" = ar."device_id"
                     AND ar."alarm_time" >= '{start_date}' AND ar."alarm_time" <= '{end_date} 23:59:59'
                 WHERE 1=1 {venue_filter}
-            '''
-            result = execute_query(overview_sql)
-            if result:
-                data["overview"] = {
-                    "subsystem_count": result[0].get("subsystem_count", 0),
-                    "total_devices": result[0].get("total_devices", 0),
-                    "online_devices": result[0].get("online_devices", 0),
-                    "offline_devices": result[0].get("offline_devices", 0),
-                    "total_alarms": result[0].get("total_alarms", 0),
-                    "pending_alarms": result[0].get("pending_alarms", 0)
-                }
-
-            # ==================== 空调机组数据 ====================
-            # 根据图片，空调机组设备代码通常包含 KT 或 category_name 包含 "空调"
-            air_condition_stats_sql = f'''
+            '''),
+            # 空调统计
+            asyncio.to_thread(execute_query, f'''
                 SELECT 
                     COUNT(DISTINCT d."id") as total_count,
                     SUM(CASE WHEN d."run_state" = '运行' OR d."run_state" = '在线' THEN 1 ELSE 0 END) as running_count,
@@ -2590,19 +3116,10 @@ class AIReportService:
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
                 WHERE (d."device_code" LIKE '%KT%' OR ec."category_name" LIKE '%空调%' OR ec."full_name" LIKE '%空调%')
                 {venue_filter}
-            '''
-            result = execute_query(air_condition_stats_sql)
-            air_condition = {
-                "total_count": result[0].get("total_count", 0) if result else 0,
-                "running_count": result[0].get("running_count", 0) if result else 0,
-                "fault_count": result[0].get("fault_count", 0) if result else 0
-            }
-
-            # 空调机组设备列表
-            air_condition_devices_sql = f'''
-                SELECT 
-                    d."id", d."device_code", d."device_name", d."run_state", d."space_id",
-                    s."space_name"
+            '''),
+            # 空调设备列表
+            asyncio.to_thread(execute_query, f'''
+                SELECT d."id", d."device_code", d."device_name", d."run_state", d."space_id", s."space_name"
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
@@ -2610,12 +3127,9 @@ class AIReportService:
                 {venue_filter}
                 ORDER BY d."device_code"
                 LIMIT 20
-            '''
-            result = execute_query(air_condition_devices_sql)
-            air_condition["devices"] = result or []
-
-            # 空调机组今日能耗
-            air_energy_sql = f'''
+            '''),
+            # 空调能耗
+            asyncio.to_thread(execute_query, f'''
                 SELECT COALESCE(SUM(dd."value"), 0) as today_energy
                 FROM FWBZ."data_day" dd
                 INNER JOIN FWBZ."device" d ON dd."device_id" = d."id"
@@ -2623,14 +3137,9 @@ class AIReportService:
                 WHERE dd."time" >= '{start_date}' AND dd."time" <= '{end_date} 23:59:59'
                 AND (d."device_code" LIKE '%KT%' OR ec."category_name" LIKE '%空调%' OR ec."full_name" LIKE '%空调%')
                 {venue_filter}
-            '''
-            result = execute_query(air_energy_sql)
-            air_condition["today_energy"] = result[0].get("today_energy", 0) if result else 0
-
-            data["air_condition"] = air_condition
-
-            # ==================== 新风机组数据 ====================
-            fresh_air_stats_sql = f'''
+            '''),
+            # 新风统计
+            asyncio.to_thread(execute_query, f'''
                 SELECT 
                     COUNT(DISTINCT d."id") as total_count,
                     SUM(CASE WHEN d."run_state" = '运行' OR d."run_state" = '在线' THEN 1 ELSE 0 END) as running_count
@@ -2638,18 +3147,10 @@ class AIReportService:
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
                 WHERE (d."device_code" LIKE '%XF%' OR ec."category_name" LIKE '%新风%' OR ec."full_name" LIKE '%新风%')
                 {venue_filter}
-            '''
-            result = execute_query(fresh_air_stats_sql)
-            fresh_air = {
-                "total_count": result[0].get("total_count", 0) if result else 0,
-                "running_count": result[0].get("running_count", 0) if result else 0
-            }
-
-            # 新风机组设备列表
-            fresh_air_devices_sql = f'''
-                SELECT 
-                    d."id", d."device_code", d."device_name", d."run_state", d."space_id",
-                    s."space_name"
+            '''),
+            # 新风设备列表
+            asyncio.to_thread(execute_query, f'''
+                SELECT d."id", d."device_code", d."device_name", d."run_state", d."space_id", s."space_name"
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
@@ -2657,12 +3158,9 @@ class AIReportService:
                 {venue_filter}
                 ORDER BY d."device_code"
                 LIMIT 20
-            '''
-            result = execute_query(fresh_air_devices_sql)
-            fresh_air["devices"] = result or []
-
-            # 新风机组PM2.5数据（从设备属性获取）
-            fresh_air_pm25_sql = f'''
+            '''),
+            # 新风PM2.5
+            asyncio.to_thread(execute_query, f'''
                 SELECT AVG(da."value") as avg_pm25
                 FROM FWBZ."device_attribute" da
                 INNER JOIN FWBZ."device" d ON da."device_id" = d."id"
@@ -2670,12 +3168,9 @@ class AIReportService:
                 WHERE da."attribute_name" LIKE '%PM2.5%' OR da."attribute_code" LIKE '%PM25%'
                 AND (d."device_code" LIKE '%XF%' OR ec."category_name" LIKE '%新风%' OR ec."full_name" LIKE '%新风%')
                 {venue_filter}
-            '''
-            result = execute_query(fresh_air_pm25_sql)
-            fresh_air["avg_pm25"] = round(result[0].get("avg_pm25", 0) or 0, 2)
-
-            # 新风机组今日耗电
-            fresh_energy_sql = f'''
+            '''),
+            # 新风能耗
+            asyncio.to_thread(execute_query, f'''
                 SELECT COALESCE(SUM(dd."value"), 0) as today_energy
                 FROM FWBZ."data_day" dd
                 INNER JOIN FWBZ."device" d ON dd."device_id" = d."id"
@@ -2683,62 +3178,43 @@ class AIReportService:
                 WHERE dd."time" >= '{start_date}' AND dd."time" <= '{end_date} 23:59:59'
                 AND (d."device_code" LIKE '%XF%' OR ec."category_name" LIKE '%新风%' OR ec."full_name" LIKE '%新风%')
                 {venue_filter}
-            '''
-            result = execute_query(fresh_energy_sql)
-            fresh_air["today_energy"] = result[0].get("today_energy", 0) if result else 0
-
-            data["fresh_air"] = fresh_air
-
-            # ==================== 配电系统数据 ====================
-            power_stats_sql = f'''
+            '''),
+            # 配电统计
+            asyncio.to_thread(execute_query, f'''
                 SELECT 
                     COUNT(DISTINCT d."id") as total_count,
                     SUM(CASE WHEN d."run_state" = '在线' OR d."run_state" = '运行' THEN 1 ELSE 0 END) as running_count
                 FROM FWBZ."device" d
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-                WHERE (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%' 
+                WHERE (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%'
                        OR ec."full_name" LIKE '%配电%' OR ec."category_name" LIKE '%低压%')
                 {venue_filter}
-            '''
-            result = execute_query(power_stats_sql)
-            power_distribution = {
-                "total_count": result[0].get("total_count", 0) if result else 0,
-                "running_count": result[0].get("running_count", 0) if result else 0
-            }
-
+            '''),
             # 配电设备列表
-            power_devices_sql = f'''
-                SELECT 
-                    d."id", d."device_code", d."device_name", d."run_state", d."space_id",
-                    s."space_name"
+            asyncio.to_thread(execute_query, f'''
+                SELECT d."id", d."device_code", d."device_name", d."run_state", d."space_id", s."space_name"
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
-                WHERE (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%' 
+                WHERE (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%'
                        OR ec."full_name" LIKE '%配电%' OR ec."category_name" LIKE '%低压%')
                 {venue_filter}
                 ORDER BY d."device_code"
                 LIMIT 20
-            '''
-            result = execute_query(power_devices_sql)
-            power_distribution["devices"] = result or []
-
-            # 配电系统今日用电量
-            power_energy_sql = f'''
+            '''),
+            # 配电能耗
+            asyncio.to_thread(execute_query, f'''
                 SELECT COALESCE(SUM(dd."value"), 0) as today_energy
                 FROM FWBZ."data_day" dd
                 INNER JOIN FWBZ."device" d ON dd."device_id" = d."id"
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
                 WHERE dd."time" >= '{start_date}' AND dd."time" <= '{end_date} 23:59:59'
-                AND (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%' 
+                AND (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%'
                      OR ec."full_name" LIKE '%配电%' OR ec."category_name" LIKE '%低压%')
                 {venue_filter}
-            '''
-            result = execute_query(power_energy_sql)
-            power_distribution["today_energy"] = result[0].get("today_energy", 0) if result else 0
-
-            # 配电系统功率因数（从设备属性获取）
-            power_factor_sql = f'''
+            '''),
+            # 配电功率因数
+            asyncio.to_thread(execute_query, f'''
                 SELECT AVG(da."value") as avg_power_factor
                 FROM FWBZ."device_attribute" da
                 INNER JOIN FWBZ."device" d ON da."device_id" = d."id"
@@ -2746,14 +3222,9 @@ class AIReportService:
                 WHERE da."attribute_name" LIKE '%功率因数%' OR da."attribute_code" LIKE '%PF%'
                 AND (d."device_code" LIKE '%PD%' OR d."device_code" LIKE '%DP%' OR ec."category_name" LIKE '%配电%')
                 {venue_filter}
-            '''
-            result = execute_query(power_factor_sql)
-            power_distribution["power_factor"] = round(result[0].get("avg_power_factor", 0.84) or 0.84, 2)
-
-            data["power_distribution"] = power_distribution
-
-            # ==================== 冷源系统数据 ====================
-            cold_stats_sql = f'''
+            '''),
+            # 冷源统计
+            asyncio.to_thread(execute_query, f'''
                 SELECT 
                     COUNT(DISTINCT d."id") as total_count,
                     SUM(CASE WHEN d."run_state" = '运行' OR d."run_state" = '在线' THEN 1 ELSE 0 END) as running_count
@@ -2762,18 +3233,10 @@ class AIReportService:
                 WHERE (d."device_code" LIKE '%CH%' OR ec."category_name" LIKE '%冷%' OR ec."full_name" LIKE '%冷源%'
                        OR ec."category_name" LIKE '%冷水%' OR ec."category_name" LIKE '%制冷%')
                 {venue_filter}
-            '''
-            result = execute_query(cold_stats_sql)
-            cold_source = {
-                "total_count": result[0].get("total_count", 0) if result else 0,
-                "running_count": result[0].get("running_count", 0) if result else 0
-            }
-
+            '''),
             # 冷源设备列表
-            cold_devices_sql = f'''
-                SELECT 
-                    d."id", d."device_code", d."device_name", d."run_state", d."space_id",
-                    s."space_name"
+            asyncio.to_thread(execute_query, f'''
+                SELECT d."id", d."device_code", d."device_name", d."run_state", d."space_id", s."space_name"
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
@@ -2782,12 +3245,9 @@ class AIReportService:
                 {venue_filter}
                 ORDER BY d."device_code"
                 LIMIT 20
-            '''
-            result = execute_query(cold_devices_sql)
-            cold_source["devices"] = result or []
-
-            # 冷源系统今日制冷量
-            cold_energy_sql = f'''
+            '''),
+            # 冷源制冷量
+            asyncio.to_thread(execute_query, f'''
                 SELECT COALESCE(SUM(dd."value"), 0) as today_cooling
                 FROM FWBZ."data_day" dd
                 INNER JOIN FWBZ."device" d ON dd."device_id" = d."id"
@@ -2795,12 +3255,9 @@ class AIReportService:
                 WHERE dd."time" >= '{start_date}' AND dd."time" <= '{end_date} 23:59:59'
                 AND (d."device_code" LIKE '%CH%' OR ec."category_name" LIKE '%冷%' OR ec."full_name" LIKE '%冷源%')
                 {venue_filter}
-            '''
-            result = execute_query(cold_energy_sql)
-            cold_source["today_cooling"] = result[0].get("today_cooling", 0) if result else 0
-
-            # 冷源系统COP（从设备属性获取）
-            cold_cop_sql = f'''
+            '''),
+            # 冷源COP
+            asyncio.to_thread(execute_query, f'''
                 SELECT AVG(da."value") as avg_cop
                 FROM FWBZ."device_attribute" da
                 INNER JOIN FWBZ."device" d ON da."device_id" = d."id"
@@ -2808,31 +3265,18 @@ class AIReportService:
                 WHERE da."attribute_name" LIKE '%COP%' OR da."attribute_code" LIKE '%COP%'
                 AND (d."device_code" LIKE '%CH%' OR ec."category_name" LIKE '%冷%')
                 {venue_filter}
-            '''
-            result = execute_query(cold_cop_sql)
-            cold_source["avg_cop"] = round(result[0].get("avg_cop", 0) or 5.5, 2)
-
-            data["cold_source"] = cold_source
-
-            # ==================== 光伏系统数据 ====================
-            pv_stats_sql = f'''
-                SELECT 
-                    COUNT(DISTINCT d."id") as total_count
+            '''),
+            # 光伏统计
+            asyncio.to_thread(execute_query, f'''
+                SELECT COUNT(DISTINCT d."id") as total_count
                 FROM FWBZ."device" d
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
                 WHERE (d."device_code" LIKE '%PV%' OR ec."category_name" LIKE '%光伏%' OR ec."full_name" LIKE '%光伏%')
                 {venue_filter}
-            '''
-            result = execute_query(pv_stats_sql)
-            photovoltaic = {
-                "total_count": result[0].get("total_count", 0) if result else 0
-            }
-
+            '''),
             # 光伏设备列表
-            pv_devices_sql = f'''
-                SELECT 
-                    d."id", d."device_code", d."device_name", d."run_state", d."space_id",
-                    s."space_name"
+            asyncio.to_thread(execute_query, f'''
+                SELECT d."id", d."device_code", d."device_name", d."run_state", d."space_id", s."space_name"
                 FROM FWBZ."device" d
                 LEFT JOIN FWBZ."space" s ON d."space_id" = s."id"
                 INNER JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
@@ -2840,12 +3284,9 @@ class AIReportService:
                 {venue_filter}
                 ORDER BY d."device_code"
                 LIMIT 20
-            '''
-            result = execute_query(pv_devices_sql)
-            photovoltaic["devices"] = result or []
-
-            # 光伏今日发电量
-            pv_energy_sql = f'''
+            '''),
+            # 光伏发电量
+            asyncio.to_thread(execute_query, f'''
                 SELECT COALESCE(SUM(dd."value"), 0) as today_generation
                 FROM FWBZ."data_day" dd
                 INNER JOIN FWBZ."device" d ON dd."device_id" = d."id"
@@ -2853,12 +3294,9 @@ class AIReportService:
                 WHERE dd."time" >= '{start_date}' AND dd."time" <= '{end_date} 23:59:59'
                 AND (d."device_code" LIKE '%PV%' OR ec."category_name" LIKE '%光伏%' OR ec."full_name" LIKE '%光伏%')
                 {venue_filter}
-            '''
-            result = execute_query(pv_energy_sql)
-            photovoltaic["today_generation"] = result[0].get("today_generation", 0) if result else 0
-
-            # 光伏装机容量（从设备属性获取）
-            pv_capacity_sql = f'''
+            '''),
+            # 光伏装机容量
+            asyncio.to_thread(execute_query, f'''
                 SELECT SUM(da."value") as installed_capacity
                 FROM FWBZ."device_attribute" da
                 INNER JOIN FWBZ."device" d ON da."device_id" = d."id"
@@ -2866,12 +3304,9 @@ class AIReportService:
                 WHERE da."attribute_name" LIKE '%容量%' OR da."attribute_code" LIKE '%KW%' OR da."attribute_code" LIKE '%power%'
                 AND (d."device_code" LIKE '%PV%' OR ec."category_name" LIKE '%光伏%')
                 {venue_filter}
-            '''
-            result = execute_query(pv_capacity_sql)
-            photovoltaic["installed_capacity"] = round(result[0].get("installed_capacity", 0) or 856, 2)
-
-            # 光伏发电效率
-            pv_efficiency_sql = f'''
+            '''),
+            # 光伏效率
+            asyncio.to_thread(execute_query, f'''
                 SELECT AVG(da."value") as efficiency
                 FROM FWBZ."device_attribute" da
                 INNER JOIN FWBZ."device" d ON da."device_id" = d."id"
@@ -2879,14 +3314,9 @@ class AIReportService:
                 WHERE da."attribute_name" LIKE '%效率%' OR da."attribute_code" LIKE '%efficiency%'
                 AND (d."device_code" LIKE '%PV%' OR ec."category_name" LIKE '%光伏%')
                 {venue_filter}
-            '''
-            result = execute_query(pv_efficiency_sql)
-            photovoltaic["efficiency"] = round(result[0].get("efficiency", 0) or 18.5, 2)
-
-            data["photovoltaic"] = photovoltaic
-
-            # ==================== 告警数据（综合） ====================
-            alarm_sql = f'''
+            '''),
+            # 综合告警
+            asyncio.to_thread(execute_query, f'''
                 SELECT 
                     COUNT(*) as total_alarms,
                     COUNT(DISTINCT "device_id") as alarmed_devices,
@@ -2896,12 +3326,64 @@ class AIReportService:
                 WHERE ar."alarm_time" >= '{start_date}'
                 AND ar."alarm_time" <= '{end_date} 23:59:59'
                 {f' AND d."venue_id" = {venue_id}' if venue_id else ''}
-            '''
-            result = execute_query(alarm_sql)
-            if result:
-                data["alarm_summary"] = result[0]
+            '''),
+        )
 
-        except Exception as exc:
-            logger.error(f"查询能源分析数据失败: {exc}")
+        # 构建结果
+        data = {
+            "query_params": {
+                "system_type": system_type,
+                "venue_name": venue_name,
+                "start_date": start_date,
+                "end_date": end_date,
+                "device_name": device_name
+            },
+            "overview": {
+                "subsystem_count": overview_result[0].get("subsystem_count", 0) if overview_result else 0,
+                "total_devices": overview_result[0].get("total_devices", 0) if overview_result else 0,
+                "online_devices": overview_result[0].get("online_devices", 0) if overview_result else 0,
+                "offline_devices": overview_result[0].get("offline_devices", 0) if overview_result else 0,
+                "total_alarms": overview_result[0].get("total_alarms", 0) if overview_result else 0,
+                "pending_alarms": overview_result[0].get("pending_alarms", 0) if overview_result else 0,
+            },
+            "air_condition": {
+                "total_count": air_stats_result[0].get("total_count", 0) if air_stats_result else 0,
+                "running_count": air_stats_result[0].get("running_count", 0) if air_stats_result else 0,
+                "fault_count": air_stats_result[0].get("fault_count", 0) if air_stats_result else 0,
+                "devices": air_devices_result or [],
+                "today_energy": air_energy_result[0].get("today_energy", 0) if air_energy_result else 0,
+            },
+            "fresh_air": {
+                "total_count": fresh_stats_result[0].get("total_count", 0) if fresh_stats_result else 0,
+                "running_count": fresh_stats_result[0].get("running_count", 0) if fresh_stats_result else 0,
+                "devices": fresh_devices_result or [],
+                "avg_pm25": round(fresh_pm25_result[0].get("avg_pm25", 0) or 0, 2) if fresh_pm25_result else 0,
+                "today_energy": fresh_energy_result[0].get("today_energy", 0) if fresh_energy_result else 0,
+            },
+            "power_distribution": {
+                "total_count": power_stats_result[0].get("total_count", 0) if power_stats_result else 0,
+                "running_count": power_stats_result[0].get("running_count", 0) if power_stats_result else 0,
+                "devices": power_devices_result or [],
+                "today_energy": power_energy_result[0].get("today_energy", 0) if power_energy_result else 0,
+                "power_factor": round(power_factor_result[0].get("avg_power_factor", 0.84) or 0.84, 2) if power_factor_result else 0.84,
+            },
+            "cold_source": {
+                "total_count": cold_stats_result[0].get("total_count", 0) if cold_stats_result else 0,
+                "running_count": cold_stats_result[0].get("running_count", 0) if cold_stats_result else 0,
+                "devices": cold_devices_result or [],
+                "today_cooling": cold_energy_result[0].get("today_cooling", 0) if cold_energy_result else 0,
+                "avg_cop": round(cold_cop_result[0].get("avg_cop", 0) or 5.5, 2) if cold_cop_result else 5.5,
+            },
+            "photovoltaic": {
+                "total_count": pv_stats_result[0].get("total_count", 0) if pv_stats_result else 0,
+                "devices": pv_devices_result or [],
+                "today_generation": pv_energy_result[0].get("today_generation", 0) if pv_energy_result else 0,
+                "installed_capacity": round(pv_capacity_result[0].get("installed_capacity", 0) or 856, 2) if pv_capacity_result else 856,
+                "efficiency": round(pv_efficiency_result[0].get("efficiency", 0) or 18.5, 2) if pv_efficiency_result else 18.5,
+            },
+        }
+
+        if alarm_result:
+            data["alarm_summary"] = alarm_result[0]
 
         return data

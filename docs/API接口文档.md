@@ -1275,9 +1275,15 @@ data: {"done": true}
 
 ### 5.4 AI故障分析报告
 
+AI故障分析报告接口提供两种调用模式：
+
+#### 模式一：便捷模式（单接口）
+
 **接口地址**: `POST /api/ai-report/fault`
 
-**功能说明**: 基于 AI 分析设备故障数据，识别故障规律。
+**功能说明**: 基于 AI 分析设备故障数据，识别故障规律。**此接口会依次执行查询数据 + 调用LLM分析，预计耗时 20-30秒。**
+
+> 💡 如需更快响应（<1秒），请使用下面的**拆分模式**。
 
 **请求参数**:
 
@@ -1389,6 +1395,397 @@ data: {"done": true}
         "加强回水系统的定期清洗与维护"
     ]
 }
+```
+
+---
+
+#### 模式二：拆分模式（推荐，前端分步调用）
+
+将故障报告拆分为两个独立接口，前端可先快速展示数据，再按需触发AI分析。
+
+##### 步骤1：查询故障数据（快速）
+
+**接口地址**: `POST /api/ai-report/fault/query`
+
+**功能说明**: 仅查询故障相关数据，不调用LLM分析。**预计耗时 <1秒**。
+
+前端可先调用此接口快速展示数据，再决定是否调用 `/fault/analyze` 接口触发AI分析。
+
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|-------|------|------|------|
+| time_range | string | 是 | 时间范围 |
+| venue_name | string | 否 | 会展名称 |
+| device_id | int | 否 | 设备ID |
+| device_name | string | 否 | 设备名称 |
+| zone_name | string | 否 | 分区名称 |
+
+**请求示例**:
+
+```json
+{
+    "time_range": "month",
+    "venue_name": "演唱会"
+}
+```
+
+**响应参数**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| query_params | object | 查询参数（time_range, venue_name, start_date, end_date 等） |
+| fault_stats | object | 故障统计核心数据 |
+| fault_by_category | array | 按故障类别统计 |
+| fault_by_level | array | 按告警级别统计 |
+| fault_list | array | 故障明细列表（最近30条） |
+| device_fault_count | array | 按设备统计TOP10 |
+| fault_time_distribution | array | 故障时间分布 |
+| fault_space_distribution | array | 故障空间分布 |
+| fault_device_category | array | 故障设备类别统计 |
+| response_rate_stats | object | 响应及时率统计 |
+| complaint_stats | object | 投诉建议统计 |
+| complaint_list | array | 投诉建议列表 |
+| recent_trends | object | 近7天趋势数据 |
+
+**响应示例**:
+
+```json
+{
+    "query_params": {
+        "time_range": "month",
+        "venue_name": "演唱会",
+        "start_date": "2026-07-12",
+        "end_date": "2026-08-11",
+        "device_id": null,
+        "device_name": null,
+        "zone_name": null
+    },
+    "fault_stats": {
+        "total_faults": 13580,
+        "affected_devices": 19,
+        "category_count": 4,
+        "unresolved_count": 13580,
+        "resolved_count": 0,
+        "unplanned_stop_count": 13228
+    },
+    "fault_by_category": [
+        {"category": "流速异常", "count": 11419, "percentage": 84.1},
+        {"category": "压力异常", "count": 1106, "percentage": 8.1},
+        {"category": "运行状态", "count": 678, "percentage": 5.0},
+        {"category": "能耗异常", "count": 377, "percentage": 2.8}
+    ],
+    "fault_by_level": [
+        {"level_name": "紧急", "count": 12122},
+        {"level_name": "非常紧急", "count": 1106},
+        {"level_name": "一般", "count": 352}
+    ],
+    "fault_list": [
+        {
+            "id": 127968,
+            "device_name": "D区回水",
+            "alarm_category_name": "流速异常",
+            "alarm_level_name": "紧急",
+            "alarm_time": "2026-08-10T13:50:07",
+            "alarm_content": "D区回水,瞬时流量,金安桥4号楼B1,流速异常，条件：>，阈值：200，异常值：298.00",
+            "alarm_status": "1",
+            "duration_minutes": null
+        },
+        {
+            "id": 127969,
+            "device_name": "N4-2回水",
+            "alarm_category_name": "流速异常",
+            "alarm_level_name": "紧急",
+            "alarm_time": "2026-08-10T13:50:05",
+            "alarm_content": "N4-2回水,瞬时流量,金安桥4号楼B1,流速异常，条件：>，阈值：84，异常值：110.50",
+            "alarm_status": "1",
+            "duration_minutes": null
+        }
+    ],
+    "device_fault_count": [
+        {"device_name": "D区供水", "fault_count": 1572},
+        {"device_name": "D区回水", "fault_count": 1571},
+        {"device_name": "N4-2供水", "fault_count": 1552},
+        {"device_name": "N4-2回水", "fault_count": 1549},
+        {"device_name": "提升泵站供水", "fault_count": 1532}
+    ],
+    "fault_time_distribution": [
+        {"time_period": "上午(6-12)", "fault_count": 3773},
+        {"time_period": "下午(12-18)", "fault_count": 3601},
+        {"time_period": "凌晨(0-6)", "fault_count": 3264},
+        {"time_period": "夜间(18-24)", "fault_count": 2942}
+    ],
+    "fault_space_distribution": [
+        {"space_name": "B1", "full_name": "会展小镇4号楼B1", "fault_count": 12097, "affected_devices": 8},
+        {"space_name": "F1", "full_name": "会展小镇6号楼F1", "fault_count": 624, "affected_devices": 1},
+        {"space_name": "4号楼", "full_name": "会展小镇4号楼", "fault_count": 331, "affected_devices": 4}
+    ],
+    "fault_device_category": [
+        {"category": "流量传感器", "full_name": "流量传感器", "fault_count": 12097, "affected_devices": 8, "percentage": 91.45},
+        {"category": "压力变送器", "full_name": "压力变送器", "fault_count": 1106, "affected_devices": 9, "percentage": 8.36},
+        {"category": "室外总表", "full_name": "水表室外总表", "fault_count": 25, "affected_devices": 1, "percentage": 0.19}
+    ],
+    "response_rate_stats": {
+        "total_alarms": 13580,
+        "within_30min": 0,
+        "within_1hour": 0,
+        "within_4hour": 0,
+        "over_4hour": 0,
+        "not_processed": 13580
+    },
+    "complaint_stats": {
+        "total_complaints": 1,
+        "pending_count": 1,
+        "processing_count": 0,
+        "resolved_count": 0
+    },
+    "complaint_list": [
+        {
+            "id": 7,
+            "title": "空调太冷了",
+            "complaint_date": "2026-08-09",
+            "content": "空调温度很低，太冷",
+            "status": "待处理"
+        }
+    ],
+    "recent_trends": {
+        "dates": ["2026-08-05", "2026-08-06", "2026-08-07"],
+        "counts": [420, 385, 412]
+    }
+}
+```
+
+##### 步骤2：AI故障分析（LLM推理）
+
+**接口地址**: `POST /api/ai-report/fault/analyze`
+
+**功能说明**: 基于 `/fault/query` 接口返回的数据，调用LLM生成分析报告。**预计耗时 20-30秒**。
+
+**支持两种传参方式**：
+1. **平铺结构**（推荐）：`query_params`、`fault_stats` 等作为顶层字段
+2. **嵌套结构**（兼容性）：`time_range` + `query_data` 嵌套
+
+**请求参数**（平铺结构，推荐）:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|-------|------|------|------|
+| query_params | object | 是 | 查询参数（time_range, venue_name, start_date, end_date 等） |
+| fault_stats | object | 是 | 故障统计（来自 /fault/query） |
+| fault_by_category | array | 是 | 按类别统计 |
+| fault_by_level | array | 是 | 按级别统计 |
+| fault_list | array | 是 | 故障明细列表 |
+| device_fault_count | array | 否 | 按设备统计TOP10 |
+| fault_time_distribution | array | 否 | 时间分布 |
+| fault_space_distribution | array | 否 | 空间分布 |
+| fault_device_category | array | 否 | 设备类别统计 |
+| response_rate_stats | object | 否 | 响应及时率 |
+| complaint_stats | object | 否 | 投诉统计 |
+| complaint_list | array | 否 | 投诉列表 |
+
+**请求示例**（平铺结构，推荐）:
+
+```json
+{
+    "query_params": {
+        "time_range": "month",
+        "venue_name": "演唱会",
+        "start_date": "2026-07-12",
+        "end_date": "2026-08-11",
+        "device_id": null,
+        "device_name": null,
+        "zone_name": null
+    },
+    "fault_stats": {
+        "total_faults": 13580,
+        "affected_devices": 19,
+        "category_count": 4,
+        "unresolved_count": 13580,
+        "resolved_count": 0,
+        "unplanned_stop_count": 13228
+    },
+    "fault_by_category": [
+        {"category": "流速异常", "count": 11419, "percentage": 84.1},
+        {"category": "压力异常", "count": 1106, "percentage": 8.1},
+        {"category": "运行状态", "count": 678, "percentage": 5.0},
+        {"category": "能耗异常", "count": 377, "percentage": 2.8}
+    ],
+    "fault_by_level": [
+        {"level_name": "紧急", "count": 12122},
+        {"level_name": "非常紧急", "count": 1106},
+        {"level_name": "一般", "count": 352}
+    ],
+    "fault_list": [
+        {
+            "id": 127968,
+            "device_name": "D区回水",
+            "alarm_category_name": "流速异常",
+            "alarm_level_name": "紧急",
+            "alarm_time": "2026-08-10T13:50:07",
+            "alarm_content": "D区回水,瞬时流量,金安桥4号楼B1,流速异常，条件：>，阈值：200，异常值：298.00",
+            "alarm_status": "1",
+            "duration_minutes": null
+        },
+        {
+            "id": 127969,
+            "device_name": "N4-2回水",
+            "alarm_category_name": "流速异常",
+            "alarm_level_name": "紧急",
+            "alarm_time": "2026-08-10T13:50:05",
+            "alarm_content": "N4-2回水,瞬时流量,金安桥4号楼B1,流速异常，条件：>，阈值：84，异常值：110.50",
+            "alarm_status": "1",
+            "duration_minutes": null
+        }
+    ],
+    "device_fault_count": [
+        {"device_name": "D区供水", "fault_count": 1572},
+        {"device_name": "D区回水", "fault_count": 1571},
+        {"device_name": "N4-2供水", "fault_count": 1552},
+        {"device_name": "N4-2回水", "fault_count": 1549},
+        {"device_name": "提升泵站供水", "fault_count": 1532}
+    ],
+    "fault_time_distribution": [
+        {"time_period": "上午(6-12)", "fault_count": 3773},
+        {"time_period": "下午(12-18)", "fault_count": 3601},
+        {"time_period": "凌晨(0-6)", "fault_count": 3264},
+        {"time_period": "夜间(18-24)", "fault_count": 2942}
+    ],
+    "fault_space_distribution": [
+        {"space_name": "B1", "full_name": "会展小镇4号楼B1", "fault_count": 12097, "affected_devices": 8},
+        {"space_name": "F1", "full_name": "会展小镇6号楼F1", "fault_count": 624, "affected_devices": 1}
+    ],
+    "fault_device_category": [
+        {"category": "流量传感器", "fault_count": 12097, "affected_devices": 8, "percentage": 91.45},
+        {"category": "压力变送器", "fault_count": 1106, "affected_devices": 9, "percentage": 8.36}
+    ],
+    "response_rate_stats": {
+        "total_alarms": 13580,
+        "not_processed": 13580
+    },
+    "complaint_stats": {
+        "total_complaints": 1,
+        "pending_count": 1
+    },
+    "complaint_list": [
+        {"id": 7, "title": "空调太冷了", "status": "待处理"}
+    ]
+}
+```
+
+**响应参数**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| report_id | int | 报告ID（已保存到数据库） |
+| report_title | string | 报告标题 |
+| report_desc | string | 报告描述 |
+| metrics | array | 核心指标 |
+| fault_distribution | array | 故障分布 |
+| fault_items | array | 故障明细列表（TOP5） |
+| maintenance_priorities | array | 维保优先级列表 |
+| summary | string | AI生成的故障分析总结 |
+| suggestions | array | AI生成的优化建议 |
+
+**响应示例**:
+
+```json
+{
+    "report_id": 25,
+    "report_title": "设备故障智能分析报告 - 2026年8月",
+    "report_desc": "基于真实数据生成，聚焦高频故障点位与处理效率，为运维决策提供精准支撑。",
+    "metrics": [
+        {"value": "13580", "label": "总故障数"},
+        {"value": "100%", "label": "待处理占比"},
+        {"value": "19", "label": "涉及设备数"},
+        {"value": "4", "label": "故障类别数"}
+    ],
+    "fault_distribution": [
+        {"category": "流速异常", "count": 11419, "percentage": 84.1},
+        {"category": "压力异常", "count": 1106, "percentage": 8.1},
+        {"category": "运行状态", "count": 678, "percentage": 5.0},
+        {"category": "能耗异常", "count": 377, "percentage": 2.8}
+    ],
+    "fault_items": [
+        {
+            "device_name": "D区供水",
+            "fault_type": "流速异常",
+            "fault_time": "2026-08-10T13:45:43",
+            "duration": "-",
+            "cause": "瞬时流量持续超标，阈值200，异常值298",
+            "solution": "检查管道是否存在堵塞或阀门开度过大"
+        },
+        {
+            "device_name": "N4-2回水",
+            "fault_type": "流速异常",
+            "fault_time": "2026-08-10T13:50:05",
+            "duration": "-",
+            "cause": "瞬时流量持续超标，阈值84，异常值110.50",
+            "solution": "检查回水泵运行状态和管道阻力"
+        }
+    ],
+    "maintenance_priorities": [
+        {
+            "priority": "紧急",
+            "device_name": "D区供水/回水",
+            "location": "金安桥4号楼B1",
+            "fault_count": "3143次/月",
+            "ai_risk_score": "95/100",
+            "suggest_action": "立即排查供水系统流量异常原因",
+            "suggest_time": "1天内"
+        },
+        {
+            "priority": "紧急",
+            "device_name": "N4-2供水/回水",
+            "location": "金安桥4号楼B1",
+            "fault_count": "3101次/月",
+            "ai_risk_score": "92/100",
+            "suggest_action": "检查N4-2管道阀门和泵组",
+            "suggest_time": "2天内"
+        }
+    ],
+    "summary": "本月共发生13580起故障，流速异常占比84.1%。主要集中在金安桥4号楼B1区域的供水/回水系统，涉及19台设备，待处理率100%，建议优先排查流量传感器和管道阀门。",
+    "suggestions": [
+        "立即排查金安桥4号楼B1区域供水系统流量异常",
+        "对高频故障的流量传感器进行校准或更换",
+        "检查管道阀门开度，避免流速持续超标",
+        "建立流速异常的预警阈值动态调整机制"
+    ]
+}
+```
+
+**前端调用流程示例**:
+
+```javascript
+// 1. 先快速获取数据并展示
+const queryRes = await fetch('/api/ai-report/fault/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ time_range: 'month', venue_name: '演唱会' })
+});
+const queryData = await queryRes.json();
+renderFaultData(queryData); // 立即展示数据
+
+// 2. 用户点击"AI分析"按钮时，调用分析接口（平铺结构）
+const analyzeRes = await fetch('/api/ai-report/fault/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        // 直接传入 /fault/query 返回的完整数据（平铺格式）
+        query_params: queryData.query_params,
+        fault_stats: queryData.fault_stats,
+        fault_by_category: queryData.fault_by_category,
+        fault_by_level: queryData.fault_by_level,
+        fault_list: queryData.fault_list,
+        device_fault_count: queryData.device_fault_count,
+        fault_time_distribution: queryData.fault_time_distribution,
+        fault_space_distribution: queryData.fault_space_distribution,
+        fault_device_category: queryData.fault_device_category,
+        response_rate_stats: queryData.response_rate_stats,
+        complaint_stats: queryData.complaint_stats,
+        complaint_list: queryData.complaint_list
+    })
+});
+const report = await analyzeRes.json();
+renderReport(report); // 展示AI分析结果
 ```
 
 ---
@@ -1534,15 +1931,15 @@ data: {"done": true}
 
 **查询参数**:
 
-| 参数名 | 类型 | 必填 | 说明 |
-|-------|------|------|------|
-| page | int | 否 | 页码，默认 1 |
-| page_size | int | 否 | 每页数量，默认 10 |
-| report_type | string | 否 | 报告类型 |
-| time_range | string | 否 | 时间范围 |
-| target_name | string | 否 | 目标名称搜索 |
-| start_date | string | 否 | 开始日期 YYYY-MM-DD |
-| end_date | string | 否 | 结束日期 YYYY-MM-DD |
+| 参数名 | 类型 | 必填 | 说明                                                                     |
+|-------|------|------|------------------------------------------------------------------------|
+| page | int | 否 | 页码，默认 1                                                                |
+| page_size | int | 否 | 每页数量，默认 10                                                             |
+| report_type | string | 否 | 报告类型 run：运行报告，fault:告警分析报告，predict：能源预测报告，energy：节能报告，carbon：多模态能谈分析报告， |
+| time_range | string | 否 | 时间范围                                                                   |
+| target_name | string | 否 | 目标名称搜索                                                                 |
+| start_date | string | 否 | 开始日期 YYYY-MM-DD                                                        |
+| end_date | string | 否 | 结束日期 YYYY-MM-DD                                                        |
 
 **请求示例**:
 
@@ -1778,11 +2175,26 @@ DELETE /api/ai-report/history/1
 
 ### 5.11 能源分析报告
 
+AI能源分析报告接口提供两种调用模式：
+
+#### 模式一：便捷模式（单接口）
+
 **接口地址**: `POST /api/ai-report/energy-analysis`
 
-**功能说明**: 基于实时数据对能源系统（空调机组、新风机组、配电系统、冷源系统、光伏系统）进行综合分析，返回包含核心指标、图表数据和表计实时数据的能源分析报告。
+**功能说明**: 基于实时数据对能源系统（空调机组、新风机组、配电系统、冷源系统、光伏系统）进行综合分析，返回包含核心指标、图表数据和表计实时数据的能源分析报告。**此接口会依次执行查询数据 + 调用LLM分析，预计耗时 20-30秒。**
 
-**子系统类型**：
+> 💡 如需更快响应（<1秒），请使用下面的**拆分模式**。
+
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|-------|------|------|------|
+| system_type | string | 是 | 子系统类型（见下表） |
+| venue_name | string | 否 | 会展名称（筛选特定会展的数据） |
+| time_range | string | 否 | 时间范围（day/week/month/quarter/year），默认day |
+| device_name | string | 否 | 设备名称（筛选特定设备） |
+
+**子系统类型**:
 
 | 类型代码 | 说明 | 匹配规则 |
 |---------|------|---------|
@@ -1794,22 +2206,13 @@ DELETE /api/ai-report/history/1
 | photovoltaic | 光伏系统 | device_code含PV 或 category_name含"光伏" |
 | all | 全部系统 | 所有子系统详细数据 |
 
-**请求参数**:
-
-| 参数名 | 类型 | 必填 | 说明 |
-|-------|------|------|------|
-| system_type | string | 是 | 子系统类型 |
-| venue_name | string | 否 | 会展名称（筛选数据） |
-| time_range | string | 否 | 时间范围（day/week/month/quarter/year），默认day |
-| device_name | string | 否 | 设备名称（可选） |
-
 **请求示例**:
 
 ```json
 {
     "system_type": "overview",
-    "venue_name": "会展小镇",
-    "time_range": "day",
+    "venue_name": "演唱会",
+    "time_range": "month",
     "device_name": null
 }
 ```
@@ -1826,8 +2229,8 @@ DELETE /api/ai-report/history/1
 | meter_online_rate | string | 表计在线率（如：98.24%） |
 | today_electricity | object | 今日用电量（value: 数值, change: 变化率） |
 | today_water | object | 今日用水量（value: 数值, change: 变化率） |
-| venue_electricity_compare | object | 各场馆用电对比（categories: 分类列表, data: 数据字典） |
-| energy_structure | object | 用能结构分析（categories: 分类列表, data: 占比数据） |
+| venue_electricity_compare | object | 各场馆用电对比（categories: 场馆名称列表, data: {场馆名: [用电量]}) |
+| energy_structure | object | 用能结构分析（categories: 能源类型列表, data: 各能源类型用能量数组） |
 | meter_data | object | 表计实时数据（含分页：items, total, page, page_size, total_pages） |
 | overview | object | 概览数据 |
 | air_condition | object | 空调机组数据 |
@@ -1839,13 +2242,27 @@ DELETE /api/ai-report/history/1
 | suggestions | array | 优化建议 |
 | warnings | array | 异常警告 |
 
+**venue_electricity_compare 字段说明**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| categories | array | 场馆名称列表 |
+| data | object | 以场馆名称为key的用电量数据（单位：kWh） |
+
+**energy_structure 字段说明**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| categories | array | 能源类型列表（如：电力、用水、热力、燃气） |
+| data | array | 各能源类型的用能量 |
+
 **响应示例**:
 
 ```json
 {
     "report_id": 1,
-    "report_title": "会展小镇能源分析报告 - 2026-08-10",
-    "report_time": "2026-08-10 17:41:28",
+    "report_title": "会展小镇能源分析报告 - 2026-08-11",
+    "report_time": "2026-08-11 11:31:57",
     "system_type": "overview",
     "meter_total": 435,
     "meter_online_rate": "99.08%",
@@ -1858,17 +2275,17 @@ DELETE /api/ai-report/history/1
         "change": "-100.00%"
     },
     "venue_electricity_compare": {
-        "categories": ["公共用电", "应急照明", "办公用电", "商业用电"],
+        "categories": ["1号馆", "2号馆", "4号馆", "3号馆"],
         "data": {
-            "公共用电": [150.0],
-            "应急照明": [120.0],
-            "办公用电": [80.0],
-            "商业用电": [50.0]
+            "1号馆": [2601.0],
+            "2号馆": [46.0],
+            "4号馆": [0.0],
+            "3号馆": [0.0]
         }
     },
     "energy_structure": {
-        "categories": ["公共用电", "应急照明", "办公用电", "商业用电"],
-        "data": [45.0, 25.0, 20.0, 10.0]
+        "categories": ["电力", "其他"],
+        "data": [1647.0, 1000.0]
     },
     "meter_data": {
         "items": [
@@ -1940,6 +2357,1579 @@ DELETE /api/ai-report/history/1
     ],
     "warnings": []
 }
+```
+
+---
+
+#### 模式二：拆分模式（推荐，前端分步调用）
+
+将能源分析报告拆分为两个独立接口，前端可先快速展示数据，再按需触发AI分析。
+
+##### 步骤1：查询能源数据（快速）
+
+**接口地址**: `POST /api/ai-report/energy-analysis/query`
+
+**功能说明**: 仅查询能源系统数据，不调用LLM分析。**预计耗时 <1秒**。
+
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|-------|------|------|------|
+| system_type | string | 是 | 子系统类型 |
+| venue_name | string | 否 | 会展名称 |
+| time_range | string | 否 | 时间范围，默认day |
+| device_name | string | 否 | 设备名称 |
+
+**请求示例**:
+
+```json
+{
+    "system_type": "overview",
+    "venue_name": "演唱会",
+    "time_range": "month"
+}
+```
+
+**响应参数**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| query_params | object | 查询参数 |
+| overview | object | 概览数据 |
+| air_condition | object | 空调机组数据 |
+| fresh_air | object | 新风机组数据 |
+| power_distribution | object | 配电系统数据 |
+| cold_source | object | 冷源系统数据 |
+| photovoltaic | object | 光伏系统数据 |
+| meter_data | object | 计费表计数据 |
+| today_usage | object | 今日用水用电量 |
+| venue_electricity_compare | object | 各场馆用电对比 |
+| energy_structure | object | 用能结构分析 |
+
+**响应示例**:
+
+```json
+{
+    "query_params": {
+        "system_type": "overview",
+        "venue_name": "演唱会",
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-11",
+        "device_name": null
+    },
+    "overview": {
+        "subsystem_count": 15,
+        "total_devices": 1141,
+        "online_devices": 1135,
+        "offline_devices": 6,
+        "total_alarms": 14022,
+        "pending_alarms": 14022
+    },
+    "air_condition": {"total_count": 143, "running_count": 142, "fault_count": 1, "devices": []},
+    "fresh_air": {"total_count": 29, "running_count": 29, "avg_pm25": 15.36, "devices": []},
+    "power_distribution": {"total_count": 300, "running_count": 300, "today_energy": 1000.0, "power_factor": 0.92, "devices": []},
+    "cold_source": {"total_count": 0, "running_count": null},
+    "photovoltaic": {"total_count": 0, "installed_capacity": 856.0, "today_generation": 0.0, "efficiency": 18.5},
+    "meter_data": {
+        "total": 435,
+        "online_rate": "99.08%",
+        "items": [...]
+    },
+    "today_usage": {
+        "electricity": {"value": 0, "change": "-100.00%"},
+        "water": {"value": 0, "change": "-100.00%"}
+    },
+    "venue_electricity_compare": {
+        "categories": ["1号馆", "2号馆", "4号馆", "3号馆"],
+        "data": {"1号馆": [2601.0], "2号馆": [46.0], "4号馆": [0.0], "3号馆": [0.0]}
+    },
+    "energy_structure": {
+        "categories": ["电力", "其他"],
+        "data": [1647.0, 1000.0]
+    }
+}
+```
+
+##### 步骤2：AI能源分析（LLM推理）
+
+**接口地址**: `POST /api/ai-report/energy-analysis/analyze`
+
+**功能说明**: 基于 `/energy-analysis/query` 接口返回的数据，调用LLM生成分析报告。**预计耗时 20-30秒**。
+
+**支持两种传参方式**：
+1. **平铺结构**（推荐）：`overview`、`air_condition` 等作为顶层字段
+2. **嵌套结构**（兼容性）
+
+**请求参数**（平铺结构，推荐）:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|-------|------|------|------|
+| query_params | object | 是 | 查询参数 |
+| overview | object | 是 | 概览数据 |
+| air_condition | object | 是 | 空调机组数据 |
+| fresh_air | object | 是 | 新风机组数据 |
+| power_distribution | object | 是 | 配电系统数据 |
+| cold_source | object | 是 | 冷源系统数据 |
+| photovoltaic | object | 是 | 光伏系统数据 |
+| meter_data | object | 是 | 计费表计数据 |
+| today_usage | object | 是 | 今日用水用电量 |
+| venue_electricity_compare | object | 否 | 各场馆用电对比 |
+| energy_structure | object | 否 | 用能结构分析 |
+
+**请求示例**（平铺结构，推荐）:
+
+```json
+{
+    "query_params": {
+        "system_type": "overview",
+        "venue_name": "演唱会",
+        "start_date": "2026-07-12",
+        "end_date": "2026-08-11",
+        "device_name": null
+    },
+    "overview": {
+        "subsystem_count": 15,
+        "total_devices": 1141,
+        "online_devices": 14199,
+        "offline_devices": 152,
+        "total_alarms": 13228,
+        "pending_alarms": 13228
+    },
+    "air_condition": {
+        "total_count": 143,
+        "running_count": 142,
+        "fault_count": 1,
+        "devices": [
+            {
+                "id": 3358,
+                "device_code": "A1-KT-F1-01",
+                "device_name": "空调机组_A1-KT-F1-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3359,
+                "device_code": "A1-KT-F3-01",
+                "device_name": "空调机组_A1-KT-F3-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3360,
+                "device_code": "A2-KT-F3-01",
+                "device_name": "空调机组_A2-KT-F3-01",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3361,
+                "device_code": "A2-KT-F3-02",
+                "device_name": "空调机组_A2-KT-F3-02",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3362,
+                "device_code": "A2-KT-F3-03",
+                "device_name": "空调机组_A2-KT-F3-03",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3363,
+                "device_code": "D6-KT-F2-01",
+                "device_name": "空调机组_D6-KT-F2-01",
+                "run_state": "离线",
+                "space_id": 160,
+                "space_name": "除尘"
+            },
+            {
+                "id": 3044,
+                "device_code": "Ktsb211",
+                "device_name": "金安桥提升泵211",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3045,
+                "device_code": "Ktsb212",
+                "device_name": "金安桥提升泵212",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3046,
+                "device_code": "Ktsb221",
+                "device_name": "金安桥提升泵221",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3047,
+                "device_code": "Ktsb222",
+                "device_name": "金安桥提升泵222",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3048,
+                "device_code": "Ktsb401",
+                "device_name": "金安桥提升泵401",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3049,
+                "device_code": "Ktsb402",
+                "device_name": "金安桥提升泵402",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3050,
+                "device_code": "Ktsb403",
+                "device_name": "金安桥提升泵403",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3051,
+                "device_code": "Ktsb404",
+                "device_name": "金安桥提升泵404",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3052,
+                "device_code": "Ktsb410",
+                "device_name": "金安桥提升泵410",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3053,
+                "device_code": "Ktsb411_1",
+                "device_name": "N4-4转运站动力照明用电1 AA1",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3054,
+                "device_code": "Ktsb411_2",
+                "device_name": "提升泵站一层西侧商业1用电F1AL-SY1",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3055,
+                "device_code": "Ktsb411_3",
+                "device_name": "提升泵站东侧地下一层至三层公共用电B1AL1-F3AL1",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3056,
+                "device_code": "Ktsb411_4",
+                "device_name": "景观照明（预留）",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3057,
+                "device_code": "Ktsb411_5",
+                "device_name": "备用",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            }
+        ],
+        "today_energy": "0"
+    },
+    "fresh_air": {
+        "total_count": 29,
+        "running_count": 29,
+        "devices": [
+            {
+                "id": 3335,
+                "device_code": "A1-XF-B1-01",
+                "device_name": "新风机组_A1-XF-B1-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3336,
+                "device_code": "A1-XF-F2-01",
+                "device_name": "新风机组_A1-XF-F2-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3337,
+                "device_code": "A1-XF-F3-01",
+                "device_name": "新风机组_A1-XF-F3-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3338,
+                "device_code": "A1-XF-F7-01",
+                "device_name": "新风机组_A1-XF-F7-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3339,
+                "device_code": "A1-XF-F8-01",
+                "device_name": "新风机组_A1-XF-F8-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3340,
+                "device_code": "A1-XF-F9-01",
+                "device_name": "新风机组_A1-XF-F9-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3341,
+                "device_code": "A2-XF-F1-01",
+                "device_name": "新风机组_A2-XF-F1-01",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3342,
+                "device_code": "A2-XF-F1-02",
+                "device_name": "新风机组_A2-XF-F1-02",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3343,
+                "device_code": "A2-XF-F3-01",
+                "device_name": "新风机组_A2-XF-F3-01",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3344,
+                "device_code": "A2-XF-F3-02",
+                "device_name": "新风机组_A2-XF-F3-02",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3345,
+                "device_code": "A2-XF-F3-03",
+                "device_name": "新风机组_A2-XF-F3-03",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3469,
+                "device_code": "A3-XF-B1-1",
+                "device_name": "新风机组_A3-XF-B1-1",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3470,
+                "device_code": "A3-XF-B1-2",
+                "device_name": "新风机组_A3-XF-B1-2",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3471,
+                "device_code": "A3-XF-F1-1",
+                "device_name": "新风机组_A3-XF-F1-1",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3472,
+                "device_code": "A3-XF-F1-3",
+                "device_name": "新风机组_A3-XF-F1-3",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3473,
+                "device_code": "A3-XF-F1-4",
+                "device_name": "新风机组_A3-XF-F1-4",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3474,
+                "device_code": "A3-XF-WD-1",
+                "device_name": "新风机组_A3-XF-WD-1",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3452,
+                "device_code": "B1AP-XF1-PWK-D3",
+                "device_name": "集水坑_B1AP-XF1-PWK-D3",
+                "run_state": "在线",
+                "space_id": 160,
+                "space_name": "除尘"
+            },
+            {
+                "id": 3333,
+                "device_code": "C1-XF-MF-01",
+                "device_name": "新风机组_C1-XF-MF-01",
+                "run_state": "在线",
+                "space_id": 87,
+                "space_name": "1号楼"
+            },
+            {
+                "id": 3334,
+                "device_code": "C1-XF-MF-02",
+                "device_name": "新风机组_C1-XF-MF-02",
+                "run_state": "在线",
+                "space_id": 87,
+                "space_name": "1号楼"
+            }
+        ],
+        "avg_pm25": "15.36",
+        "today_energy": "0"
+    },
+    "power_distribution": {
+        "total_count": 300,
+        "running_count": 300,
+        "devices": [
+            {
+                "id": 2881,
+                "device_code": "Kccgz211",
+                "device_name": "除尘改造211",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2882,
+                "device_code": "Kccgz212",
+                "device_name": "除尘改造212",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2883,
+                "device_code": "Kccgz221",
+                "device_name": "除尘改造221",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2884,
+                "device_code": "Kccgz222",
+                "device_name": "除尘改造222",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2885,
+                "device_code": "Kccgz401",
+                "device_name": "除尘改造401",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2886,
+                "device_code": "Kccgz402",
+                "device_name": "除尘改造402",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2887,
+                "device_code": "Kccgz403",
+                "device_name": "除尘改造403",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2888,
+                "device_code": "Kccgz404",
+                "device_name": "除尘改造404",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2889,
+                "device_code": "Kccgz410_1",
+                "device_name": "除尘改造410_1",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2890,
+                "device_code": "Kccgz410_2",
+                "device_name": "除尘改造410_2",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2891,
+                "device_code": "Kccgz411_1",
+                "device_name": "除尘改造一层商业用电F1AL1",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2892,
+                "device_code": "Kccgz411_2",
+                "device_name": "除尘改造二、三层办公用电F2AL1/F3AL1",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2893,
+                "device_code": "Kccgz411_3",
+                "device_name": "主电室改造消防弱电总控室-安防用电F1AT-AFZ(备)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2894,
+                "device_code": "Kccgz411_4",
+                "device_name": "除尘改造地下一层车库用电B1AL1a/B1AL2a",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2895,
+                "device_code": "Kccgz411_5",
+                "device_name": "(备用)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2896,
+                "device_code": "Kccgz411_6",
+                "device_name": "(备用)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2897,
+                "device_code": "Kccgz412_1",
+                "device_name": "除尘改造四、五层办公用电F4AL2、F5AL2",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2898,
+                "device_code": "Kccgz412_2",
+                "device_name": "除尘改造首层商业F1-ALSY5",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2899,
+                "device_code": "Kccgz412_3",
+                "device_name": "D-1#办公用电F2-AL办",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2900,
+                "device_code": "Kccgz412_4",
+                "device_name": "主电室改造高压总配F1AL-GY(备)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            }
+        ],
+        "today_energy": "1000",
+        "power_factor": "0.92"
+    },
+    "cold_source": {
+        "total_count": 0,
+        "running_count": null,
+        "devices": [],
+        "today_cooling": "0",
+        "avg_cop": 5.5
+    },
+    "photovoltaic": {
+        "total_count": 0,
+        "devices": [],
+        "today_generation": "0",
+        "installed_capacity": 856,
+        "efficiency": 18.5
+    },
+    "meter_data": {
+        "total": 435,
+        "online_rate": "99.08%",
+        "items": {
+            "items": [
+                {
+                    "meter_no": "05bcfd461ee874eac9ddfe805e8eb13f",
+                    "meter_type": "热量表",
+                    "install_location": "F1-N4-4转运站1",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "0ac9e3d9025b08b6908c3bb153806905",
+                    "meter_type": "热量表",
+                    "install_location": "B1-除尘改造2",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "f3e231db3c703558303f1f34ddfd5396",
+                    "meter_type": "热量表",
+                    "install_location": "B1-除尘改造5",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "e97e802e0b0bdacb8a5de291f2bca1fb",
+                    "meter_type": "热量表",
+                    "install_location": "B1-提升泵站制冷机房00000007",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "498474b75ba3ffb22c024626f7c93404",
+                    "meter_type": "热量表",
+                    "install_location": "B1-提升泵站制冷机房00000008",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "3e448b7f77be981520a2a0a2bfac4021",
+                    "meter_type": "热量表",
+                    "install_location": "B1-主电室空调水泵房00000009",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "feffae3ba6ad5c0aeba4ad811ab3b1f8",
+                    "meter_type": "热量表",
+                    "install_location": "F1-原料系统料仓一层空调机房00000010",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "91d0cdbf76ec647c68c49341534c60f9",
+                    "meter_type": "热量表",
+                    "install_location": "B1-原料仓12",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "c23f281eb8798ff7d1ee949773d731bf",
+                    "meter_type": "热量表",
+                    "install_location": "B1-N4-3转运站80",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                },
+                {
+                    "meter_no": "e17f93bc12c34571b59c053ed3af6d3b",
+                    "meter_type": "热量表",
+                    "install_location": "B1-提升泵站制冷机房00000080",
+                    "today_reading": 0,
+                    "today_usage": 0,
+                    "month_total": 0,
+                    "status": "在线",
+                    "detail_link": null
+                }
+            ],
+            "total": 435,
+            "page": 1,
+            "page_size": 10,
+            "total_pages": 44
+        }
+    },
+    "today_usage": {
+        "electricity": {
+            "value": 0,
+            "change": "-100.00%"
+        },
+        "water": {
+            "value": 0,
+            "change": "-100.00%"
+        }
+    },
+    "venue_electricity_compare": {
+        "categories": [
+            "1号馆",
+            "2号馆",
+            "4号馆",
+            "3号馆"
+        ],
+        "data": {
+            "1号馆": [
+                "2601"
+            ],
+            "2号馆": [
+                "46"
+            ],
+            "4号馆": [
+                "0"
+            ],
+            "3号馆": [
+                "0"
+            ]
+        }
+    },
+    "energy_structure": {
+        "categories": [
+            "电力",
+            "其他"
+        ],
+        "data": [
+            "1647",
+            "1000"
+        ]
+    }
+}
+```
+
+**响应参数**:
+
+| 参数名 | 类型 | 说明 |
+|-------|------|------|
+| report_id | int | 报告ID（已保存到数据库） |
+| report_title | string | 报告标题 |
+| report_time | string | 报告生成时间 |
+| system_type | string | 分析的系统类型 |
+| meter_total | int | 计费表计总数 |
+| meter_online_rate | string | 表计在线率 |
+| today_electricity | object | 今日用电量 |
+| today_water | object | 今日用水量 |
+| overview | object | 概览数据 |
+| air_condition | object | 空调机组数据 |
+| fresh_air | object | 新风机组数据 |
+| power_distribution | object | 配电系统数据 |
+| cold_source | object | 冷源系统数据 |
+| photovoltaic | object | 光伏系统数据 |
+| venue_electricity_compare | object | 各场馆用电对比 |
+| energy_structure | object | 用能结构分析 |
+| meter_data | object | 表计实时数据 |
+| summary | string | AI生成的能源分析总结 |
+| suggestions | array | AI生成的优化建议 |
+| warnings | array | AI异常警告 |
+
+**响应示例**:
+
+```json
+{
+    "report_id": 0,
+    "report_title": "会展小镇能源分析报告 - 演唱会期间 (07-12至08-11)",
+    "report_time": "2026-08-11 14:33:45",
+    "system_type": "overview",
+    "meter_total": 435,
+    "meter_online_rate": "99.08%",
+    "today_electricity": {
+        "value": 0,
+        "change": "-100.00%",
+        "unit": null
+    },
+    "today_water": {
+        "value": 0,
+        "change": "-100.00%",
+        "unit": null
+    },
+    "venue_electricity_compare": {
+        "categories": [
+            "1号馆",
+            "2号馆",
+            "4号馆",
+            "3号馆"
+        ],
+        "data": {
+            "1号馆": [
+                2601.0
+            ],
+            "2号馆": [
+                46.0
+            ],
+            "4号馆": [
+                0.0
+            ],
+            "3号馆": [
+                0.0
+            ]
+        }
+    },
+    "energy_structure": {
+        "categories": [
+            "电力",
+            "其他"
+        ],
+        "data": [
+            1647.0,
+            1000.0
+        ]
+    },
+    "meter_data": {
+        "items": [
+            {
+                "meter_no": "05bcfd461ee874eac9ddfe805e8eb13f",
+                "meter_type": "热量表",
+                "install_location": "F1-N4-4转运站1",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "0ac9e3d9025b08b6908c3bb153806905",
+                "meter_type": "热量表",
+                "install_location": "B1-除尘改造2",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "f3e231db3c703558303f1f34ddfd5396",
+                "meter_type": "热量表",
+                "install_location": "B1-除尘改造5",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "e97e802e0b0bdacb8a5de291f2bca1fb",
+                "meter_type": "热量表",
+                "install_location": "B1-提升泵站制冷机房00000007",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "498474b75ba3ffb22c024626f7c93404",
+                "meter_type": "热量表",
+                "install_location": "B1-提升泵站制冷机房00000008",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "3e448b7f77be981520a2a0a2bfac4021",
+                "meter_type": "热量表",
+                "install_location": "B1-主电室空调水泵房00000009",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "feffae3ba6ad5c0aeba4ad811ab3b1f8",
+                "meter_type": "热量表",
+                "install_location": "F1-原料系统料仓一层空调机房00000010",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "91d0cdbf76ec647c68c49341534c60f9",
+                "meter_type": "热量表",
+                "install_location": "B1-原料仓12",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "c23f281eb8798ff7d1ee949773d731bf",
+                "meter_type": "热量表",
+                "install_location": "B1-N4-3转运站80",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            },
+            {
+                "meter_no": "e17f93bc12c34571b59c053ed3af6d3b",
+                "meter_type": "热量表",
+                "install_location": "B1-提升泵站制冷机房00000080",
+                "today_reading": 0.0,
+                "today_usage": 0.0,
+                "month_total": 0.0,
+                "status": "在线",
+                "detail_link": null
+            }
+        ],
+        "total": 435,
+        "page": 1,
+        "page_size": 10,
+        "total_pages": 44
+    },
+    "overview": {
+        "subsystem_count": 15,
+        "device_online_rate": null,
+        "remote_control_count": 0,
+        "today_command_count": 0,
+        "air_conditions": null,
+        "fresh_air": null,
+        "power_distribution": null,
+        "cold_source": null,
+        "photovoltaic": null
+    },
+    "air_condition": {
+        "total_count": 143,
+        "running_count": 142,
+        "fault_count": 1,
+        "avg_cop": null,
+        "today_energy": 0.0,
+        "devices": [
+            {
+                "id": 3358,
+                "device_code": "A1-KT-F1-01",
+                "device_name": "空调机组_A1-KT-F1-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3359,
+                "device_code": "A1-KT-F3-01",
+                "device_name": "空调机组_A1-KT-F3-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3360,
+                "device_code": "A2-KT-F3-01",
+                "device_name": "空调机组_A2-KT-F3-01",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3361,
+                "device_code": "A2-KT-F3-02",
+                "device_name": "空调机组_A2-KT-F3-02",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3362,
+                "device_code": "A2-KT-F3-03",
+                "device_name": "空调机组_A2-KT-F3-03",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3363,
+                "device_code": "D6-KT-F2-01",
+                "device_name": "空调机组_D6-KT-F2-01",
+                "run_state": "离线",
+                "space_id": 160,
+                "space_name": "除尘"
+            },
+            {
+                "id": 3044,
+                "device_code": "Ktsb211",
+                "device_name": "金安桥提升泵211",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3045,
+                "device_code": "Ktsb212",
+                "device_name": "金安桥提升泵212",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3046,
+                "device_code": "Ktsb221",
+                "device_name": "金安桥提升泵221",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3047,
+                "device_code": "Ktsb222",
+                "device_name": "金安桥提升泵222",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3048,
+                "device_code": "Ktsb401",
+                "device_name": "金安桥提升泵401",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3049,
+                "device_code": "Ktsb402",
+                "device_name": "金安桥提升泵402",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3050,
+                "device_code": "Ktsb403",
+                "device_name": "金安桥提升泵403",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3051,
+                "device_code": "Ktsb404",
+                "device_name": "金安桥提升泵404",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3052,
+                "device_code": "Ktsb410",
+                "device_name": "金安桥提升泵410",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3053,
+                "device_code": "Ktsb411_1",
+                "device_name": "N4-4转运站动力照明用电1 AA1",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3054,
+                "device_code": "Ktsb411_2",
+                "device_name": "提升泵站一层西侧商业1用电F1AL-SY1",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3055,
+                "device_code": "Ktsb411_3",
+                "device_name": "提升泵站东侧地下一层至三层公共用电B1AL1-F3AL1",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3056,
+                "device_code": "Ktsb411_4",
+                "device_name": "景观照明（预留）",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            },
+            {
+                "id": 3057,
+                "device_code": "Ktsb411_5",
+                "device_name": "备用",
+                "run_state": "在线",
+                "space_id": 185,
+                "space_name": "提升泵"
+            }
+        ]
+    },
+    "fresh_air": {
+        "total_count": 29,
+        "running_count": 29,
+        "avg_pm25": 15.36,
+        "today_energy": 0.0,
+        "devices": [
+            {
+                "id": 3335,
+                "device_code": "A1-XF-B1-01",
+                "device_name": "新风机组_A1-XF-B1-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3336,
+                "device_code": "A1-XF-F2-01",
+                "device_name": "新风机组_A1-XF-F2-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3337,
+                "device_code": "A1-XF-F3-01",
+                "device_name": "新风机组_A1-XF-F3-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3338,
+                "device_code": "A1-XF-F7-01",
+                "device_name": "新风机组_A1-XF-F7-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3339,
+                "device_code": "A1-XF-F8-01",
+                "device_name": "新风机组_A1-XF-F8-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3340,
+                "device_code": "A1-XF-F9-01",
+                "device_name": "新风机组_A1-XF-F9-01",
+                "run_state": "在线",
+                "space_id": 84,
+                "space_name": "2号楼"
+            },
+            {
+                "id": 3341,
+                "device_code": "A2-XF-F1-01",
+                "device_name": "新风机组_A2-XF-F1-01",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3342,
+                "device_code": "A2-XF-F1-02",
+                "device_name": "新风机组_A2-XF-F1-02",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3343,
+                "device_code": "A2-XF-F3-01",
+                "device_name": "新风机组_A2-XF-F3-01",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3344,
+                "device_code": "A2-XF-F3-02",
+                "device_name": "新风机组_A2-XF-F3-02",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3345,
+                "device_code": "A2-XF-F3-03",
+                "device_name": "新风机组_A2-XF-F3-03",
+                "run_state": "在线",
+                "space_id": 82,
+                "space_name": "3号楼"
+            },
+            {
+                "id": 3469,
+                "device_code": "A3-XF-B1-1",
+                "device_name": "新风机组_A3-XF-B1-1",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3470,
+                "device_code": "A3-XF-B1-2",
+                "device_name": "新风机组_A3-XF-B1-2",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3471,
+                "device_code": "A3-XF-F1-1",
+                "device_name": "新风机组_A3-XF-F1-1",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3472,
+                "device_code": "A3-XF-F1-3",
+                "device_name": "新风机组_A3-XF-F1-3",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3473,
+                "device_code": "A3-XF-F1-4",
+                "device_name": "新风机组_A3-XF-F1-4",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3474,
+                "device_code": "A3-XF-WD-1",
+                "device_name": "新风机组_A3-XF-WD-1",
+                "run_state": "在线",
+                "space_id": 83,
+                "space_name": "4号楼"
+            },
+            {
+                "id": 3452,
+                "device_code": "B1AP-XF1-PWK-D3",
+                "device_name": "集水坑_B1AP-XF1-PWK-D3",
+                "run_state": "在线",
+                "space_id": 160,
+                "space_name": "除尘"
+            },
+            {
+                "id": 3333,
+                "device_code": "C1-XF-MF-01",
+                "device_name": "新风机组_C1-XF-MF-01",
+                "run_state": "在线",
+                "space_id": 87,
+                "space_name": "1号楼"
+            },
+            {
+                "id": 3334,
+                "device_code": "C1-XF-MF-02",
+                "device_name": "新风机组_C1-XF-MF-02",
+                "run_state": "在线",
+                "space_id": 87,
+                "space_name": "1号楼"
+            }
+        ]
+    },
+    "power_distribution": {
+        "total_count": 300,
+        "running_count": 300,
+        "today_energy": 1000.0,
+        "power_factor": 0.92,
+        "devices": [
+            {
+                "id": 2881,
+                "device_code": "Kccgz211",
+                "device_name": "除尘改造211",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2882,
+                "device_code": "Kccgz212",
+                "device_name": "除尘改造212",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2883,
+                "device_code": "Kccgz221",
+                "device_name": "除尘改造221",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2884,
+                "device_code": "Kccgz222",
+                "device_name": "除尘改造222",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2885,
+                "device_code": "Kccgz401",
+                "device_name": "除尘改造401",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2886,
+                "device_code": "Kccgz402",
+                "device_name": "除尘改造402",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2887,
+                "device_code": "Kccgz403",
+                "device_name": "除尘改造403",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2888,
+                "device_code": "Kccgz404",
+                "device_name": "除尘改造404",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2889,
+                "device_code": "Kccgz410_1",
+                "device_name": "除尘改造410_1",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2890,
+                "device_code": "Kccgz410_2",
+                "device_name": "除尘改造410_2",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2891,
+                "device_code": "Kccgz411_1",
+                "device_name": "除尘改造一层商业用电F1AL1",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2892,
+                "device_code": "Kccgz411_2",
+                "device_name": "除尘改造二、三层办公用电F2AL1/F3AL1",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2893,
+                "device_code": "Kccgz411_3",
+                "device_name": "主电室改造消防弱电总控室-安防用电F1AT-AFZ(备)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2894,
+                "device_code": "Kccgz411_4",
+                "device_name": "除尘改造地下一层车库用电B1AL1a/B1AL2a",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2895,
+                "device_code": "Kccgz411_5",
+                "device_name": "(备用)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2896,
+                "device_code": "Kccgz411_6",
+                "device_name": "(备用)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2897,
+                "device_code": "Kccgz412_1",
+                "device_name": "除尘改造四、五层办公用电F4AL2、F5AL2",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2898,
+                "device_code": "Kccgz412_2",
+                "device_name": "除尘改造首层商业F1-ALSY5",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2899,
+                "device_code": "Kccgz412_3",
+                "device_name": "D-1#办公用电F2-AL办",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            },
+            {
+                "id": 2900,
+                "device_code": "Kccgz412_4",
+                "device_name": "主电室改造高压总配F1AL-GY(备)",
+                "run_state": "在线",
+                "space_id": 183,
+                "space_name": "除尘改造"
+            }
+        ]
+    },
+    "cold_source": {
+        "total_count": 0,
+        "running_count": null,
+        "today_cooling": 0.0,
+        "avg_cop": 5.5,
+        "devices": []
+    },
+    "photovoltaic": {
+        "total_count": 0,
+        "installed_capacity": 856.0,
+        "today_generation": 0.0,
+        "efficiency": 18.5,
+        "devices": []
+    },
+    "summary": "活动期间共监测到13228条待处理告警，空调子系统存在1台故障设备。值得注意的是，今日电力与水耗读数均为0且变化率为-100%，结合场馆用电对比数据（仅1号馆有记录），表明可能存在数据采集中断或计量表计异常，需立即核实以确保能耗统计准确性及系统安全运行。",
+    "suggestions": [
+        "紧急排查：针对今日电力和水耗读数为'0'的情况，立即检查435只电/水表在线率（99.08%）下的断点设备或通信链路故障。",
+        "故障处理：优先修复空调子系统中的1台故障设备，防止影响演唱会现场环境舒适度及引发连锁告警。",
+        "数据复核：核对'场馆用电对比'中2号、3、4号馆无读数记录的原因（是实际未供电还是采集失败），确保能耗分析结论可靠。"
+    ],
+    "warnings": [
+        "今日电力与水耗读数为0，变化率-100%，存在严重数据缺失风险，可能导致成本核算错误及安全隐患误判。",
+        "空调子系统出现1台设备故障（共143台），需确认是否影响核心区域温控效果。"
+    ]
+}
+```
+
+**前端调用流程示例**:
+
+```javascript
+// 1. 先快速获取数据并展示
+const queryRes = await fetch('/api/ai-report/energy-analysis/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system_type: 'overview', venue_name: '演唱会', time_range: 'month' })
+});
+const queryData = await queryRes.json();
+renderEnergyData(queryData); // 立即展示数据
+
+// 2. 用户点击"AI分析"按钮时，调用分析接口（平铺结构）
+const analyzeRes = await fetch('/api/ai-report/energy-analysis/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        query_params: queryData.query_params,
+        overview: queryData.overview,
+        air_condition: queryData.air_condition,
+        fresh_air: queryData.fresh_air,
+        power_distribution: queryData.power_distribution,
+        cold_source: queryData.cold_source,
+        photovoltaic: queryData.photovoltaic,
+        meter_data: queryData.meter_data,
+        today_usage: queryData.today_usage,
+        venue_electricity_compare: queryData.venue_electricity_compare,
+        energy_structure: queryData.energy_structure
+    })
+});
+const report = await analyzeRes.json();
+renderReport(report); // 展示AI分析结果
 ```
 
 ---
@@ -2091,8 +4081,10 @@ print(response.json())
 | v1.3 | 2026-08-10 | chat-stream 支持智能数据问答，自动生成 SQL 查询达梦数据库，返回 ECharts 图表 + Vue 表格 + 总结；SQL 生成/执行增加 GROUP BY 修复；旧版 SQL 接口标记为废弃 |
 | v1.4 | 2026-08-10 | 新增AI能源分析报告接口（/api/ai-report/energy-analysis），支持对空调机组、新风机组、配电系统、冷源系统、光伏系统进行实时数据分析和AI建议生成；严格遵守达梦8.0语法规范 |
 | v1.5 | 2026-08-10 | 能源分析报告接口返回格式优化，新增计费表计总数、在线率、今日用水用电量、各场馆用电对比、用能结构分析、表计实时数据列表等核心指标数据 |
+| v1.6 | 2026-08-11 | 修复各场馆用电对比和用能结构分析数据逻辑：venue_electricity_compare 按场馆聚合，用能结构按能源类型（电力/用水/热力/燃气）聚合，两者是不同维度数据 |
+| v1.7 | 2026-08-11 | 故障分析报告（/fault）和能源分析报告（/energy-analysis）均新增拆分接口模式：快速查询（/query，<1s）和LLM分析（/analyze，20-30s），前端可先展示数据再按需触发AI分析；修复/fault/analyze接口schema不匹配问题 |
 
 ---
 
-> 文档生成时间: 2026-08-10 17:43
+> 文档生成时间: 2026-08-11 11:34
 > 更多信息请访问项目仓库

@@ -26,12 +26,12 @@ model_defaults:
   num_ctx: 20480          # 上下文窗口大小
   temperature: 0.6        # 温度参数
   num_predict: 20480      # 默认最大生成 token 数（SQL、检测等短输出场景）
-  num_predict_report: 20480  # 报告生成场景的最大 token 数（长输出）
+  num_predict_report: 2048   # 报告生成场景的最大 token 数（长输出），2048 足够覆盖 summary+suggestions+warnings
 
 # PostgreSQL - 访问日志存储
 database:
-#  host: "192.168.204.169"
-  host: "localhost"
+  host: "192.168.204.169"
+#  host: "localhost"
   port: 5432
   user: "postgres"
   password: "PG_617871572"

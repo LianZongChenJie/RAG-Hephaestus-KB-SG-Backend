@@ -25,7 +25,7 @@ LOG_LEVEL = logging.INFO
 RETENTION_DAYS = 30  # 日志保留天数
 COMPRESS_AFTER_DAYS = 30  # 压缩超过此天数的日志
 CLEANUP_INTERVAL_HOURS = 6  # 清理检查间隔（小时）
-CONSOLE_LOG_MAX_LENGTH = 200  # 控制台日志最大字符数
+CONSOLE_LOG_MAX_LENGTH = 50000  # 控制台日志最大字符数（设为超大值，禁用截断）
 
 
 def setup_logs_directory():
@@ -49,7 +49,7 @@ def create_formatter() -> logging.Formatter:
 
 
 class ConsoleFormatter(logging.Formatter):
-    """控制台日志格式化器，截断过长的消息"""
+    """控制台日志格式化器"""
 
     def format(self, record: logging.LogRecord) -> str:
         # 调用父类方法获取完整格式化的消息
