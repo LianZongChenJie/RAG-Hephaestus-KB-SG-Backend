@@ -4,13 +4,14 @@
  Source Server         : 首钢
  Source Server Type    : Dameng
  Source Server Version : 801448 (08.01.448)
+ Source Host           : 10.168.56.103:5236
  Source Schema         : FWBZ
 
  Target Server Type    : Dameng
  Target Server Version : 801448 (08.01.448)
  File Encoding         : 65001
 
- Date: 10/08/2026 08:15:54
+ Date: 08/09/2026 13:09:35
 */
 
 
@@ -18,9 +19,8 @@
 -- Table structure for ai_report_history
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."ai_report_history";
-
 CREATE TABLE "FWBZ"."ai_report_history" (
-  "id" BIGINT NOT NULL IDENTITY(1,1),
+  "id" BIGINT NOT NULL,
   "report_type" VARCHAR(50) NOT NULL,
   "title" VARCHAR(500) NOT NULL,
   "content" CLOB,
@@ -32,10 +32,9 @@ CREATE TABLE "FWBZ"."ai_report_history" (
   "query_params" TEXT,
   "query_data" TEXT,
   "created_at" TIMESTAMP(6),
-  "updated_at" TIMESTAMP(6),
-  PRIMARY KEY ("id")
-);
-
+  "updated_at" TIMESTAMP(6)
+)
+;
 COMMENT ON COLUMN "FWBZ"."ai_report_history"."id" IS '自增主键';
 COMMENT ON COLUMN "FWBZ"."ai_report_history"."report_type" IS '报告类型: run-运行报告, predict-预测报告, energy-节能报告, fault-故障分析报告, carbon-能碳计算';
 COMMENT ON COLUMN "FWBZ"."ai_report_history"."title" IS '报告标题';
@@ -146,7 +145,8 @@ CREATE TABLE "FWBZ"."alarm_record" (
   "device_category_id" BIGINT,
   "alarm_level_color" VARCHAR(50),
   "event_id" VARCHAR(50),
-  "process_time" TIMESTAMP(6)
+  "transfer_event_time" TIMESTAMP(6),
+  "event_completion_time" TIMESTAMP(6)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."alarm_record"."id" IS '主键';
@@ -179,7 +179,8 @@ COMMENT ON COLUMN "FWBZ"."alarm_record"."alarm_rule_point_id" IS '告警规则�
 COMMENT ON COLUMN "FWBZ"."alarm_record"."device_category_id" IS '设备类别id';
 COMMENT ON COLUMN "FWBZ"."alarm_record"."alarm_level_color" IS '报警级别颜色';
 COMMENT ON COLUMN "FWBZ"."alarm_record"."event_id" IS '事件id';
-COMMENT ON COLUMN "FWBZ"."alarm_record"."process_time" IS '处理时间';
+COMMENT ON COLUMN "FWBZ"."alarm_record"."transfer_event_time" IS '转工单时间';
+COMMENT ON COLUMN "FWBZ"."alarm_record"."event_completion_time" IS '工单完成时间';
 COMMENT ON TABLE "FWBZ"."alarm_record" IS '告警记录表';
 
 -- ----------------------------
@@ -300,9 +301,18 @@ CREATE TABLE "FWBZ"."building_control_point_history" (
   "id" BIGINT NOT NULL,
   "point_id" BIGINT NOT NULL,
   "value" VARCHAR(255 CHAR),
-  "collection_time" TIMESTAMP
+  "collection_time" TIMESTAMP,
+  "device_id" BIGINT,
+  "attribute_name" VARCHAR2(255),
+  "control_by" VARCHAR2(255)
 )
 ;
+COMMENT ON COLUMN "FWBZ"."building_control_point_history"."point_id" IS '属性id';
+COMMENT ON COLUMN "FWBZ"."building_control_point_history"."value" IS '控制值';
+COMMENT ON COLUMN "FWBZ"."building_control_point_history"."collection_time" IS '控制时间';
+COMMENT ON COLUMN "FWBZ"."building_control_point_history"."device_id" IS '设备id';
+COMMENT ON COLUMN "FWBZ"."building_control_point_history"."attribute_name" IS '属性名称';
+COMMENT ON COLUMN "FWBZ"."building_control_point_history"."control_by" IS '控制人';
 COMMENT ON TABLE "FWBZ"."building_control_point_history" IS '楼控点位数据接收历史';
 
 -- ----------------------------
@@ -311,11 +321,22 @@ COMMENT ON TABLE "FWBZ"."building_control_point_history" IS '楼控点位数据�
 DROP TABLE IF EXISTS "FWBZ"."building_control_point_send_history";
 CREATE TABLE "FWBZ"."building_control_point_send_history" (
   "id" BIGINT NOT NULL,
-  "point_id" BIGINT NOT NULL,
+  "attribute_id" BIGINT NOT NULL,
   "value" VARCHAR(255 CHAR),
-  "collection_time" TIMESTAMP(6)
+  "collection_time" TIMESTAMP(6),
+  "device_id" BIGINT,
+  "attribute_name" VARCHAR2(255),
+  "control_by" VARCHAR2(255),
+  "is_ok" VARCHAR2(255)
 )
 ;
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."attribute_id" IS '属性id';
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."value" IS '控制值';
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."collection_time" IS '控制时间';
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."device_id" IS '设备Id';
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."attribute_name" IS '属性名称';
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."control_by" IS '控制人';
+COMMENT ON COLUMN "FWBZ"."building_control_point_send_history"."is_ok" IS '是否成功';
 COMMENT ON TABLE "FWBZ"."building_control_point_send_history" IS '楼控点位发送控制历史';
 
 -- ----------------------------
@@ -348,6 +369,61 @@ COMMENT ON COLUMN "FWBZ"."business_config"."remark" IS '备注';
 COMMENT ON TABLE "FWBZ"."business_config" IS '业务配置表';
 
 -- ----------------------------
+-- Table structure for camera_info
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."camera_info";
+CREATE TABLE "FWBZ"."camera_info" (
+  "id" BIGINT NOT NULL,
+  "system_id" VARCHAR(64),
+  "name" VARCHAR(128) NOT NULL,
+  "short_name" VARCHAR(128),
+  "ip" VARCHAR(64),
+  "port" INT,
+  "user_name" VARCHAR(64),
+  "password" VARCHAR(128),
+  "remote_id" BIGINT,
+  "video_code" VARCHAR(64),
+  "manufacturers" VARCHAR(128),
+  "camera_type" INT,
+  "group_id" BIGINT,
+  "group_name" VARCHAR(128),
+  "space_path" VARCHAR(255),
+  "point_path" VARCHAR(255),
+  "url" VARCHAR(512),
+  "drawing_code" VARCHAR(64),
+  "longitude" VARCHAR2(255),
+  "latitude" VARCHAR2(255),
+  "online" TINYINT DEFAULT 0,
+  "sort_num" INT DEFAULT 0,
+  "is_init" TINYINT DEFAULT 0
+)
+;
+COMMENT ON COLUMN "FWBZ"."camera_info"."id" IS '主键';
+COMMENT ON COLUMN "FWBZ"."camera_info"."system_id" IS '系统标识';
+COMMENT ON COLUMN "FWBZ"."camera_info"."name" IS '摄像头名称';
+COMMENT ON COLUMN "FWBZ"."camera_info"."short_name" IS '摄像头简称';
+COMMENT ON COLUMN "FWBZ"."camera_info"."ip" IS '设备IP地址';
+COMMENT ON COLUMN "FWBZ"."camera_info"."port" IS '设备端口';
+COMMENT ON COLUMN "FWBZ"."camera_info"."user_name" IS '登录用户名';
+COMMENT ON COLUMN "FWBZ"."camera_info"."password" IS '登录密码';
+COMMENT ON COLUMN "FWBZ"."camera_info"."remote_id" IS '远程平台设备ID';
+COMMENT ON COLUMN "FWBZ"."camera_info"."video_code" IS '视频编码';
+COMMENT ON COLUMN "FWBZ"."camera_info"."manufacturers" IS '厂商';
+COMMENT ON COLUMN "FWBZ"."camera_info"."camera_type" IS '摄像头类型';
+COMMENT ON COLUMN "FWBZ"."camera_info"."group_id" IS '分组ID';
+COMMENT ON COLUMN "FWBZ"."camera_info"."group_name" IS '分组名称';
+COMMENT ON COLUMN "FWBZ"."camera_info"."space_path" IS '空间路径';
+COMMENT ON COLUMN "FWBZ"."camera_info"."point_path" IS '点位路径';
+COMMENT ON COLUMN "FWBZ"."camera_info"."url" IS '流地址/访问地址';
+COMMENT ON COLUMN "FWBZ"."camera_info"."drawing_code" IS '图纸编码';
+COMMENT ON COLUMN "FWBZ"."camera_info"."longitude" IS '经度';
+COMMENT ON COLUMN "FWBZ"."camera_info"."latitude" IS '纬度';
+COMMENT ON COLUMN "FWBZ"."camera_info"."online" IS '在线状态：1=在线，0=离线';
+COMMENT ON COLUMN "FWBZ"."camera_info"."sort_num" IS '排序号';
+COMMENT ON COLUMN "FWBZ"."camera_info"."is_init" IS '是否初始化：0=否，1=是';
+COMMENT ON TABLE "FWBZ"."camera_info" IS '摄像头信息表';
+
+-- ----------------------------
 -- Table structure for carbon_emission_factor
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."carbon_emission_factor";
@@ -375,6 +451,104 @@ COMMENT ON COLUMN "FWBZ"."carbon_emission_factor"."coefficient" IS '系数';
 COMMENT ON COLUMN "FWBZ"."carbon_emission_factor"."unit" IS '单位';
 COMMENT ON COLUMN "FWBZ"."carbon_emission_factor"."sort" IS '排序';
 COMMENT ON COLUMN "FWBZ"."carbon_emission_factor"."remark" IS '说明';
+
+-- ----------------------------
+-- Table structure for cold_source_device
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."cold_source_device";
+CREATE TABLE "FWBZ"."cold_source_device" (
+  "id" BIGINT NOT NULL,
+  "create_by" VARCHAR(200),
+  "create_time" TIMESTAMP(6),
+  "update_by" VARCHAR(200),
+  "update_time" TIMESTAMP(6),
+  "sys_org_code" VARCHAR(200),
+  "device_code" VARCHAR(200),
+  "device_name" VARCHAR(200),
+  "category_id" BIGINT,
+  "system_code" VARCHAR(50),
+  "niagara_path" VARCHAR(500),
+  "status" VARCHAR(8188) DEFAULT 1,
+  "sort" INT,
+  "remark" TEXT,
+  "last_time" TIMESTAMP(6)
+)
+;
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."device_code" IS '设备编码(唯一)';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."device_name" IS '设备名称';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."category_id" IS '设备类别 cold_source_equipment_category.id';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."system_code" IS '所属系统';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."niagara_path" IS 'Niagara 路径';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."status" IS '在线状态';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."sort" IS '排序';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."remark" IS '备注';
+COMMENT ON COLUMN "FWBZ"."cold_source_device"."last_time" IS '最后采集时间';
+COMMENT ON TABLE "FWBZ"."cold_source_device" IS '冷源设备信息表';
+
+-- ----------------------------
+-- Table structure for cold_source_device_attribute
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."cold_source_device_attribute";
+CREATE TABLE "FWBZ"."cold_source_device_attribute" (
+  "id" BIGINT NOT NULL,
+  "create_by" VARCHAR(200),
+  "create_time" TIMESTAMP(6),
+  "update_by" VARCHAR(200),
+  "update_time" TIMESTAMP(6),
+  "sys_org_code" VARCHAR(200),
+  "device_id" BIGINT,
+  "attr_name" VARCHAR(500),
+  "attr_code" VARCHAR(200),
+  "tagid" NUMBER(10,0),
+  "keyname" VARCHAR(200),
+  "data_type" VARCHAR(50),
+  "unit" VARCHAR(500),
+  "value_enum" VARCHAR(2000),
+  "object_def" CLOB,
+  "is_enum" INT,
+  "attr_type" VARCHAR(10),
+  "sort_order" INT,
+  "value" VARCHAR2(255),
+  "gather_time" DATE
+)
+;
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."device_id" IS '关联 cold_source_device.id';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."attr_name" IS '属性名';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."attr_code" IS '点位短名(object-name末段)';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."tagid" IS 'pSpace 通讯点位ID';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."keyname" IS '点位键名';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."object_def" IS '枚举JSON';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."value" IS '采集值';
+COMMENT ON COLUMN "FWBZ"."cold_source_device_attribute"."gather_time" IS '采集时间';
+COMMENT ON TABLE "FWBZ"."cold_source_device_attribute" IS '冷源设备属性表';
+
+-- ----------------------------
+-- Table structure for cold_source_equipment_category
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."cold_source_equipment_category";
+CREATE TABLE "FWBZ"."cold_source_equipment_category" (
+  "id" BIGINT NOT NULL,
+  "create_by" VARCHAR(200),
+  "create_time" TIMESTAMP(6),
+  "update_by" VARCHAR(200),
+  "update_time" TIMESTAMP(6),
+  "sys_org_code" VARCHAR(200),
+  "pid" BIGINT DEFAULT 0,
+  "has_child" VARCHAR(40) DEFAULT '0',
+  "category_name" VARCHAR(200),
+  "sort" INT,
+  "remark" TEXT,
+  "full_name" VARCHAR(200),
+  "full_id" VARCHAR(200) DEFAULT '0',
+  "type" VARCHAR(8) DEFAULT '2',
+  "master_id" VARCHAR(32)
+)
+;
+COMMENT ON COLUMN "FWBZ"."cold_source_equipment_category"."id" IS '主键';
+COMMENT ON COLUMN "FWBZ"."cold_source_equipment_category"."category_name" IS '分类名称';
+COMMENT ON COLUMN "FWBZ"."cold_source_equipment_category"."remark" IS '备注(含分类编码)';
+COMMENT ON COLUMN "FWBZ"."cold_source_equipment_category"."type" IS '类别类型: 1计量 2楼控';
+COMMENT ON TABLE "FWBZ"."cold_source_equipment_category" IS '冷源设备类别表';
 
 -- ----------------------------
 -- Table structure for data_amend_log
@@ -505,9 +679,9 @@ DROP TABLE IF EXISTS "FWBZ"."device";
 CREATE TABLE "FWBZ"."device" (
   "id" BIGINT NOT NULL,
   "create_by" VARCHAR(255 CHAR),
-  "create_time" TIMESTAMP,
+  "create_time" TIMESTAMP(6),
   "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP,
+  "update_time" TIMESTAMP(6),
   "sys_org_code" VARCHAR(255 CHAR),
   "device_code" VARCHAR(255 CHAR),
   "device_name" VARCHAR(255 CHAR),
@@ -520,7 +694,7 @@ CREATE TABLE "FWBZ"."device" (
   "run_state" VARCHAR(255 CHAR),
   "model_id" BIGINT,
   "device_type" VARCHAR(2 CHAR),
-  "last_gather_time" TIMESTAMP,
+  "last_gather_time" TIMESTAMP(6),
   "venue_id" BIGINT
 )
 ;
@@ -546,49 +720,6 @@ COMMENT ON COLUMN "FWBZ"."device"."venue_id" IS '场馆id';
 COMMENT ON TABLE "FWBZ"."device" IS '设备基础信息';
 
 -- ----------------------------
--- Table structure for device_251126
--- ----------------------------
-DROP TABLE IF EXISTS "FWBZ"."device_251126";
-CREATE TABLE "FWBZ"."device_251126" (
-  "id" BIGINT NOT NULL,
-  "create_by" VARCHAR(255 CHAR),
-  "create_time" TIMESTAMP,
-  "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP,
-  "sys_org_code" VARCHAR(255 CHAR),
-  "device_code" VARCHAR(255 CHAR),
-  "device_name" VARCHAR(255 CHAR),
-  "category_id" BIGINT,
-  "space_id" BIGINT,
-  "magnification" DECIMAL(19,4),
-  "automatic_algorithm" VARCHAR(255 CHAR),
-  "sort" INT,
-  "remark" TEXT,
-  "run_state" VARCHAR(255 CHAR),
-  "model_id" BIGINT,
-  "device_type" VARCHAR(2 CHAR)
-)
-;
-COMMENT ON COLUMN "FWBZ"."device_251126"."id" IS '主键';
-COMMENT ON COLUMN "FWBZ"."device_251126"."create_by" IS '创建人';
-COMMENT ON COLUMN "FWBZ"."device_251126"."create_time" IS '创建日期';
-COMMENT ON COLUMN "FWBZ"."device_251126"."update_by" IS '更新人';
-COMMENT ON COLUMN "FWBZ"."device_251126"."update_time" IS '更新日期';
-COMMENT ON COLUMN "FWBZ"."device_251126"."sys_org_code" IS '所属部门';
-COMMENT ON COLUMN "FWBZ"."device_251126"."device_code" IS '设备编号';
-COMMENT ON COLUMN "FWBZ"."device_251126"."device_name" IS '设备名称';
-COMMENT ON COLUMN "FWBZ"."device_251126"."category_id" IS '设备类别id';
-COMMENT ON COLUMN "FWBZ"."device_251126"."space_id" IS '空间位置id';
-COMMENT ON COLUMN "FWBZ"."device_251126"."magnification" IS '倍率';
-COMMENT ON COLUMN "FWBZ"."device_251126"."automatic_algorithm" IS '自动算法';
-COMMENT ON COLUMN "FWBZ"."device_251126"."sort" IS '排序';
-COMMENT ON COLUMN "FWBZ"."device_251126"."remark" IS '备注';
-COMMENT ON COLUMN "FWBZ"."device_251126"."run_state" IS '运行状态';
-COMMENT ON COLUMN "FWBZ"."device_251126"."model_id" IS '设备模型id';
-COMMENT ON COLUMN "FWBZ"."device_251126"."device_type" IS '设备分类。仪表：1；设备：2；';
-COMMENT ON TABLE "FWBZ"."device_251126" IS '设备基础信息';
-
--- ----------------------------
 -- Table structure for device_attribute
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."device_attribute";
@@ -609,7 +740,8 @@ CREATE TABLE "FWBZ"."device_attribute" (
   "gather_time" TIMESTAMP,
   "acquisition_coding" VARCHAR(255 CHAR),
   "value_type" VARCHAR(50),
-  "value_config" VARCHAR(2000)
+  "value_config" VARCHAR(2000),
+  "is_save" VARCHAR2(255) DEFAULT '0'
 )
 ;
 COMMENT ON COLUMN "FWBZ"."device_attribute"."id" IS '主键';
@@ -629,72 +761,8 @@ COMMENT ON COLUMN "FWBZ"."device_attribute"."gather_time" IS '采集时间';
 COMMENT ON COLUMN "FWBZ"."device_attribute"."acquisition_coding" IS '采集编码';
 COMMENT ON COLUMN "FWBZ"."device_attribute"."value_type" IS '属性值类型';
 COMMENT ON COLUMN "FWBZ"."device_attribute"."value_config" IS '属性值配置';
-COMMENT ON TABLE "FWBZ"."device_attribute" IS '设备基础信息';
-
--- ----------------------------
--- Table structure for device_attribute_251201
--- ----------------------------
-DROP TABLE IF EXISTS "FWBZ"."device_attribute_251201";
-CREATE TABLE "FWBZ"."device_attribute_251201" (
-  "id" BIGINT NOT NULL,
-  "create_by" VARCHAR(255 CHAR),
-  "create_time" TIMESTAMP,
-  "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP,
-  "sys_org_code" VARCHAR(255 CHAR),
-  "device_id" BIGINT,
-  "attribute_name" VARCHAR(255 CHAR),
-  "attribute_code" VARCHAR(255 CHAR),
-  "unit" VARCHAR(255 CHAR),
-  "readwrite_level" VARCHAR(255 CHAR),
-  "sort" INT,
-  "value" DECIMAL(19,4),
-  "gather_time" TIMESTAMP,
-  "acquisition_coding" VARCHAR(255 CHAR)
-)
-;
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."id" IS '主键';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."create_by" IS '创建人';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."create_time" IS '创建日期';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."device_id" IS '设备id';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."attribute_name" IS '属性名称';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."attribute_code" IS '属性编码';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."gather_time" IS '采集时间';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251201"."acquisition_coding" IS '采集编码';
-COMMENT ON TABLE "FWBZ"."device_attribute_251201" IS '设备基础信息';
-
--- ----------------------------
--- Table structure for device_attribute_251209
--- ----------------------------
-DROP TABLE IF EXISTS "FWBZ"."device_attribute_251209";
-CREATE TABLE "FWBZ"."device_attribute_251209" (
-  "id" BIGINT NOT NULL,
-  "create_by" VARCHAR(255 CHAR),
-  "create_time" TIMESTAMP,
-  "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP,
-  "sys_org_code" VARCHAR(255 CHAR),
-  "device_id" BIGINT,
-  "attribute_name" VARCHAR(255 CHAR),
-  "attribute_code" VARCHAR(255 CHAR),
-  "unit" VARCHAR(255 CHAR),
-  "readwrite_level" VARCHAR(255 CHAR),
-  "sort" INT,
-  "value" DECIMAL(19,4),
-  "gather_time" TIMESTAMP,
-  "acquisition_coding" VARCHAR(255 CHAR)
-)
-;
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."id" IS '主键';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."create_by" IS '创建人';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."create_time" IS '创建日期';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."device_id" IS '设备id';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."attribute_name" IS '属性名称';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."attribute_code" IS '属性编码';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."readwrite_level" IS '读写等级';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."gather_time" IS '采集时间';
-COMMENT ON COLUMN "FWBZ"."device_attribute_251209"."acquisition_coding" IS '采集编码';
-COMMENT ON TABLE "FWBZ"."device_attribute_251209" IS '设备基础信息';
+COMMENT ON COLUMN "FWBZ"."device_attribute"."is_save" IS '是否存储';
+COMMENT ON TABLE "FWBZ"."device_attribute" IS '设备属性';
 
 -- ----------------------------
 -- Table structure for device_attribute_config
@@ -755,11 +823,11 @@ COMMENT ON TABLE "FWBZ"."device_attribute_data" IS '设备采集点位数据';
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."device_attribute_history";
 CREATE TABLE "FWBZ"."device_attribute_history" (
-  "id" BIGINT NOT NULL,
+  "id" BIGINT,
   "device_id" BIGINT,
   "attribute_id" BIGINT,
   "collection_time" TIMESTAMP(6),
-  "value" DECIMAL(38,4)
+  "value" VARCHAR2(255)
 )
 ;
 COMMENT ON COLUMN "FWBZ"."device_attribute_history"."id" IS '主键';
@@ -1947,9 +2015,9 @@ DROP TABLE IF EXISTS "FWBZ"."space";
 CREATE TABLE "FWBZ"."space" (
   "id" BIGINT NOT NULL,
   "create_by" VARCHAR(255 CHAR),
-  "create_time" TIMESTAMP,
+  "create_time" TIMESTAMP(6),
   "update_by" VARCHAR(255 CHAR),
-  "update_time" TIMESTAMP,
+  "update_time" TIMESTAMP(6),
   "sys_org_code" VARCHAR(255 CHAR),
   "pid" BIGINT,
   "has_child" VARCHAR(10 CHAR),
@@ -2085,8 +2153,8 @@ CREATE TABLE "FWBZ"."table_acs_device" (
   "capability" VARCHAR(512),
   "dev_serial_num" VARCHAR(128),
   "data_version" VARCHAR(64),
-  "gmt_create" TIMESTAMP(6),
-  "gmt_modified" TIMESTAMP(6),
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
   "online" VARCHAR2(255)
 )
 ;
@@ -2251,40 +2319,55 @@ COMMENT ON COLUMN "FWBZ"."table_activeMeets_device_type"."device_type_name" IS '
 COMMENT ON TABLE "FWBZ"."table_activeMeets_device_type" IS '会前后背设备类型';
 
 -- ----------------------------
+-- Table structure for table_camera_group
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_camera_group";
+CREATE TABLE "FWBZ"."table_camera_group" (
+  "id" NUMBER NOT NULL,
+  "name" VARCHAR2(255),
+  "description" VARCHAR2(255),
+  "sort_num" NUMBER,
+  "dimension" VARCHAR2(255),
+  "parent_id" NUMBER
+)
+;
+COMMENT ON TABLE "FWBZ"."table_camera_group" IS '摄像头分组信息表';
+
+-- ----------------------------
 -- Table structure for table_camera_resource
 -- ----------------------------
 DROP TABLE IF EXISTS "FWBZ"."table_camera_resource";
 CREATE TABLE "FWBZ"."table_camera_resource" (
   "id" BIGINT NOT NULL,
   "index_code" VARCHAR(64) NOT NULL,
-  "resource_type" VARCHAR(32),
-  "external_index_code" VARCHAR(64),
-  "name" VARCHAR(128),
-  "chan_num" INT,
-  "cascade_code" VARCHAR(64),
-  "parent_index_code" VARCHAR(64),
-  "longitude" DECIMAL(12,8),
-  "latitude" DECIMAL(12,8),
-  "elevation" VARCHAR(32),
-  "camera_type" TINYINT,
-  "capability" VARCHAR(512),
-  "record_location" VARCHAR(32),
-  "channel_type" VARCHAR(16),
-  "region_index_code" VARCHAR(64),
-  "region_path" VARCHAR(512),
-  "trans_type" TINYINT,
-  "treaty_type" VARCHAR(32),
-  "install_location" VARCHAR(256),
-  "create_time" DATETIME(6),
-  "update_time" DATETIME(6),
-  "dis_order" INT,
-  "resource_index_code" VARCHAR(64),
-  "decode_tag" VARCHAR(32),
-  "camera_relate_talk" VARCHAR(64),
-  "region_name" VARCHAR(512),
-  "region_path_name" VARCHAR(512),
-  "gmt_create" DATETIME(6),
-  "gmt_modified" DATETIME(6),
+  "resource_type" VARCHAR(32) DEFAULT NULL,
+  "external_index_code" VARCHAR(64) DEFAULT NULL,
+  "name" VARCHAR(128) DEFAULT NULL,
+  "chan_num" INT DEFAULT NULL,
+  "cascade_code" VARCHAR(64) DEFAULT NULL,
+  "parent_index_code" VARCHAR(64) DEFAULT NULL,
+  "longitude" DECIMAL(12,8) DEFAULT NULL,
+  "latitude" DECIMAL(12,8) DEFAULT NULL,
+  "elevation" VARCHAR(32) DEFAULT NULL,
+  "camera_type" TINYINT DEFAULT NULL,
+  "capability" VARCHAR(512) DEFAULT NULL,
+  "record_location" VARCHAR(32) DEFAULT NULL,
+  "channel_type" VARCHAR(16) DEFAULT NULL,
+  "region_index_code" VARCHAR(64) DEFAULT NULL,
+  "region_path" VARCHAR(512) DEFAULT NULL,
+  "trans_type" TINYINT DEFAULT NULL,
+  "treaty_type" VARCHAR(32) DEFAULT NULL,
+  "install_location" VARCHAR(256) DEFAULT NULL,
+  "create_time" DATETIME(6) DEFAULT NULL,
+  "update_time" DATETIME(6) DEFAULT NULL,
+  "dis_order" INT DEFAULT NULL,
+  "resource_index_code" VARCHAR(64) DEFAULT NULL,
+  "decode_tag" VARCHAR(32) DEFAULT NULL,
+  "camera_relate_talk" VARCHAR(64) DEFAULT NULL,
+  "region_name" VARCHAR(512) DEFAULT NULL,
+  "region_path_name" VARCHAR(512) DEFAULT NULL,
+  "gmt_create" DATETIME(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" DATETIME(6) DEFAULT CURRENT_TIMESTAMP,
   "online" TINYINT
 )
 ;
@@ -2320,6 +2403,24 @@ COMMENT ON COLUMN "FWBZ"."table_camera_resource"."gmt_create" IS '记录创建�
 COMMENT ON COLUMN "FWBZ"."table_camera_resource"."gmt_modified" IS '记录更新时间';
 COMMENT ON COLUMN "FWBZ"."table_camera_resource"."online" IS '在线状态，0离线，1在线';
 COMMENT ON TABLE "FWBZ"."table_camera_resource" IS '监控点资源表';
+
+-- ----------------------------
+-- Table structure for table_cold_source_history
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_cold_source_history";
+CREATE TABLE "FWBZ"."table_cold_source_history" (
+  "id" BIGINT NOT NULL,
+  "tag_id" BIGINT,
+  "value" VARCHAR2(255),
+  "value_type" VARCHAR2(255),
+  "data_time" DATETIME(6)
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_cold_source_history"."tag_id" IS 'tagid';
+COMMENT ON COLUMN "FWBZ"."table_cold_source_history"."value" IS '值';
+COMMENT ON COLUMN "FWBZ"."table_cold_source_history"."value_type" IS '值类型';
+COMMENT ON COLUMN "FWBZ"."table_cold_source_history"."data_time" IS '记录时间';
+COMMENT ON TABLE "FWBZ"."table_cold_source_history" IS '冷源系统存储数据表';
 
 -- ----------------------------
 -- Table structure for table_complaint_info
@@ -2449,8 +2550,8 @@ CREATE TABLE "FWBZ"."table_door_event" (
   "job_no" VARCHAR(64),
   "student_id" VARCHAR(64),
   "cert_no" VARCHAR(64),
-  "gmt_create" TIMESTAMP(6),
-  "gmt_modified" TIMESTAMP(6)
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_door_event"."id" IS '主键，自增';
@@ -2509,8 +2610,8 @@ CREATE TABLE "FWBZ"."table_door_resource" (
   "region_name" VARCHAR(256),
   "region_path_name" VARCHAR(512),
   "install_location" VARCHAR(256),
-  "gmt_create" TIMESTAMP(6),
-  "gmt_modified" TIMESTAMP(6),
+  "gmt_create" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
   "door_state" VARCHAR2(255)
 )
 ;
@@ -2593,6 +2694,26 @@ CREATE TABLE "FWBZ"."table_event_type" (
 )
 ;
 COMMENT ON TABLE "FWBZ"."table_event_type" IS '海康事件类型';
+
+-- ----------------------------
+-- Table structure for table_exhibitor_info
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_exhibitor_info";
+CREATE TABLE "FWBZ"."table_exhibitor_info" (
+  "id" BIGINT NOT NULL,
+  "exhibitor_name_cn" VARCHAR2(255),
+  "exhibitor_name_en" VARCHAR2(255),
+  "booth_number" VARCHAR2(255),
+  "thematic_txhibition_title" VARCHAR2(255),
+  "venue_id" BIGINT
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_exhibitor_info"."exhibitor_name_cn" IS '展商名称中文';
+COMMENT ON COLUMN "FWBZ"."table_exhibitor_info"."exhibitor_name_en" IS '展商名称英文';
+COMMENT ON COLUMN "FWBZ"."table_exhibitor_info"."booth_number" IS '展位号';
+COMMENT ON COLUMN "FWBZ"."table_exhibitor_info"."thematic_txhibition_title" IS '专题展名称';
+COMMENT ON COLUMN "FWBZ"."table_exhibitor_info"."venue_id" IS '场馆id';
+COMMENT ON TABLE "FWBZ"."table_exhibitor_info" IS '参展展商列表';
 
 -- ----------------------------
 -- Table structure for table_fire_alarm_record
@@ -2710,6 +2831,46 @@ COMMENT ON COLUMN "FWBZ"."table_interface_info"."cycle" IS '采集周期';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."collection_point_location" IS '采集点位';
 COMMENT ON COLUMN "FWBZ"."table_interface_info"."header" IS 'appkey或其它选项';
 COMMENT ON TABLE "FWBZ"."table_interface_info" IS '接口信息表';
+
+-- ----------------------------
+-- Table structure for table_mqtt_history
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_mqtt_history";
+CREATE TABLE "FWBZ"."table_mqtt_history" (
+  "id" BIGINT NOT NULL,
+  "device_id" VARCHAR2(255),
+  "time_stamp" TIMESTAMP(6),
+  "attribute_id" VARCHAR2(255),
+  "desc" VARCHAR2(255),
+  "value" VARCHAR2(255)
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_mqtt_history"."device_id" IS '设备id';
+COMMENT ON COLUMN "FWBZ"."table_mqtt_history"."time_stamp" IS '数据的时间';
+COMMENT ON COLUMN "FWBZ"."table_mqtt_history"."attribute_id" IS '属性id';
+COMMENT ON COLUMN "FWBZ"."table_mqtt_history"."desc" IS '量测详细信息，测点含义';
+COMMENT ON COLUMN "FWBZ"."table_mqtt_history"."value" IS '遥测值';
+COMMENT ON TABLE "FWBZ"."table_mqtt_history" IS 'MQTT低压配电数据表';
+
+-- ----------------------------
+-- Table structure for table_page_info
+-- ----------------------------
+DROP TABLE IF EXISTS "FWBZ"."table_page_info";
+CREATE TABLE "FWBZ"."table_page_info" (
+  "id" BIGINT NOT NULL,
+  "tag_id" NUMBER,
+  "desc" VARCHAR2(255),
+  "type" VARCHAR2(255),
+  "front_data" VARCHAR2(255),
+  "is_save" VARCHAR2(255)
+)
+;
+COMMENT ON COLUMN "FWBZ"."table_page_info"."tag_id" IS '采集点id';
+COMMENT ON COLUMN "FWBZ"."table_page_info"."desc" IS '描述';
+COMMENT ON COLUMN "FWBZ"."table_page_info"."type" IS '类型';
+COMMENT ON COLUMN "FWBZ"."table_page_info"."front_data" IS '对应前端数据';
+COMMENT ON COLUMN "FWBZ"."table_page_info"."is_save" IS '是否存储';
+COMMENT ON TABLE "FWBZ"."table_page_info" IS '页面与冷源对应关系表';
 
 -- ----------------------------
 -- Table structure for table_parking_count
@@ -2891,23 +3052,23 @@ DROP TABLE IF EXISTS "FWBZ"."table_region_resource";
 CREATE TABLE "FWBZ"."table_region_resource" (
   "id" BIGINT NOT NULL,
   "index_code" VARCHAR(64) NOT NULL,
-  "name" VARCHAR(128),
-  "region_path" VARCHAR(512),
-  "parent_index_code" VARCHAR(64),
-  "available" INT,
-  "leaf" INT,
-  "cascade_code" VARCHAR(256),
-  "cascade_type" TINYINT,
-  "catalog_type" TINYINT,
-  "external_index_code" VARCHAR(64),
-  "parent_external_index_code" VARCHAR(64),
-  "sort" INT,
-  "local_quantity" INT,
-  "total_quantity" INT,
-  "create_time" DATETIME(6),
-  "update_time" DATETIME(6),
-  "gmt_create" DATETIME(6),
-  "gmt_modified" DATETIME(6)
+  "name" VARCHAR(128) DEFAULT NULL,
+  "region_path" VARCHAR(512) DEFAULT NULL,
+  "parent_index_code" VARCHAR(64) DEFAULT NULL,
+  "available" INT DEFAULT NULL,
+  "leaf" INT DEFAULT NULL,
+  "cascade_code" VARCHAR(256) DEFAULT NULL,
+  "cascade_type" TINYINT DEFAULT NULL,
+  "catalog_type" TINYINT DEFAULT NULL,
+  "external_index_code" VARCHAR(64) DEFAULT NULL,
+  "parent_external_index_code" VARCHAR(64) DEFAULT NULL,
+  "sort" INT DEFAULT NULL,
+  "local_quantity" INT DEFAULT NULL,
+  "total_quantity" INT DEFAULT NULL,
+  "create_time" DATETIME(6) DEFAULT NULL,
+  "update_time" DATETIME(6) DEFAULT NULL,
+  "gmt_create" DATETIME(6) DEFAULT CURRENT_TIMESTAMP,
+  "gmt_modified" DATETIME(6) DEFAULT CURRENT_TIMESTAMP
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_region_resource"."id" IS '主键ID';
@@ -2974,29 +3135,24 @@ COMMENT ON COLUMN "FWBZ"."table_smoke_detector_type"."type_name" IS '设备类�
 COMMENT ON TABLE "FWBZ"."table_smoke_detector_type" IS '消防设备类型';
 
 -- ----------------------------
--- Table structure for table_venue_flow
+-- Table structure for table_tagid_info
 -- ----------------------------
-DROP TABLE IF EXISTS "FWBZ"."table_venue_flow";
-CREATE TABLE "FWBZ"."table_venue_flow" (
-  "data_date" DATE,
-  "venue_id" BIGINT,
-  "today_in_count" BIGINT,
-  "today_now_count" BIGINT,
-  "max_count" BIGINT,
-  "max_time" TIME,
-  "average_duration" DOUBLE,
+DROP TABLE IF EXISTS "FWBZ"."table_tagid_info";
+CREATE TABLE "FWBZ"."table_tagid_info" (
   "id" BIGINT NOT NULL,
-  "status" TINYINT
+  "tag_id" NUMBER,
+  "desc" VARCHAR2(255),
+  "type" VARCHAR2(255),
+  "front_data" VARCHAR2(255),
+  "is_save" VARCHAR2(255)
 )
 ;
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."venue_id" IS '场馆id';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."today_in_count" IS '进场';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."today_now_count" IS '在场';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."max_count" IS '峰值';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."max_time" IS '峰值时间';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."average_duration" IS '平均时长';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow"."status" IS '状态';
-COMMENT ON TABLE "FWBZ"."table_venue_flow" IS '各场馆客流统计';
+COMMENT ON COLUMN "FWBZ"."table_tagid_info"."tag_id" IS '采集点id';
+COMMENT ON COLUMN "FWBZ"."table_tagid_info"."desc" IS '描述';
+COMMENT ON COLUMN "FWBZ"."table_tagid_info"."type" IS '类型';
+COMMENT ON COLUMN "FWBZ"."table_tagid_info"."front_data" IS '对应前端数据';
+COMMENT ON COLUMN "FWBZ"."table_tagid_info"."is_save" IS '是否存储';
+COMMENT ON TABLE "FWBZ"."table_tagid_info" IS '冷源对应关系表';
 
 -- ----------------------------
 -- Table structure for table_venue_flow_hour
@@ -3011,19 +3167,19 @@ CREATE TABLE "FWBZ"."table_venue_flow_hour" (
   "max_time" TIME,
   "average_duration" DOUBLE,
   "id" BIGINT NOT NULL,
-  "status" TINYINT,
+  "status" VARCHAR2(255),
   "data_hour" TIME
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."venue_id" IS '场馆id';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."today_in_count" IS '进场';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."today_now_count" IS '在场';
-COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."max_count" IS '峰值';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."today_in_count" IS '今日进场人数';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."today_now_count" IS '今日在场人数';
+COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."max_count" IS '今日场馆客流峰值峰值';
 COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."max_time" IS '峰值时间';
 COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."average_duration" IS '平均时长';
 COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."status" IS '状态';
 COMMENT ON COLUMN "FWBZ"."table_venue_flow_hour"."data_hour" IS '时间';
-COMMENT ON TABLE "FWBZ"."table_venue_flow_hour" IS '各场馆客流分时统计';
+COMMENT ON TABLE "FWBZ"."table_venue_flow_hour" IS '各场馆客流分时统计,各场馆客流量记录表';
 
 -- ----------------------------
 -- Table structure for table_venue_info
@@ -3041,7 +3197,8 @@ CREATE TABLE "FWBZ"."table_venue_info" (
   "buildable" TINYINT NOT NULL,
   "floors" BIGINT,
   "longitude" DECIMAL(12,8),
-  "latitude" DECIMAL(12,8) DEFAULT NULL
+  "latitude" DECIMAL(12,8) DEFAULT NULL,
+  "point_id" NUMBER
 )
 ;
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."venue_name" IS '场馆名称';
@@ -3055,6 +3212,7 @@ COMMENT ON COLUMN "FWBZ"."table_venue_info"."buildable" IS '可施工 1=是 0=�
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."floors" IS '楼层';
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."longitude" IS '精度，精确到小数点后8位';
 COMMENT ON COLUMN "FWBZ"."table_venue_info"."latitude" IS '纬度，精确到小数点后8位';
+COMMENT ON COLUMN "FWBZ"."table_venue_info"."point_id" IS '计量点id';
 COMMENT ON TABLE "FWBZ"."table_venue_info" IS '场馆基本信息';
 
 -- ----------------------------
@@ -3169,9 +3327,29 @@ ALTER TABLE "FWBZ"."business_config" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."business_config" ADD UNIQUE ("config_key");
 
 -- ----------------------------
+-- Primary Key structure for table camera_info
+-- ----------------------------
+ALTER TABLE "FWBZ"."camera_info" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
 -- Primary Key structure for table carbon_emission_factor
 -- ----------------------------
 ALTER TABLE "FWBZ"."carbon_emission_factor" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table cold_source_device
+-- ----------------------------
+ALTER TABLE "FWBZ"."cold_source_device" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table cold_source_device_attribute
+-- ----------------------------
+ALTER TABLE "FWBZ"."cold_source_device_attribute" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table cold_source_equipment_category
+-- ----------------------------
+ALTER TABLE "FWBZ"."cold_source_equipment_category" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table data_amend_log
@@ -3184,24 +3362,9 @@ ALTER TABLE "FWBZ"."data_amend_log" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."device" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Primary Key structure for table device_251126
--- ----------------------------
-ALTER TABLE "FWBZ"."device_251126" ADD PRIMARY KEY ("id");
-
--- ----------------------------
 -- Primary Key structure for table device_attribute
 -- ----------------------------
 ALTER TABLE "FWBZ"."device_attribute" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table device_attribute_251201
--- ----------------------------
-ALTER TABLE "FWBZ"."device_attribute_251201" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table device_attribute_251209
--- ----------------------------
-ALTER TABLE "FWBZ"."device_attribute_251209" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table device_attribute_config
@@ -3212,11 +3375,6 @@ ALTER TABLE "FWBZ"."device_attribute_config" ADD PRIMARY KEY ("id");
 -- Primary Key structure for table device_attribute_data
 -- ----------------------------
 ALTER TABLE "FWBZ"."device_attribute_data" ADD PRIMARY KEY ("id");
-
--- ----------------------------
--- Primary Key structure for table device_attribute_history
--- ----------------------------
-ALTER TABLE "FWBZ"."device_attribute_history" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table device_data_temp
@@ -3484,6 +3642,11 @@ ALTER TABLE "FWBZ"."table_activeMeet_report" ADD PRIMARY KEY ("id", "active_name
 ALTER TABLE "FWBZ"."table_activeMeets_device_type" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
+-- Primary Key structure for table table_camera_group
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_camera_group" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
 -- Primary Key structure for table table_camera_resource
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_camera_resource" ADD PRIMARY KEY ("id");
@@ -3492,6 +3655,11 @@ ALTER TABLE "FWBZ"."table_camera_resource" ADD PRIMARY KEY ("id");
 -- Uniques structure for table table_camera_resource
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_camera_resource" ADD UNIQUE ("index_code");
+
+-- ----------------------------
+-- Primary Key structure for table table_cold_source_history
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_cold_source_history" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table table_complaint_info
@@ -3543,6 +3711,11 @@ END;
 ALTER TABLE "FWBZ"."table_event_type" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
+-- Primary Key structure for table table_exhibitor_info
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_exhibitor_info" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
 -- Primary Key structure for table table_fire_alarm_record
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_fire_alarm_record" ADD PRIMARY KEY ("id");
@@ -3570,6 +3743,16 @@ ALTER TABLE "FWBZ"."table_interface_history" ADD PRIMARY KEY ("id");
 -- Primary Key structure for table table_interface_info
 -- ----------------------------
 ALTER TABLE "FWBZ"."table_interface_info" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table table_mqtt_history
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_mqtt_history" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Primary Key structure for table table_page_info
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_page_info" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table table_parking_count
@@ -3627,9 +3810,9 @@ ALTER TABLE "FWBZ"."table_smoke_detector" ADD PRIMARY KEY ("id");
 ALTER TABLE "FWBZ"."table_smoke_detector_type" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
--- Primary Key structure for table table_venue_flow
+-- Primary Key structure for table table_tagid_info
 -- ----------------------------
-ALTER TABLE "FWBZ"."table_venue_flow" ADD PRIMARY KEY ("id");
+ALTER TABLE "FWBZ"."table_tagid_info" ADD PRIMARY KEY ("id");
 
 -- ----------------------------
 -- Primary Key structure for table table_venue_flow_hour
@@ -3650,3 +3833,13 @@ ALTER TABLE "FWBZ"."table_visitor_flow" ADD PRIMARY KEY ("id");
 -- Primary Key structure for table unit_management
 -- ----------------------------
 ALTER TABLE "FWBZ"."unit_management" ADD PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Foreign Keys structure for table table_activeMeet_preparation_info
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_activeMeet_preparation_info" ADD FOREIGN KEY ("active_meet_id") REFERENCES "FWBZ"."table_activeMeet_info" ("id") ON DELETE CASCADE;
+
+-- ----------------------------
+-- Foreign Keys structure for table table_plan_camera
+-- ----------------------------
+ALTER TABLE "FWBZ"."table_plan_camera" ADD FOREIGN KEY ("plan_id") REFERENCES "FWBZ"."table_patrol_plan" ("id") ON DELETE CASCADE;

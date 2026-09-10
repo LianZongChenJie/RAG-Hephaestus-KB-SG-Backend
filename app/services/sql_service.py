@@ -1,7 +1,7 @@
 """SQL 生成服务"""
-import json
 import logging
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import get_settings
@@ -63,17 +63,25 @@ ORDER BY dd."time"
 ```
 
 ### 模式5：客流数据统计
+> ⚠️ 客流表统一使用 `table_venue_flow_hour`（`table_venue_flow` 表已废弃，数据库中不存在）
+> - 客流量(`today_in_count`)/在场(`today_now_count`)/平均时长(`average_duration`): 取 data_hour 最大的那条
+> - 峰值(`max_count`)/峰值时间(`max_time`): 取 max_count 最大的那条
 ```sql
+-- today_in_count / today_now_count / average_duration: 取 data_hour 最大的那条
 SELECT "today_in_count", "today_now_count", "max_count", "average_duration"
-FROM "FWBZ"."table_venue_flow"
-WHERE "data_date" = CURRENT_DATE
+FROM "FWBZ"."table_venue_flow_hour"
+WHERE "data_date" = TRUNC(SYSDATE)
+  AND "data_hour" = (SELECT MAX("data_hour")
+                      FROM "FWBZ"."table_venue_flow_hour"
+                      WHERE "data_date" = TRUNC(SYSDATE))
+  AND ROWNUM = 1
 ```
 
 ## 理解业务术语
 - "告警/报警/警报" → alarm_record
 - "设备/仪表" → device
 - "能耗/用电/电量" → data_day
-- "客流/人数/访客" → table_venue_flow
+- "客流/人数/访客" → table_venue_flow_hour（注意：table_venue_flow 已废弃）
 - "空间/区域/位置" → space
 - "设备类别/专业" → equipment_category
 - "展会/活动/会议" → table_activeMeet_info
@@ -134,36 +142,14 @@ class SQLService:
         return SYSTEM_PROMPT, user_prompt
 
     def _extract_schema_info(self) -> str:
-        """提取表结构信息用于生成 prompt"""
-        query_config = settings.query_config
-        if not query_config:
-            return "未找到表结构配置"
-
-        lines = []
-        db_info = query_config.get("database", {})
-        lines.append(f"数据库: {db_info.get('name', 'N/A')}")
-        lines.append(f"Schema: {db_info.get('schema', 'FWBZ')}")
-        lines.append("")
-
-        tables = query_config.get("tables", {})
-        for table_name, table_info in tables.items():
-            lines.append(f"【{table_info.get('name', table_name)}】 - {table_info.get('description', '')}")
-            fields = table_info.get("fields", {})
-            for field_name, field_info in fields.items():
-                desc = field_info.get("desc", "")
-                ftype = field_info.get("type", "")
-                flags = []
-                if field_info.get("searchable"):
-                    flags.append("可搜索")
-                if field_info.get("filterable"):
-                    flags.append("可筛选")
-                if field_info.get("groupable"):
-                    flags.append("可分组")
-                flag_str = f" [{', '.join(flags)}]" if flags else ""
-                lines.append(f"  - {field_name}: {ftype} - {desc}{flag_str}")
-            lines.append("")
-
-        return "\n".join(lines)
+        """从 FWBZ_strut.sql 解析真实表结构，生成供 LLM 参考的文本。实际解析逻辑收敛在 app.core.sql_schema_parser。"""
+        from app.core.sql_schema_parser import build_schema_text
+        try:
+            text = build_schema_text()
+            return text or "表结构解析失败（FWBZ_strut.sql 为空或文件不存在）"
+        except Exception as e:
+            logger.warning(f"表结构解析失败: {e}")
+            return "表结构解析失败"
 
     def _format_history(self, history: List[ChatMessage]) -> str:
         """格式化历史对话"""
@@ -480,7 +466,7 @@ class SQLService:
                 {
                     "name": "客流统计",
                     "description": "当日进场、在场、峰值客流",
-                    "table": "table_venue_flow",
+                    "table": "table_venue_flow_hour",
                     "filter_field": "venue_id",
                     "filter_value_from_name": "venue_name",
                     "target_name": venue_name
@@ -518,7 +504,7 @@ class SQLService:
                 {
                     "name": "客流统计",
                     "description": "当日进场、在场、峰值客流",
-                    "table": "table_venue_flow",
+                    "table": "table_venue_flow_hour",
                     "filter_field": "venue_id",
                     "filter_value": venue_id
                 },
@@ -568,7 +554,7 @@ class SQLService:
                 "name": "总服务人次",
                 "description": "展会关联场馆在展会期间的进场总人次",
                 "category": "人员服务",
-                "table": "table_venue_flow",
+                "table": "table_venue_flow_hour",
                 "filter_field": "venue_id",
                 "filter_value_from_exhibition": "venue_id",
                 "filter_name": "active_name",
@@ -697,7 +683,7 @@ class SQLService:
                 "category": "设备能耗",
                 "sql": (
                     "SELECT CASE WHEN "
-                    "(SELECT SUM(t2.\"today_in_count\") FROM FWBZ.\"table_venue_flow\" t2 "
+                    "(SELECT SUM(t2.\"today_in_count\") FROM FWBZ.\"table_venue_flow_hour\" t2 "
                     "WHERE t2.\"venue_id\" = (SELECT \"venue_id\" FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
                     "AND t2.\"data_date\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
                     "AND t2.\"data_date\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})) = 0 "
@@ -708,7 +694,7 @@ class SQLService:
                     "AND \"time\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
                     "AND \"time\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})) "
                     "/ "
-                    "(SELECT SUM(t3.\"today_in_count\") FROM FWBZ.\"table_venue_flow\" t3 "
+                    "(SELECT SUM(t3.\"today_in_count\") FROM FWBZ.\"table_venue_flow_hour\" t3 "
                     "WHERE t3.\"venue_id\" = (SELECT \"venue_id\" FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
                     "AND t3.\"data_date\" >= (SELECT MIN(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name}) "
                     "AND t3.\"data_date\" <= (SELECT MAX(\"start_date\") FROM FWBZ.\"table_activeMeet_info\" WHERE \"active_name\" = {exhibition_name})) "
@@ -732,7 +718,7 @@ class SQLService:
                 "name": "总客流",
                 "description": "展会期间累计进场人数",
                 "category": "会展数据",
-                "table": "table_venue_flow",
+                "table": "table_venue_flow_hour",
                 "filter_field": "venue_id",
                 "filter_value_from_exhibition": "venue_id",
                 "filter_name": "active_name",
@@ -746,7 +732,7 @@ class SQLService:
                 "name": "峰值客流",
                 "description": "展会期间单日最高进场人数",
                 "category": "会展数据",
-                "table": "table_venue_flow",
+                "table": "table_venue_flow_hour",
                 "filter_field": "venue_id",
                 "filter_value_from_exhibition": "venue_id",
                 "filter_name": "active_name",

@@ -23,47 +23,15 @@ logger = get_logger("chat")
 def _build_schema_text() -> str:
     """
     从 config/FWBZ_strut.sql 解析真实表结构，生成供 LLM 参考的文本。
+    实际解析逻辑收敛在 app.core.sql_schema_parser。
     """
-    import re
-    from pathlib import Path
-
-    schema_file = Path(__file__).parent.parent / "config" / "FWBZ_strut.sql"
-    if not schema_file.exists():
-        logger.warning(f"Schema 文件不存在，跳过动态表结构: {schema_file}")
-        return ""
-
-    try:
-        content = schema_file.read_text(encoding='utf-8')
-        tables: List[Tuple[str, List[str]]] = []
-        # 匹配 CREATE TABLE "FWBZ"."table_name" ( ... );
-        for match in re.finditer(
-                r'CREATE\s+TABLE\s+"FWBZ"\."(\w+)"\s*\((.*?)\)\s*;',
-                content, re.IGNORECASE | re.DOTALL):
-            tname = match.group(1)
-            block = match.group(2)
-            cols: List[str] = []
-            for line in block.splitlines():
-                line = line.strip()
-                if re.match(r'^(PRIMARY|UNIQUE|CHECK|CONSTRAINT|INDEX|FOREIGN)', line, re.IGNORECASE):
-                    continue
-                for cm in re.finditer(r'"(\w+)"', line):
-                    cols.append(cm.group(1))
-            if cols:
-                tables.append((tname, cols))
-
-        # 格式化成简洁文本
-        lines = ["## 数据库真实表结构（来源：config/FWBZ_strut.sql）", ""]
-        for tname, cols in tables:
-            col_str = ", ".join(f'"{c}"' for c in cols)
-            lines.append(f"### {tname}")
-            lines.append(f"  列: {col_str}")
-            lines.append("")
-
-        logger.info(f"动态 schema 生成完成，共 {len(tables)} 个表")
-        return "\n".join(lines)
-    except Exception as e:
-        logger.warning(f"Schema 文件解析失败: {e}")
-        return ""
+    from app.core.sql_schema_parser import build_schema_text
+    text = build_schema_text()
+    if text:
+        # 行数 ≈ "## 标题" + N × ("### table" + "  列: ..." + "")
+        table_count = text.count("\n### ")
+        logger.info(f"动态 schema 生成完成，共 {table_count} 个表")
+    return text
 
 
 # 一次性构建动态表结构（服务启动时）
@@ -78,7 +46,29 @@ DAMENG_SCHEMA_CONTEXT = """
 - 标识符引号：达梦大小写敏感，**所有表名和字段名必须用双引号包裹**，如 `"device"."device_name"`、`"alarm_time"`。
 - 自增列：使用序列 FWBZ.SEQ_xxx，不支持 AUTO_INCREMENT
 
-## ⚠️ 语法限制（严格遵守，禁止使用 MySQL 语法）
+## 【最高优先级】表结构白名单约束（绝对禁止违反）
+
+**这是铁律，没有例外。**
+你使用的每一个表名、每一个字段名，**必须出现在上方「数据库真实表结构」的列表中**。
+如果表结构里没有这个表，或某个表里没有这个字段，**绝对不能使用**。
+
+**正确做法：**
+- 如果用户问的字段不存在于表结构中，**直接省略这个字段**，不要臆造
+- 如果不确定某个表有哪些列，**必须回查上方表结构**，不要凭记忆瞎猜
+- 宁可少选列（只选确定存在的），也不要选一个不存在的列名
+- JOIN 条件中引用的列也必须存在于对应表中
+
+**常见 LLM 臆造陷阱（真实发生过的错误，禁止再犯）：**
+- ❌ `lighting_area` 表：外键是 `space` 和 `space_name`，**没有 `space_id`、`create_time`、`area_id` 字段**（LLM 高频臆造 `space_id`，必须用 `space` 或 `space_name`）
+- ❌ `alarm_record` 表：**没有 `category_id`、`area_id` 字段**（有的是 `device_category_id`、`space_id`）
+- ❌ `alarm_record` 表：**没有 `alarm_rule_point` 表**（正确关联是 `alarm_rules`）
+- ❌ `device` 表：**没有 `area_id` 字段**（外键是 `space_id`、`venue_id`）
+- ❌ `table_parking_count` 表：**没有 `data_date` 字段**（正确字段是 `date`）
+- ❌ 设备类型关联：字段名是 `device_category_id`，**不是 `category_id`**
+- ❌ space 关联：字段名是 `space_id`，**不是 `area_id`**
+- ❌ **客流查询一律用 `table_venue_flow_hour`，在馆人数列是 `today_now_count`**（**不是 `now_count`**，那是 `table_visitor_flow` 的列；LLM 高频混淆，禁止使用 `now_count`）
+
+## ⚠️ 语法限制（严格遵守，禁止使用 MySQL, PostgreSQL, Oracle, SqlServer 语法）
 
 | 错误写法（MySQL）     | 正确写法（达梦 8.0）                           |
 |---------------------|----------------------------------------------|
@@ -93,7 +83,7 @@ DAMENG_SCHEMA_CONTEXT = """
 | DATE_ADD(col, INTERVAL 1 DAY) | col + 1                                     |
 | DATE_SUB(col, INTERVAL 1 HOUR) | col - 1/24                                 |
 | DATE_SUB(col, INTERVAL 30 MINUTE) | col - 30/1440                             |
-| DATEDIFF(a,b)       | 使用 DATEDIFF(MINUTE, a, b)，禁止改为 (a - b) |
+| DATEDIFF(a,b)       | DATEDIFF(MINUTE, a, b)                       |
 | YEAR(col)           | EXTRACT(YEAR FROM col) 或 TO_CHAR(col, 'YYYY') |
 | MONTH(col)          | EXTRACT(MONTH FROM col) 或 TO_CHAR(col, 'MM') |
 | DAY(col)            | EXTRACT(DAY FROM col) 或 TO_CHAR(col, 'DD') |
@@ -114,7 +104,7 @@ DAMENG_SCHEMA_CONTEXT = """
 
 4. **禁止不完整的 WHERE**：不要在 WHERE 后面留空条件或未完成的表达式。
 
-5. **禁止在函数调用外层包裹双引号**：`DATEDIFF(MINUTE, "alarm_time", "process_time")` 本身是正确的（参数列名有双引号）；但禁止把整个函数调用用双引号包裹，如 `"DATEDIFF(MINUTE, "alarm_time", "process_time")"` 是错误的。ORDER BY 等子句中引用函数时同样禁止在最外层加双引号。
+5. **禁止在函数调用外层包裹双引号**：`DATEDIFF(MINUTE, "alarm_time", "event_completion_time")` 本身是正确的（参数列名有双引号）；但禁止把整个函数调用用双引号包裹，如 `"DATEDIFF(MINUTE, "alarm_time", "event_completion_time")"` 是错误的。ORDER BY 等子句中引用函数时同样禁止在最外层加双引号。
 
 6. **列别名规则**：
    - 推荐裸写：`DATEDIFF(...) AS 处理时长分钟数`（无任何引号）
@@ -143,13 +133,7 @@ DAMENG_SCHEMA_CONTEXT = """
    FROM FWBZ."lighting_area"
    GROUP BY "id", "area_name"
    ORDER BY COUNT(*) DESC;
-
-10. **禁止臆造字段**：只使用表结构中明确列出的字段，**绝不能使用表结构中没有的字段名**。常见臆造陷阱：
-    - `lighting_area` 表的主键是 `"id"`，**没有 `area_id`**（`area_id` 在 `lighting_circuit` 表中）
-    - `lighting_circuit` 表通过 `area_id` 外键关联 `lighting_area.id`
-    - 如果不确定某个表有哪些列，回头查看本提示词开头的「核心业务表结构」部分
-
-## LIMIT 分页示例（达梦）
+   ```
 
 ## LIMIT 分页示例（达梦）
 ```sql
@@ -159,120 +143,46 @@ ORDER BY "create_time" DESC
 LIMIT 500 OFFSET 0
 
 -- 取第 11~20 条（即跳过前10条，取10条）
--- 注意：语法是 LIMIT n OFFSET m，不是 LIMIT m,n
 SELECT "id", "device_name" FROM FWBZ."device"
 ORDER BY "create_time" DESC
 LIMIT 10 OFFSET 10
-时间差计算（告警处理时长，单位：分钟）
-重要：alarm_time 和 process_time 是 TIMESTAMP 类型，禁止直接相减！
+```
+
+## 告警处理时长计算（告警处理时长，单位：分钟）
+重要：alarm_time 是 TIMESTAMP 类型，禁止直接相减！
 
 正确写法：
-
-sql
+```sql
 -- 使用 DATEDIFF 函数（达梦原生支持）
--- 注意：列名必须加双引号，别名写在函数外部
-DATEDIFF(MINUTE, "alarm_time", "process_time") AS 处理时长分钟数
+DATEDIFF(MINUTE, "alarm_time", "event_completion_time") AS 处理时长分钟数
 
--- ORDER BY 必须用同样的函数或用别名：
-ORDER BY DATEDIFF(MINUTE, "alarm_time", "process_time") ASC
--- 或
+-- ORDER BY 用别名：
 ORDER BY 处理时长分钟数 ASC
-错误写法（禁止使用）：
+```
 
-sql
--- ❌ 禁止：直接相减或乘 1440，TIMESTAMP 类型不支持算术运算
-("process_time" - "alarm_time") * 1440
+错误写法（禁止使用）：
+```sql
+-- ❌ 禁止：直接相减，TIMESTAMP 类型不支持算术运算
+("event_completion_time" - "alarm_time") * 1440
 
 -- ❌ 禁止：在 DATEDIFF 外面套 CAST 或 TO_DATE
-CAST(DATEDIFF(MINUTE, "alarm_time", "process_time") AS VARCHAR)
-核心业务表结构
-device（设备表）
-id(BIGINT), device_code(VARCHAR), device_name(VARCHAR), category_id(BIGINT),
-space_id(BIGINT), venue_id(BIGINT), run_state(VARCHAR), device_type(VARCHAR),
-last_gather_time(TIMESTAMP), create_time(TIMESTAMP)
+CAST(DATEDIFF(MINUTE, "alarm_time", "event_completion_time") AS VARCHAR)
+```
 
-alarm_record（告警记录）
-id(BIGINT), device_id(BIGINT), device_name(VARCHAR), space_id(BIGINT),
-space_name(VARCHAR), alarm_content(TEXT), alarm_time(TIMESTAMP),
-alarm_category_name(VARCHAR), alarm_level_name(VARCHAR), alarm_status(VARCHAR),
-alarm_rule_id(BIGINT), charge_person_name(VARCHAR), process_time(TIMESTAMP)
+## 重要关联关系（必须严格遵守）
+- 设备通过 `venue_id` 关联会展场馆（`table_venue_info.id`）
+- 设备通过 `space_id` 关联空间（`space.id`）
+- 设备通过 **`device_category_id`** 关联设备类型（`equipment_category.id`），**字段名是 device_category_id，不是 category_id**
+- 告警通过 `device_id` 关联设备（`device.id`）
+- 计量点通过 `space_id` 关联空间（`space.id`）
+- 计量点日数据通过 `metering_point_id` 关联计量点（`metering_point.id`）
+- 照明回路通过 `area_id` 关联照明区域（`lighting_area.id`）
+- **照明区域（`lighting_area`）没有 `space_id` 外键**，其 `space` 字段是 VARCHAR 代码（如"金安桥"），`space_name` 是空间名称；若需关联空间，用 `space_name` 或直接用 `space` 字段过滤
+- `table_parking_count` 的日期字段是 **`date`**（不是 `data_date`、`stat_date`）
 
-⚠️ 注意：alarm_record 表中不存在 area_id、circuit_name、area_name、device_code 等字段！
-绝对不要在 SQL 中臆造这些列！
-
-data_day（设备日数据）
-id(BIGINT), device_id(BIGINT), value(DECIMAL), time(TIMESTAMP)
-
-data_hour（设备小时数据）
-id(BIGINT), device_id(BIGINT), value(DECIMAL), time(TIMESTAMP),
-start_value(DECIMAL), end_value(DECIMAL), compute_value(DECIMAL)
-
-equipment_category（设备类型）
-id(BIGINT), category_name(VARCHAR), full_name(VARCHAR), pid(BIGINT), has_child(VARCHAR)
-
-table_venue_info（会展场馆）
-id(BIGINT, 主键), venue_name(VARCHAR2), location(VARCHAR2), area(VARCHAR2),
-floors(BIGINT), orientation(VARCHAR2), longitude(DECIMAL), latitude(DECIMAL)
-⚠️ 注意：该表主键是 id，不是 venue_id，没有 venue_id 字段
-
-space（空间表）
-id(BIGINT), space_name(VARCHAR), full_name(VARCHAR), full_id(VARCHAR), pid(BIGINT), has_child(VARCHAR)
-
-metering_point（计量点）
-id(BIGINT), node_name(VARCHAR), node_code(VARCHAR), type(VARCHAR),
-category_id(BIGINT), space_id(BIGINT), metering_unit(BIGINT)
-
-metering_point_data_day（计量点日数据）
-id(BIGINT), metering_point_id(BIGINT), time(TIMESTAMP), value(DECIMAL)
-
-table_personnel_statistics（人员统计）
-id(BIGINT), stat_date(DATE), today_entry_count(BIGINT), current_in_count(BIGINT),
-recognition_record_count(BIGINT), abnormal_warning_count(BIGINT)
-
-table_venue_flow（场馆客流）
-id(BIGINT), data_date(DATE), venue_id(BIGINT), today_in_count(BIGINT),
-today_now_count(BIGINT), max_count(BIGINT), max_time(TIME), average_duration(DOUBLE), status(TINYINT)
-
-lighting_area（照明区域）
-id(BIGINT), area_name(VARCHAR), area_code(VARCHAR), status(VARCHAR),
-space_name(VARCHAR), type(VARCHAR), all_duration(BIGINT)
-
-lighting_circuit（照明回路）
-id(BIGINT), circuit_name(VARCHAR), circuit_code(VARCHAR), status(VARCHAR),
-area_id(BIGINT), all_duration(BIGINT), comstat(VARCHAR)
-
-ai_report_history（AI报告历史）
-id(BIGINT), report_type(VARCHAR), title(VARCHAR), content(CLOB),
-summary(VARCHAR), time_range(VARCHAR), target_name(VARCHAR),
-scope(VARCHAR), created_at(TIMESTAMP)
-
-carbon_emission_factor（碳排放因子）
-id(VARCHAR), carbon_factor_name(VARCHAR), coefficient(VARCHAR), unit(VARCHAR)
-
-standard_coal_coefficient（标准煤系数）
-id(VARCHAR), energy_medium(VARCHAR), unit(VARCHAR), eccsc(VARCHAR), ecf(VARCHAR)
-
-table_parking_count（停车场统计）
-id(BIGINT), date(DATE), today_entry_count(BIGINT), current_in_count(BIGINT),
-remaining_space_count(BIGINT), average_parking_duration(DOUBLE)
-
-重要约束
-设备通过 venue_id 关联会展场馆（table_venue_info.id）
-
-设备通过 space_id 关联空间（space.id）
-
-设备通过 category_id 关联设备类型（equipment_category.id）
-
-告警通过 device_id 关联设备（device.id）
-
-计量点通过 space_id 关联空间（space.id）
-
-计量点日数据通过 metering_point_id 关联计量点（metering_point.id）
-
-照明回路通过 area_id 关联照明区域（lighting_area.id）
-
-所有时间字段用单引号包裹，如 alarm_time >= '2026-01-01'
+所有时间字段用单引号包裹，如 `alarm_time >= '2026-01-01'`
 """
+
 
 
 class ChatService:
@@ -347,28 +257,183 @@ class ChatService:
         ]
         return any(kw in q for kw in db_keywords)
 
-    def _generate_sql(self, question: str) -> Optional[str]:
-        """根据用户问题生成 SQL 查询语句（支持重试）"""
+    def _is_energy_formula_query(self, question: str) -> bool:
+        """检测"按能介统计能耗"类问题(需走公式计算分支)
 
-        # 根据问题关键词，推测可能涉及的表
+        需同时满足:
+          1. 能介聚合意图: 含"能源介质"/"能介", 或 "电" + ("水"/"气"/"热") 枚举
+          2. 累计能耗意图: 含"累计"/"总能耗"/"综合能耗"/"能耗是多少"/"能耗多少"
+        不匹配: 设备级能耗(Q4.x)、费用查询(Q5.3)、系数查询(Q5.4)
+        """
+        q = question.lower()
+        # 能介聚合关键词
+        medium_kws = ["能源介质", "能介"]
+        # 或: 电 + (水/气/热) 同时出现
+        has_medium = any(k in q for k in medium_kws) or (
+            "电" in q and any(k in q for k in ["水", "气", "热"])
+        )
+        if not has_medium:
+            return False
+        # 累计能耗意图
+        consumption_kws = [
+            "累计能耗", "总能耗", "综合能耗", "能耗是多少", "能耗多少",
+            "能耗统计", "能耗汇总", "用电量", "耗能量",
+        ]
+        return any(k in q for k in consumption_kws)
+
+    def _parse_energy_time_range(self, question: str) -> tuple:
+        """从问题中解析时间范围, 返回 (start_date, end_date)
+
+        支持: 本月(默认)/上月/最近N天/近N天/过去N天/今年/去年
+        """
+        from datetime import date, timedelta
+        from calendar import monthrange
+
+        today = date.today()
+
+        # 上月
+        if "上月" in question or "上个月" in question:
+            first_of_this_month = today.replace(day=1)
+            last_month_end = first_of_this_month - timedelta(days=1)
+            last_month_start = last_month_end.replace(day=1)
+            return last_month_start, last_month_end
+
+        # 最近N天 / 近N天 / 过去N天
+        m = re.search(r'最近\s*(\d+)\s*天|近\s*(\d+)\s*天|过去\s*(\d+)\s*天', question)
+        if m:
+            n = int(next(g for g in m.groups() if g))
+            return today - timedelta(days=n - 1), today
+
+        # 今年
+        if "今年" in question:
+            return date(today.year, 1, 1), today
+
+        # 去年
+        if "去年" in question:
+            return date(today.year - 1, 1, 1), date(today.year - 1, 12, 31)
+
+        # 默认本月
+        first_of_month = today.replace(day=1)
+        return first_of_month, today
+
+    @staticmethod
+    def _extract_device_ids(true_formula: str) -> list:
+        """从 true_formula 提取 device_code 列表(去重)
+
+        格式: [K026zp401]+[K026zp445]-[K026zp415_5] → ['K026zp401', 'K026zp445', 'K026zp415_5']
+        也兼容纯数字 id 格式: [1001]+[1002] → ['1001', '1002']
+        """
+        if not true_formula:
+            return []
+        return list(dict.fromkeys(re.findall(r'\[([^\]]+)\]', true_formula)))
+
+    @staticmethod
+    def _eval_formula(true_formula, device_values: dict) -> Optional[float]:
+        """安全求值 true_formula, 把 [device_code] 替换为实际值后算术求值
+
+        Args:
+            true_formula: 如 "[K026zp401]+[K026zp445]-[K026zp415_5]"
+            device_values: {device_code: value} 映射, key 可以是 str 或 int
+
+        Returns:
+            float 结果(4位小数), 或 None(求值失败/除0)
+        """
+        import ast
+        import operator as op_module
+        import math
+
+        if not true_formula:
+            return None
+
+        # 1. 替换 [device_code] → 数值
+        def _substitute(m):
+            code = m.group(1)
+            val = device_values.get(code)
+            if val is None:
+                # 尝试 int 转换(兼容纯数字 key)
+                try:
+                    val = device_values.get(int(code))
+                except (ValueError, TypeError):
+                    pass
+            if val is None:
+                val = 0.0
+            return repr(float(val))
+
+        expr_str = re.sub(r'\[([^\]]+)\]', _substitute, true_formula)
+
+        # 2. AST 安全求值
+        _ALLOWED_BINOPS = {
+            ast.Add: op_module.add,
+            ast.Sub: op_module.sub,
+            ast.Mult: op_module.mul,
+            ast.Div: op_module.truediv,
+        }
+        _ALLOWED_UNARYOPS = {
+            ast.USub: op_module.neg,
+            ast.UAdd: op_module.pos,
+        }
+
+        def _eval_node(node):
+            if isinstance(node, ast.Expression):
+                return _eval_node(node.body)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return float(node.value)
+            if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_BINOPS:
+                left = _eval_node(node.left)
+                right = _eval_node(node.right)
+                return _ALLOWED_BINOPS[type(node.op)](left, right)
+            if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_UNARYOPS:
+                operand = _eval_node(node.operand)
+                return _ALLOWED_UNARYOPS[type(node.op)](operand)
+            raise ValueError(f"不允许的 AST 节点: {type(node).__name__}")
+
+        try:
+            tree = ast.parse(expr_str, mode='eval')
+            result = _eval_node(tree)
+            if isinstance(result, float) and (math.isnan(result) or math.isinf(result)):
+                return None
+            return round(result, 4)
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError) as e:
+            logger.warning(f"公式求值失败: {true_formula} -> {e}")
+            return None
+
+    def _generate_sql(
+        self,
+        question: str,
+        *,
+        sql_template: Optional[str] = None,
+        qid: Optional[str] = None,
+    ) -> Optional[str]:
+        """根据用户问题生成 SQL 查询语句（支持重试）
+
+        Args:
+            question: 用户原始问题
+            sql_template: 问答手册中该问题对应的 SQL 范式 (可选, 由 qa_matcher 提供)
+            qid: 匹配到的问题编号 (如 "5.1"), 用于 prompt 标注
+        """
+
+        # 根据问题关键词，推测可能涉及的表（列名信息全部来自上方动态 schema，不在此处重复列举）
         q = question.lower()
         table_hints = []
         if any(k in q for k in ["设备", "离线", "在线", "运行"]):
-            table_hints.append("device（设备表：device_name, device_type, run_state, last_gather_time）")
+            table_hints.append("device（设备表）")
         if any(k in q for k in ["告警", "报警", "故障", "停机"]):
-            table_hints.append("alarm_record（告警记录：device_name, alarm_time, alarm_category_name, alarm_level_name, alarm_status）")
+            table_hints.append("alarm_record（告警记录）")
         if any(k in q for k in ["能耗", "电", "水", "气", "热", "用能"]):
-            table_hints.append("data_day（设备日数据：device_id, value, time）")
+            table_hints.append("data_day（设备日数据）")
         if any(k in q for k in ["场馆", "会展", "场馆信息"]):
-            table_hints.append("table_venue_info（场馆信息：venue_name, location, area, floors）")
+            table_hints.append("table_venue_info（会展场馆）")
         if any(k in q for k in ["空间", "区域", "楼层"]):
-            table_hints.append("space（空间表：space_name, full_name, full_id）")
+            table_hints.append("space（空间表）")
         if any(k in q for k in ["客流", "入场", "出场", "访客"]):
-            table_hints.append("table_venue_flow（场馆客流：data_date, today_in_count, today_now_count, max_count）")
+            # ⚠️ 客流表统一使用 table_venue_flow_hour（table_venue_flow 表已废弃，数据库中不存在）
+            # 查询逻辑：today_in_count / today_now_count / average_duration 取 data_hour 最大的那条
+            #         max_count / max_time 取 max_count 最大的那条
+            table_hints.append("table_venue_flow_hour（场馆客流分时统计）")
         if any(k in q for k in ["人员", "人员统计"]):
-            table_hints.append("table_personnel_statistics（人员统计：stat_date, today_entry_count, current_in_count）")
+            table_hints.append("table_personnel_statistics（人员统计）")
         if any(k in q for k in ["停车", "车位", "停车场"]):
-            table_hints.append("table_parking_count（停车场统计：date, today_entry_count, current_in_count, remaining_space_count）")
+            table_hints.append("table_parking_count（停车场统计）")
         if any(k in q for k in ["照明", "灯光", "回路"]):
             table_hints.append("lighting_area（照明区域）/ lighting_circuit（照明回路）")
         if any(k in q for k in ["计量", "分时"]):
@@ -376,9 +441,9 @@ class ChatService:
         if any(k in q for k in ["碳", "碳排放", "碳强度"]):
             table_hints.append("carbon_emission_factor（碳排放因子）/ data_day（能耗数据）")
         if any(k in q for k in ["报告", "ai报告", "报表"]):
-            table_hints.append("ai_report_history（AI报告历史：report_type, title, created_at）")
+            table_hints.append("ai_report_history（AI报告历史）")
         if any(k in q for k in ["设备类型", "category", "分类"]):
-            table_hints.append("equipment_category（设备类型：category_name, full_name）")
+            table_hints.append("equipment_category（设备类型）")
 
         hint_text = ""
         if table_hints:
@@ -387,17 +452,66 @@ class ChatService:
         # 重试时附带的错误反馈（初始为空，验证失败后填充）
         retry_hint = ""
 
+        # Q-ID 范式参考段 (匹配上问题时由 caller 传入, 让 LLM 有据可依)
+        template_section = ""
+        if sql_template and qid:
+            # P3: 提取范式里出现的列名作为白名单
+            template_cols = re.findall(r'"([A-Za-z_]\w*)"', sql_template)
+            template_cols = list(dict.fromkeys(template_cols))[:15]  # 去重 + 限数
+            col_whitelist = ", ".join(f'"{c}"' for c in template_cols)
+
+            template_section = f"""
+
+## 参考 SQL 范式 (来自问答手册 Q{qid})
+这是与用户问题最匹配的标准问题对应的 SQL 范式。**作为参考**, 你需要根据用户问题的具体语境(时间范围/设备名/空间名/数值阈值等)改造它, 不能原样照抄。
+- 保留范式的查询意图(选哪些表/怎么连接/怎么聚合)
+- 把范式中的 `{{{{变量}}}}` 替换为合适的值或 WHERE 条件; 无明确语境时用 SYSDATE / 通用条件
+- 字段名务必从上方「数据库真实表结构」选, 严禁臆造
+- 达梦方言规则遵守上方的硬性约束
+
+**【P3 范式白名单】本范式里已用到的列名 (改造时只能从这列表选或替换, 不要新增范式外的列):**
+{col_whitelist}
+
+```sql
+{sql_template}
+```
+"""
+
         base_prompt_header = f"""{DAMENG_SCHEMA_CONTEXT}{_SCHEMA_TEXT}{hint_text}
 
-============================================================
-【警告】生成 SQL 前必须先查阅上方表结构，只使用列出的真实列名！
-禁止臆造任何不在表结构中的字段名！
-============================================================
+================================================================
+【🚨 最高警告 🚨】只使用上方「数据库真实表结构」中存在的表名和字段名！
+禁止臆造任何不存在的表名/字段名, 违者 SQL 直接拒绝执行! 你必须**逐个核对**表名和字段名都来自上方列表。
+================================================================
 
 ## 任务
 根据用户问题生成一条达梦数据库 SQL 查询语句。
 
 用户问题：{question}
+
+## 📋 输出前自检清单 (4 条全部满足才输出)
+1. ☐ 输出的每个表名, 都能在上方「数据库真实表结构」列表里找到?
+2. ☐ 输出的每个列名 (包括 JOIN 条件), 都能在该表的列列表里找到?
+3. ☐ 没有用 `time` / `category` / `area_id` 等高频臆造列名?
+4. ☐ 达梦方言 (双引号, SYSDATE, NVL, LIMIT n OFFSET 0) 都正确?
+**任意一条不满足, 修正后再输出!**
+
+## 【最高优先级】表结构白名单约束
+
+- **只使用上方「数据库真实表结构」中明确列出的表名和字段名**
+- 如果用户问的字段不存在于表结构中，**直接省略**，不要脉造
+- 如果不确定某个表有哪些列，必须回查上方表结构，**不要凭身世躕猜**
+- 宁可少选列，也绝不要选一个不存在的列名
+- JOIN 条件中的列也必须存在于对应表中
+
+**已知 LLM 脉造高频陷阱（绝对禁止再犯）：**
+- `lighting_area`：**没有 `space_id`、`create_time`、`area_id`**（正确外键是 `space` 和 `space_name`；LLM 反复臆造 `space_id`，严格禁止）
+- `alarm_record`：**没有 `category_id`、`area_id`**（正确字段是 `device_category_id`、`space_id`）
+- `alarm_record`：**没有 `alarm_rule_point` 表**（正确关联是 `alarm_rules`）
+- `device`：**没有 `area_id`**（外键是 `space_id`、`venue_id`）
+- `table_parking_count`：**没有 `data_date`**（正确字段是 `date`）
+- 设备类型关联字段是 **`device_category_id`**，不是 `category_id`
+- **客流查询统一用 `table_venue_flow_hour`，在馆人数列是 `today_now_count`**（**禁止用 `now_count`**，那是 `table_visitor_flow` 的列，LLM 极易混淆）
 
 ## ⚠️ 严格遵守达梦 8.0 语法规范（禁止使用 MySQL/PostgreSQL 语法）
 
@@ -485,10 +599,10 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         logger.info("用户问题: %s", question)
         logger.info("-" * 60)
         
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 response = self.ollama.call_llm([
-                    {"role": "user", "content": base_prompt_header + retry_hint}
+                    {"role": "user", "content": base_prompt_header + template_section + retry_hint}
                 ], temperature=0.1)
                 sql = response.strip()
                 sql = re.sub(r'^```sql\s*', '', sql, flags=re.IGNORECASE)
@@ -497,7 +611,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # 清理末尾分号和空白
                 sql = sql.rstrip(';').strip()
 
-                logger.info("LLM原始输出: %s", sql[:500] if len(sql) > 500 else sql)
+                logger.info("LLM原始输出: %s", sql[:1000] if len(sql) > 1000 else sql)
 
                 # 基础验证：必须包含 SELECT 和 FROM
                 if sql.upper().startswith('SELECT') and 'FROM' in sql.upper():
@@ -735,16 +849,14 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     sql = _add_quotes_to_identifiers(sql)
                     logger.info("双引号修复后: %s", sql)
 
-                    # 3. 修复 LLM 常见的列名混淆（按表映射）
-                    # table_parking_count 的日期列是 "date"，不是 "data_date"
-                    sql = re.sub(
-                        r'"table_parking_count"' + r'.*?"data_date"',
-                        lambda m: m.group(0).replace('"data_date"', '"date"'),
-                        sql,
-                        flags=re.IGNORECASE
-                    )
-                    # 直接全局替换 "data_date" → "date"（无表上下文限制，防止漏网）
-                    sql = re.sub(r'"data_date"', '"date"', sql, flags=re.IGNORECASE)
+                    # 3. 修复 LLM 常见的列名混淆（按真实表结构判断）
+                    # 不同表的日期列名不同：
+                    #   table_venue_flow_hour                      → "data_date"（客流表，table_venue_flow 已废弃）
+                    #   table_parking_count / table_visitor_flow  → "date"
+                    #   table_personnel_statistics               → "stat_date"
+                    # 必须按每个 "data_date"/"stat_date" 引用所属的真实表判断，不能全局替换
+                    sql = self._fix_date_column_by_schema(sql)
+                    logger.info("日期列修复后: %s", sql)
 
                     # 4. 修复单引号别名 → 去掉引号（达梦里别名不加引号）
                     sql = re.sub(r"\s+AS\s+'([^']+)'", r' AS \1', sql, flags=re.IGNORECASE)
@@ -778,6 +890,22 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         sql = self._fix_group_by(sql)
                         logger.info(">>> GROUP BY 修复完成: %s", sql)
 
+                    # 12. 修复幽灵表引用：ON 条件里引用了某表（如 "device"."xxx"），
+                    #     但该表未出现在 FROM/JOIN 子句中（如 LLM 漏写了 device JOIN）。
+                    #     自动补全缺失的 JOIN，确保 JOIN 链完整。
+                    sql = self._fix_phantom_table_in_join(sql)
+
+                    # 13. 修复 LLM 生成的畸形 ON 条件：
+                    #     典型错误：ON ("alarm_rule_id")=("id") — 括号包裹+无表前缀导致歧义
+                    #     修复：去除括号，给列名加上正确的表前缀
+                    sql = self._fix_malformed_on_conditions(sql)
+
+                    # 14. 修复 SELECT/WHERE/ORDER BY 中无表前缀的歧义裸列名
+                    #     典型错误：SELECT "id", "create_time" FROM alarm_record JOIN ...
+                    #     当多表都有 id/create_time 时，数据库报错"歧义的列名"
+                    #     修复：给这些裸列名加上 alarm_record. 前缀
+                    sql = self._fix_ambiguous_bare_columns(sql)
+
                     logger.info(">>> SQL生成成功 >>>")
                     logger.info("最终SQL: %s", sql)
                     logger.info("=" * 60)
@@ -786,20 +914,30 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     from app.core.dameng import validate_sql_columns
                     col_valid, col_err, invalid_list = validate_sql_columns(sql)
                     if not col_valid:
+                        # 构造更具体的错误反馈: 列出每个具体列名 + 所在表
+                        invalid_detail = []
+                        for inv in invalid_list[:5]:
+                            invalid_detail.append(f"  - {inv}")
+                        invalid_text = "\n".join(invalid_detail) if invalid_detail else col_err
+
                         hint_suffix = (
-                            f"\n\n【严重错误】你刚才生成的 SQL 包含了不存在的列名（臆造）："
-                            f"{', '.join(invalid_list)}。"
-                            f"请重新生成 SQL，严格只使用上方「数据库真实表结构」中列出的列名！"
-                            f"如果不确定某个列是否存在，查阅表结构，不要臆造！"
+                            f"\n\n【严重错误 - 上一轮 SQL 验证失败】\n"
+                            f"以下列名/表名不在 schema 中 (臆造):\n{invalid_text}\n\n"
+                            f"请重新生成, 严格只使用上方「数据库真实表结构」!\n"
+                            f"**对照上方表结构, 逐个核对表名和字段名**!"
                         )
                         logger.warning(f"SQL 生成后验证失败（attempt {attempt}）: {col_err}，将重试")
-                        if attempt < 1:
-                            # 第一次失败：带上提示重试
+                        if attempt < 2:
+                            # 第 1/2 次失败: 带上具体提示重试
+                            # 第 2 次重试时, 不传模板 (让 LLM 凭 schema 自由发挥)
+                            if attempt == 1:
+                                template_section = ""  # 清掉模板
+                                logger.info("第 2 次重试, 不传 SQL 范式")
                             retry_hint = hint_suffix
                             continue
                         else:
-                            # 第二次还失败：主动清理臆造列名后再返回
-                            logger.warning("重试后仍含臆造列，主动清理后继续: %s", invalid_list)
+                            # 第 3 次还失败：主动清理臆造列名后再返回
+                            logger.warning("3 次重试后仍含臆造列, 主动清理后继续: %s", invalid_list)
                             for bad_col in invalid_list:
                                 # 去掉双引号
                                 col_name = bad_col.strip('"')
@@ -828,7 +966,15 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         logger.info(">>> SQL执行开始 >>>")
         logger.info("SQL语句: %s", sql)
         logger.info("-" * 80)
-        
+
+        # 严格安全门: 仅 SELECT / 拦截多语句 / 强制 LIMIT (明细 500 / 聚合 200)
+        from app.core.sql_guard import validate as guard_validate
+        guard = guard_validate(sql)
+        if not guard.ok:
+            logger.warning(f"SQL 安全门拒绝: {guard.reason} | sql={sql[:200]}")
+            return None, f"SQL 未通过安全门: {guard.reason}"
+        sql = guard.sql  # 用清洗后的 (可能补了 LIMIT)
+
         try:
             # 安全检查：禁止危险操作（单词边界匹配，避免误伤 create_time 等列名）
             import re
@@ -851,7 +997,8 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # 表 → 臆造列名列表（这些列在该表中不存在，LLM 经常臆造）
             KNOWN_HALLUCINATED_COLS: dict[str, frozenset[str]] = {
                 'alarm_record': frozenset({'area_id', 'circuit_name', 'area_name', 'device_code'}),
-                'lighting_area': frozenset({'area_id', 'area_code'}),
+                'lighting_area': frozenset({'space_id', 'create_time', 'area_id'}),
+                'alarm_category': frozenset({'create_time'}),
             }
             for table, bad_cols in KNOWN_HALLUCINATED_COLS.items():
                 for col in bad_cols:
@@ -1187,6 +1334,518 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         return sql
 
+    def _fix_phantom_table_in_join(self, sql: str) -> str:
+        """
+        修复幽灵表引用：ON 条件中引用了某表（如 "device"."category_id"），
+        但该表未出现在 FROM/JOIN 子句中。
+        自动补全缺失的 JOIN，使 JOIN 链完整。
+
+        典型错误（LLM 幻觉）：
+          LEFT JOIN FWBZ."equipment_category" ON "device"."category_id"="equipment_category"."id"
+          —— "device" 表根本没被 JOIN，导致 SQL 执行报错。
+
+        修复策略：
+          1. 提取 SQL 中所有在 ON 条件里出现的表引用（"xxx"."yyy" 形式）。
+          2. 提取 FROM/JOIN 子句中实际出现的表名。
+          3. 对每个未定义的幽灵表，根据关联关系推断如何补 JOIN：
+             - "device" 缺失 → 从 alarm_record 通过 device_id 关联上。
+             - 其他情况 → 移除对该幽灵表的引用（不完整的 JOIN 无法自动修复）。
+        """
+        try:
+            # 提取所有 FROM/JOIN 中的表名（忽略 AS 别名，保留原始表名）
+            # 匹配 FWBZ."table_name"（捕获 table_name）或 "table_name"（直接捕获）
+            from_tables = set()
+            for m in re.finditer(
+                r'(?:FROM|JOIN)\s+(?:FWBZ\."([^"]+)"|"([^"]+)")',
+                sql, re.IGNORECASE
+            ):
+                # group(1) = FWBZ."table" 情况下的表名，group(2) = 直接 "table" 情况
+                captured = m.group(1) or m.group(2)
+                from_tables.add(captured.lower())
+
+            # 提取所有在 ON 条件中出现的表引用（"xxx"."yyy" 形式）
+            # 但排除已被双引号包裹后已处理的（因为此时双引号已加好）
+            on_table_refs = set()
+            for m in re.finditer(r'"(\w+)"\."(\w+)"', sql):
+                on_table_refs.add(m.group(1).lower())
+
+            # 找出幽灵表（在 ON 中出现但不在 FROM/JOIN 中）
+            phantom_tables = on_table_refs - from_tables
+
+            if not phantom_tables:
+                return sql
+
+            logger.warning(f">>> 发现幽灵表引用: {phantom_tables}，尝试自动修复")
+
+            for phantom in phantom_tables:
+                if phantom == 'device':
+                    # "device" 表缺失：需要补全 alarm_record → device 的 JOIN
+                    # 策略：在第一个 JOIN 之前插入 LEFT JOIN device，并修正后续 ON 条件
+                    # 示例：把 ON "device"."category_id" 改为 ON d."category_id"，
+                    #       同时在前面插入 LEFT JOIN FWBZ."device" d ON "alarm_record"."device_id"=d."id"
+
+                    # 找 alarm_record 的位置（主表）
+                    alarm_record_pos = re.search(
+                        r'FROM\s+(?:FWBZ\.)?"alarm_record"',
+                        sql, re.IGNORECASE
+                    )
+                    if not alarm_record_pos:
+                        # 找不到 alarm_record，跳过
+                        logger.warning("找不到 alarm_record，无法补全 device JOIN")
+                        continue
+
+                    # 找第一个 JOIN 关键字的位置（用于确定插入点）
+                    first_join = re.search(r'\s+LEFT\s+JOIN\s+', sql, re.IGNORECASE)
+                    first_inner_join = re.search(r'\s+INNER\s+JOIN\s+', sql, re.IGNORECASE)
+
+                    # 取最早出现的 JOIN
+                    join_positions = []
+                    if first_join:
+                        join_positions.append(first_join.start())
+                    if first_inner_join:
+                        join_positions.append(first_inner_join.start())
+
+                    if not join_positions:
+                        # 没有 JOIN，在 FROM 子句之后插入
+                        insert_pos = re.search(
+                            r'FROM\s+(?:FWBZ\.)?"alarm_record"[^"]*',
+                            sql, re.IGNORECASE
+                        )
+                        if insert_pos:
+                            insert_pos = insert_pos.end()
+                        else:
+                            continue
+                    else:
+                        insert_pos = min(join_positions)
+
+                    # 检查是否已有对 device 表的引用（可能作为别名）
+                    has_device_ref = re.search(r'"device"\."', sql, re.IGNORECASE)
+                    if not has_device_ref:
+                        continue
+
+                    # 找第一个引用 "device"."xxx" 的位置，用于确定需要修复的 ON 条件
+                    first_device_ref = re.search(
+                        r'"device"\."(\w+)"',
+                        sql, re.IGNORECASE
+                    )
+                    if not first_device_ref:
+                        continue
+
+                    device_col = first_device_ref.group(1)
+                    logger.info(f"幽灵表 device 被引用列: {device_col}，尝试注入 JOIN")
+
+                    # 插入 LEFT JOIN device，在第一个 JOIN 之前
+                    device_join = ' LEFT JOIN FWBZ."device" ON "alarm_record"."device_id"="device"."id"'
+                    new_sql = sql[:insert_pos] + device_join + sql[insert_pos:]
+                    logger.info(f"注入 device JOIN 后的 SQL: {new_sql[:300]}")
+                    sql = new_sql
+                else:
+                    # 其他幽灵表：无法安全推断 JOIN 路径，直接移除整个 JOIN 块
+                    # 原因：去掉表前缀后剩下的裸列名会引入歧义（多表都有 id 等），
+                    #       后续修复逻辑无法安全推断应该加哪个表的前缀。
+                    logger.warning(f"幽灵表 '{phantom}' 无法安全修复，将移除整个 JOIN 块")
+
+                    # 匹配包含该幽灵表的完整 JOIN 块（从 JOIN 到下一个 JOIN/WHERE/ORDER 之前）
+                    # 格式: LEFT JOIN "phantom" ON (...) 或 LEFT JOIN FWBZ."phantom" ON (...)
+                    phantom_join_pattern = (
+                        rf'\s+(LEFT\s+JOIN|INNER\s+JOIN|RIGHT\s+JOIN|JOIN)\s+'
+                        rf'(?:FWBZ\.)?"{re.escape(phantom)}"'
+                        rf'(?:\s+AS\s+"[^"]+")?\s+ON\s+.+?'
+                        rf'(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)'
+                    )
+                    sql = re.sub(phantom_join_pattern, '', sql, flags=re.IGNORECASE | re.DOTALL)
+                    # 清理可能遗留的连续空格
+                    sql = re.sub(r'\s{2,}', ' ', sql)
+
+            logger.info(f"幽灵表修复后 SQL: {sql}")
+        except Exception as e:
+            logger.warning(f"幽灵表引用修复失败: {e}")
+
+        return sql
+
+    def _fix_malformed_on_conditions(self, sql: str) -> str:
+        """
+        修复 LLM 生成的畸形 ON 条件。
+
+        典型错误（LLM 幻觉）：
+          ON ("alarm_rule_id")=("id")
+          —— 括号包裹 + 无表前缀 → 数据库报错"歧义的列名[id]"
+
+        修复策略：
+          1. 去除 ON 条件中的冗余括号：("xxx") → "xxx"
+          2. 识别 ON 条件中的裸列名，自动推断并加上正确的表前缀：
+             - alarm_rule_id, device_id, space_id, alarm_category_id,
+               alarm_level_id, point_id, alarm_rule_point_id, device_category_id
+               → alarm_record.column_name
+             - id → 从当前 JOIN 的表推断（如 JOIN alarm_rules → alarm_rules."id"）
+        """
+        try:
+            # 预定义：alarm_record 的外键列（用于判断左操作数应加 alarm_record. 前缀）
+            AR_FK_COLUMNS = frozenset({
+                'alarm_rule_id', 'device_id', 'space_id', 'alarm_category_id',
+                'alarm_level_id', 'point_id', 'alarm_rule_point_id', 'device_category_id',
+                'charge_person', 'device_category_id',
+            })
+
+            # alarm_record 的自有列（用于判断右操作数可能属于 alarm_record 而非 JOIN 表）
+            AR_COLUMNS = frozenset({
+                'id', 'create_time', 'update_time', 'create_by', 'update_by',
+                'sys_org_code', 'alarm_rule_id', 'device_id', 'device_name',
+                'space_id', 'space_name', 'alarm_content', 'alarm_time',
+                'alarm_category_id', 'alarm_category_name', 'alarm_level_id',
+                'alarm_level_name', 'charge_person', 'charge_person_name',
+                'alarm_status', 'point_id', 'point_name', 'value',
+                'condition_value', 'operator', 'time_granularity',
+                'alarm_rule_point_id', 'device_category_id', 'alarm_level_color',
+                'event_id',
+            })
+
+            def fix_single_on(on_clause_str: str, joined_table: str) -> str:
+                """
+                修复一个完整 ON 子句（含多 AND 条件）中的裸列名歧义。
+                joined_table: 当前 JOIN 的表名（如 alarm_rules, alarm_level 等）
+                
+                处理格式：
+                - ON ("cond1") AND ("cond2") AND ("cond3")
+                - ON (cond1 AND cond2)
+                - ON cond1=cond2 AND cond3=cond4
+                """
+                # 步骤1：去除 ON 关键字
+                content = re.sub(r'\bON\b', '', on_clause_str, flags=re.IGNORECASE).strip()
+
+                # 步骤2：提取括号内容（如果整个 ON 被一对外括号包裹）
+                # 例如 ON ("device_id"="device_id" AND ...) → content = "device_id"="device_id" AND ..."
+                # 我们直接 split by AND at depth=0，处理每个原子条件
+
+                # 步骤3：split by AND at depth=0（处理引号和括号）
+                parts = []
+                depth = 0
+                last = 0
+                i = 0
+                in_quote = False
+                while i < len(content):
+                    c = content[i]
+                    if c == '"' and (i == 0 or content[i-1] != '\\'):
+                        in_quote = not in_quote
+                        i += 1
+                        continue
+                    if in_quote:
+                        i += 1
+                        continue
+                    if c == '(':
+                        depth += 1
+                    elif c == ')':
+                        depth -= 1
+                    elif depth == 0 and content[i:i+3].upper() == 'AND' and content[i+3:i+4] in ('', ' ', '\t'):
+                        parts.append(content[last:i].strip().strip('()').strip())
+                        last = i + 3
+                        while last < len(content) and content[last] in ' \t':
+                            last += 1
+                        i = last
+                        continue
+                    i += 1
+                parts.append(content[last:].strip().strip('()').strip())
+
+                # 步骤4：处理每个原子条件 "col1"="col2"
+                fixed_parts = []
+                for part in parts:
+                    if '=' not in part:
+                        fixed_parts.append(part)
+                        continue
+
+                    # 分割左右操作数（支持引号包裹的列名）
+                    # 找第一个不在引号内的等号
+                    eq_pos = -1
+                    depth = 0
+                    in_q = False
+                    for idx, ch in enumerate(part):
+                        if ch == '"' and (idx == 0 or part[idx-1] != '\\'):
+                            in_q = not in_q
+                        if not in_q:
+                            if ch == '(':
+                                depth += 1
+                            elif ch == ')':
+                                depth -= 1
+                            elif ch == '=' and eq_pos < 0:
+                                eq_pos = idx
+                    if eq_pos < 0:
+                        fixed_parts.append(part)
+                        continue
+
+                    left = part[:eq_pos].strip().strip('()"')
+                    right = part[eq_pos+1:].strip().strip('()"')
+                    new_left = left
+                    new_right = right
+
+                    # 左操作数：如果是 alarm_record 的外键列，加前缀
+                    if left and left.lower() in AR_FK_COLUMNS and '.' not in left:
+                        new_left = f'"alarm_record"."{left}"'
+                    # 右操作数：如果是裸 "id"，加目标表前缀
+                    if right and '.' not in right:
+                        right_lower = right.lower()
+                        if right_lower == 'id':
+                            new_right = f'"{joined_table}"."id"'
+                        elif right_lower in AR_COLUMNS and left.lower() not in AR_FK_COLUMNS:
+                            # 右操作数是 alarm_record 列但左操作数不是外键 → 加 alarm_record 前缀
+                            new_right = f'"alarm_record"."{right}"'
+
+                    if new_left == left and new_right == right:
+                        fixed_parts.append(part)
+                    else:
+                        fixed_parts.append(f'{new_left}={new_right}')
+
+                # 步骤5：重建 ON 子句
+                result = 'ON ' + ' AND '.join(fixed_parts)
+                if result != on_clause_str:
+                    logger.info(f"  ON 修复: {on_clause_str!r} → {result!r}")
+                return result
+
+            # 遍历所有 JOIN 块，修复对应的 ON 条件
+            def replace_join_block(m: re.Match) -> str:
+                full_match = m.group(0)
+                join_type = m.group(1)  # LEFT JOIN, INNER JOIN 等
+                table_name_raw = m.group(2)
+                table_name = table_name_raw.strip('".').lower()
+
+                # 找这个 JOIN 的完整 ON 条件（使用贪婪匹配以捕获多 AND 条件）
+                on_match = re.search(r'\bON\b\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)', full_match, re.IGNORECASE | re.DOTALL)
+                if not on_match:
+                    return full_match
+
+                fixed_on = fix_single_on(on_match.group(0), table_name)
+                # 重建 JOIN 块：只替换 ON 部分
+                return re.sub(r'\bON\b\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)', fixed_on, full_match, count=1, flags=re.IGNORECASE | re.DOTALL)
+
+            # 匹配：JOIN 类型 + 表名（支持 FWBZ."table" 或 "table"）+ 可选的 AS 别名 + ON 条件
+            # 用贪婪匹配 .+ 配合 lookahead 边界，确保捕获完整的多 AND ON 条件
+            pattern = r'(LEFT\s+JOIN|INNER\s+JOIN|RIGHT\s+JOIN|JOIN)\s+(?:FWBZ\.)?"([^"]+)"(?:\s+AS\s+"[^"]+")?\s+ON\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)'
+
+            if re.search(pattern, sql, re.IGNORECASE | re.DOTALL):
+                sql = re.sub(
+                    pattern,
+                    replace_join_block,
+                    sql,
+                    count=0,  # 全局替换
+                    flags=re.IGNORECASE | re.DOTALL
+                )
+
+            logger.info(f"ON 条件修复后 SQL: {sql[:300]}")
+
+        except Exception as e:
+            logger.warning(f"ON 条件修复失败: {e}")
+
+        return sql
+
+    def _fix_ambiguous_bare_columns(self, sql: str) -> str:
+        """
+        修复 SELECT/WHERE/ORDER BY 等子句中无表前缀的歧义裸列名。
+
+        典型错误：
+          SELECT "id", "create_time" FROM alarm_record JOIN ...
+          —— 多表都有 id/create_time，数据库报错"歧义的列名"
+
+        修复策略（正则两步法）：
+          1. 先把所有 "table"."ambiguous_col" 格式中的内层裸 "id" 等
+             替换成 "alarm_record"."xxx"，覆盖步骤2的误匹配
+          2. 再把裸 "id" → "alarm_record"."id"
+          3. 兜底：修复步骤1产生的 "table"."alarm_record"."col" 三段式畸形
+
+        注意：只有 FROM/JOIN 子句中包含 alarm_record 表时才处理。
+              如果 FROM 里根本没有 alarm_record 表，说明歧义列本来就属于其他表，
+              不应强制改成 alarm_record. 前缀。
+        """
+        try:
+            # 前置检查：只有 alarm_record 表在 FROM/JOIN 里时才处理歧义列名
+            # 从完整 SQL 中提取所有表名（FROM 和 JOIN 子句）
+            from_clause_match = re.search(
+                r'FROM\s+(.+?)(?=\s+WHERE|\s+GROUP|\s+ORDER|\s+HIMIT|\s+OFFSET|\s+UNION|,|\s*$)',
+                sql, re.IGNORECASE | re.DOTALL
+            )
+            from_clause = from_clause_match.group(1) if from_clause_match else ''
+            # 提取表名：支持 FWBZ."table" / "FWBZ"."table" / "table" / FWBZ.table
+            defined_tables = set()
+            for m in re.finditer(
+                r'FWBZ\."(\w+)"|FWBZ\.(\w+)|"FWBZ"\.?"(\w+)"|"(\w+)"',
+                from_clause, re.IGNORECASE
+            ):
+                t = (m.group(1) or m.group(2) or m.group(3) or m.group(4) or '').strip().lower()
+                if t:
+                    defined_tables.add(t)
+            if 'alarm_record' not in defined_tables:
+                logger.info(f"歧义列名修复跳过：FROM 子句中无 alarm_record 表")
+                return sql
+
+            # 歧义列名：多表共有，必须加 alarm_record. 前缀
+            AMBIGUOUS = frozenset({'id', 'create_time', 'update_time', 'sys_org_code'})
+
+            # 步骤1：先把所有 "table"."xxx" 里的内层裸歧义列名替换成带前缀版本
+            # 例如："device"."id" → "device"."alarm_record"."id"
+            # 这样步骤2就不会误伤 qualified 格式
+            for col in AMBIGUOUS:
+                # 匹配 "table"."col" 中的内层引号区域
+                # 捕获：("...") + (.+) + (") + (col) + (")
+                # 替换："alarm_record"." —— 在内层列名前插入前缀
+                # 简化写法：匹配整个 "table"."col"，捕获表名和列名，重构
+                def expand_qualified(m):
+                    # m.group(0) = "table"."col"，提取 table 和 col
+                    full = m.group(0)
+                    # "device"."id" → table="device", col="id"
+                    # 逐个找引号：0=表名开头, 7=表名结尾/点, 9=列名开头, 12=列名结尾
+                    first_quote = full.index('"')
+                    second_quote = full.index('"', first_quote + 1)
+                    # 列名开头 = 跳过 second_q 后的点，再跳过列名内容找下一个引号
+                    col_start = full.index('"', second_quote + 2)  # 跳过 "." 后找到列名开头引号
+                    col_end = full.index('"', col_start + 1)        # 再找列名结尾引号
+                    table = full[first_quote+1:second_quote]
+                    col_val = full[col_start+1:col_end]
+                    return '"' + table + '"."alarm_record"."' + col_val + '"'
+
+                # 匹配 "xxx"."yyy" 格式（两个引号组，中间有点）
+                pattern = r'"[^"]+"\.[^"]*"' + re.escape(col) + r'"'
+                sql, n = re.subn(pattern, expand_qualified, sql, flags=re.IGNORECASE)
+                if n > 0:
+                    logger.info(f"  步骤1: {col} 在 qualified 格式中被替换 {n} 处")
+
+            # 步骤2：裸歧义列名加前缀（仅当前面没有表前缀时）
+            for col in AMBIGUOUS:
+                # 匹配裸 "id"：前面不是字母/数字/点/引号
+                # 后面不是点/引号（确保不会跨 qualified 边界）
+                def replace_bare(m):
+                    return '"alarm_record"."' + col + '"'
+                pattern = r'(?<![\w."])("' + re.escape(col) + r'")(?![\w."])'
+                sql, n = re.subn(pattern, replace_bare, sql, flags=re.IGNORECASE)
+                if n > 0:
+                    logger.info(f"  步骤2: 裸 {col} 被替换 {n} 处")
+
+            # 步骤3：兜底——修复步骤1产生的三段式 "table"."alarm_record"."col"
+            # 例如："device"."alarm_record"."id" → "device"."id"
+            sql, n = re.subn(
+                r'"([^"]+)"\."alarm_record"\."([^"]+)"',
+                r'"".""',
+                sql,
+                flags=re.IGNORECASE
+            )
+            if n > 0:
+                logger.info(f"  步骤3: 修复三段式 {n} 处")
+
+            logger.info(f"歧义列名修复后 SQL: {sql[:300]}")
+        except Exception as e:
+            logger.warning(f"歧义列名修复失败: {e}")
+
+        return sql
+
+    def _fix_date_column_by_schema(self, sql: str) -> str:
+        """按真实表结构精确修复日期列名混淆
+
+        LLM 常见错误：把 "date"/"stat_date" 写成 "data_date"，
+        或反过来把 "data_date" 写成 "date"/"stat_date"。
+
+        真实表结构（来自 config/FWBZ_strut.sql）：
+            table_venue_flow_hour                   → "data_date"（table_venue_flow 已废弃）
+            table_parking_count / table_visitor_flow → "date"
+            table_personnel_statistics             → "stat_date"
+
+        策略：
+            1. 解析 SQL 中 FROM/JOIN 的表别名映射 (alias → table)
+            2. 对 qualified 引用 (alias."data_date")：按别名查真实表，
+               查表的真实日期列名做替换
+            3. 对 bare 引用 ("data_date")：若查询涉及的所有表都没有 data_date 列，才替换；
+               若有任一表有 data_date 列，保留（交给列校验兜底）
+        """
+        try:
+            from app.core.dameng import _load_schema_from_file
+
+            schema = _load_schema_from_file()
+            if not schema:
+                return sql
+
+            # 只在 SQL 含 "data_date" 或 "stat_date" 时才处理
+            if not re.search(r'"(data_date|stat_date)"', sql, re.IGNORECASE):
+                return sql
+
+            # 日期列候选：data_date / date / stat_date
+            DATE_COLS = ('data_date', 'date', 'stat_date')
+
+            def _find_real_date_col(table_lower: str) -> Optional[str]:
+                """返回该表的真实日期列名（小写），没有则 None"""
+                cols = schema.get(table_lower, set())
+                for c in DATE_COLS:
+                    if c in cols:
+                        return c
+                return None
+
+            # ========== 1. 解析 FROM/JOIN 的表+别名映射 ==========
+            alias_to_table: dict[str, str] = {}
+            sql_keywords_skip = {
+                "select", "from", "where", "group", "order", "having", "limit",
+                "offset", "union", "with", "on", "as", "join", "inner", "left",
+                "right", "outer", "full", "cross", "and", "or", "not", "in",
+                "is", "null", "like", "between", "exists", "case", "when",
+                "then", "else", "end", "set", "values", "into", "update",
+            }
+            from_table_pattern = re.compile(
+                r'\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+'
+                r'(?:(?:"?FWBZ"?\s*\.\s*)?)?"?([A-Za-z_]\w*)"?'
+                r'(?:\s+(?:AS\s+)?"?([A-Za-z_]\w*)"?)?',
+                re.IGNORECASE,
+            )
+            for m in from_table_pattern.finditer(sql):
+                table = m.group(1)
+                alias = m.group(2)
+                if not table or table.lower() in sql_keywords_skip:
+                    continue
+                tl = table.lower()
+                if not alias or alias.lower() in sql_keywords_skip:
+                    al = tl
+                else:
+                    al = alias.lower()
+                alias_to_table[al] = tl
+
+            real_tables = set(alias_to_table.values())
+
+            # ========== 2. 处理 qualified 引用: alias."data_date"/alias."stat_date" ==========
+            # 按 alias 反查真实表，再查该表的真实日期列名做替换
+            def _replace_qualified(m):
+                alias_part = m.group(1)  # 如 v. 或 "v".
+                col = m.group(2).lower()  # data_date 或 stat_date
+                alias_match = re.match(r'"?(\w+)"?\s*\.\s*$', alias_part)
+                if alias_match:
+                    alias = alias_match.group(1).lower()
+                    table = alias_to_table.get(alias)
+                    if table:
+                        real_col = _find_real_date_col(table)
+                        # 真实日期列存在 且 和 LLM 写的不同 → 替换
+                        if real_col and real_col != col:
+                            return f'{alias_part}"{real_col}"'
+                return m.group(0)
+
+            sql = re.sub(
+                r'("?(\w+)"?\s*\.\s*)"(data_date|stat_date)"',
+                _replace_qualified,
+                sql,
+                flags=re.IGNORECASE,
+            )
+
+            # ========== 3. 处理 bare "data_date"/"stat_date" ==========
+            # 只在查询涉及的所有表都没有 data_date 列时，才替换 bare 引用
+            # （如果有 table_venue_flow_hour 等有 data_date 的表，bare 引用归属不明，保留交给列校验）
+            tables_have_data_date = {t for t in real_tables if 'data_date' in schema.get(t, set())}
+            if not tables_have_data_date and real_tables:
+                # 所有表都没有 data_date 列，可以安全替换 bare 引用
+                # 但需要按表的真实日期列替换，若有多种日期列则无法全局替换
+                real_date_cols = {_find_real_date_col(t) for t in real_tables}
+                real_date_cols.discard(None)
+                # 如果所有表的真实日期列名一致，按该列名替换
+                if len(real_date_cols) == 1:
+                    target_col = real_date_cols.pop()
+                    sql = re.sub(r'"data_date"', f'"{target_col}"', sql, flags=re.IGNORECASE)
+                    sql = re.sub(r'"stat_date"', f'"{target_col}"', sql, flags=re.IGNORECASE)
+
+            return sql
+        except Exception as e:
+            logger.warning(f"日期列修复失败: {e}")
+            return sql
+
     def _format_column_label(self, col_name: str) -> str:
         """将英文列名格式化为中文标签"""
         mapping = {
@@ -1197,7 +1856,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # 告警相关
             "alarm_content": "告警内容", "alarm_time": "告警时间", "alarm_category_name": "告警类别",
             "alarm_level_name": "告警级别", "alarm_status": "告警状态", "alarm_count": "告警数量",
-            "charge_person_name": "责任人", "process_time": "处理时间",
+            "charge_person_name": "责任人",
             # 场馆相关
             "venue_name": "场馆名称", "venue_id": "场馆ID", "floors": "楼层数", "orientation": "朝向",
             "longitude": "经度", "latitude": "纬度",
@@ -1625,6 +2284,277 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             return str(o)
         return json.dumps(obj, ensure_ascii=False, default=default)
 
+    async def _handle_energy_query(
+        self,
+        question: str,
+        access_time: datetime,
+        client_ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        on_summary: Optional[callable] = None,
+    ) -> AsyncIterator[str]:
+        """处理按能介统计能耗的查询(公式计算分支)
+
+        流程:
+          1. 解析时间范围
+          2. 查 metering_point 配置(true_formula)
+          3. 查 energy_medium_manage 能介名称映射
+          4. 批量查 data_day 按 device_id 汇总
+          5. 按公式求值, 按能介分组
+          6. emit table/chart/summary SSE 事件
+        """
+        from datetime import date, timedelta
+        from decimal import Decimal
+
+        stream_summary = {
+            "mode": "energy",
+            "qid": None,
+            "match_confidence": 0.0,
+            "fallback_reason": None,
+            "sql": None,
+            "table": None,
+            "chart": None,
+            "summary": None,
+            "row_count": 0,
+            "error": None,
+        }
+
+        try:
+            # ========== 步骤 1: 解析时间范围 ==========
+            start_date, end_date = self._parse_energy_time_range(question)
+            logger.info(f"能耗查询: question={question}, time={start_date}~{end_date}")
+
+            yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在查询能耗配置...'})}\n\n"
+
+            # ========== 步骤 2: 查 metering_point 配置 ==========
+            mp_sql = (
+                'SELECT "id", "node_name", "type", "true_formula" '
+                'FROM "FWBZ"."metering_point" '
+                'WHERE "true_formula" IS NOT NULL AND "true_formula" <> \'\' '
+                'LIMIT 500 OFFSET 0'
+            )
+            metering_points = execute_query(mp_sql)
+
+            if not metering_points:
+                stream_summary["error"] = "无 true_formula 配置"
+                stream_summary["summary"] = "未找到能耗计量点配置，无法计算。"
+                yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '未找到能耗计量点配置，无法计算。'})}\n\n"
+                yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                if on_summary:
+                    await on_summary(stream_summary)
+                return
+
+            logger.info(f"查到 {len(metering_points)} 个计量点配置")
+
+            # ========== 步骤 3: 查 energy_medium_manage 能介名称 ==========
+            medium_name_map = {}
+            try:
+                medium_sql = 'SELECT "code", "name" FROM "FWBZ"."energy_medium_manage" LIMIT 100 OFFSET 0'
+                medium_rows = execute_query(medium_sql)
+                for row in medium_rows or []:
+                    code = str(row.get("code", "")).strip()
+                    name = str(row.get("name", "")).strip()
+                    if code:
+                        medium_name_map[code] = name
+            except Exception as e:
+                logger.warning(f"能介名称查询失败, 用 type 原值: {e}")
+
+            # ========== 步骤 4: 提取 device_code 并映射到 device.id ==========
+            all_device_codes = set()
+            for mp in metering_points:
+                formula = mp.get("true_formula") or ""
+                codes = self._extract_device_ids(formula)
+                all_device_codes.update(codes)
+
+            if not all_device_codes:
+                stream_summary["error"] = "公式无有效设备引用"
+                stream_summary["summary"] = "能耗公式无有效设备引用。"
+                yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '能耗公式无有效设备引用。'})}\n\n"
+                yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                if on_summary:
+                    await on_summary(stream_summary)
+                return
+
+            logger.info(f"共 {len(all_device_codes)} 个 device_code 需查询")
+
+            # 查 device 表, 建 device_code -> device.id 映射 (分批, 每批 1000)
+            code_to_id = {}  # device_code (str) -> device.id (int)
+            code_list = list(all_device_codes)
+            for i in range(0, len(code_list), 1000):
+                chunk = code_list[i:i + 1000]
+                codes_sql = ",".join(f"'{c.replace(chr(39), chr(39)*2)}'" for c in chunk)
+                device_sql = (
+                    f'SELECT "id", "device_code" '
+                    f'FROM "FWBZ"."device" '
+                    f'WHERE "device_code" IN ({codes_sql}) '
+                    f'LIMIT 5000 OFFSET 0'
+                )
+                try:
+                    rows = execute_query(device_sql)
+                    for row in rows or []:
+                        did = row.get("id")
+                        dcode = str(row.get("device_code") or "").strip()
+                        if did is not None and dcode:
+                            code_to_id[dcode] = did
+                except Exception as e:
+                    logger.error(f"device 查询失败 (chunk {i}): {e}")
+
+            logger.info(f"device 映射完成, {len(code_to_id)} 个有对应 id")
+
+            if not code_to_id:
+                stream_summary["error"] = "device_code 无对应设备"
+                stream_summary["summary"] = "能耗公式引用的设备在设备表中未找到。"
+                yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '能耗公式引用的设备在设备表中未找到。'})}\n\n"
+                yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                if on_summary:
+                    await on_summary(stream_summary)
+                return
+
+            # 批量查 data_day (分批, 每批 1000)
+            # key: device_code (str) -> total_value (float)
+            device_values = {}
+            id_to_code = {v: k for k, v in code_to_id.items()}
+            device_id_list = list(id_to_code.keys())
+            # 时间范围: 半开区间 [start, end+1day)
+            start_str = start_date.strftime("%Y-%m-%d")
+            end_plus_1 = (end_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+            for i in range(0, len(device_id_list), 1000):
+                chunk = device_id_list[i:i + 1000]
+                id_list_str = ",".join(str(d) for d in chunk)
+                data_sql = (
+                    f'SELECT "device_id", SUM("value") AS "total_value" '
+                    f'FROM "FWBZ"."data_day" '
+                    f'WHERE "device_id" IN ({id_list_str}) '
+                    f"AND \"time\" >= TO_DATE('{start_str}', 'YYYY-MM-DD') "
+                    f"AND \"time\" < TO_DATE('{end_plus_1}', 'YYYY-MM-DD') "
+                    f'GROUP BY "device_id" LIMIT 5000 OFFSET 0'
+                )
+                try:
+                    rows = execute_query(data_sql)
+                    for row in rows or []:
+                        dev_id = row.get("device_id")
+                        val = row.get("total_value")
+                        if dev_id is not None and val is not None:
+                            dcode = id_to_code.get(dev_id)
+                            if dcode:
+                                device_values[dcode] = float(val)
+                except Exception as e:
+                    logger.error(f"data_day 批量查询失败 (chunk {i}): {e}")
+
+            logger.info(f"data_day 查询完成, {len(device_values)} 个设备有数据")
+
+            if not device_values:
+                stream_summary["error"] = "无能耗数据"
+                stream_summary["summary"] = "所选时间范围内无能耗数据。"
+                yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '所选时间范围内无能耗数据。'})}\n\n"
+                yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                if on_summary:
+                    await on_summary(stream_summary)
+                return
+
+            # ========== 步骤 5: 按公式求值并按能介分组 ==========
+            medium_totals = {}  # type_code -> sum
+            for mp in metering_points:
+                formula = mp.get("true_formula") or ""
+                type_code = str(mp.get("type") or "").strip()
+                val = self._eval_formula(formula, device_values)
+                if val is not None:
+                    medium_totals[type_code] = medium_totals.get(type_code, 0) + val
+
+            if not medium_totals:
+                stream_summary["error"] = "公式求值全失败"
+                stream_summary["summary"] = "能耗公式计算失败，请检查设备数据完整性。"
+                yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '能耗公式计算失败，请检查设备数据完整性。'})}\n\n"
+                yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                if on_summary:
+                    await on_summary(stream_summary)
+                return
+
+            # 组装结果行
+            energy_rows = []
+            for type_code, total in medium_totals.items():
+                readable = medium_name_map.get(type_code) or type_code or "未知"
+                energy_rows.append({
+                    "energy_medium": readable,
+                    "total_value": round(Decimal(str(total)), 4),
+                })
+            # 按能耗降序
+            energy_rows.sort(key=lambda r: float(r["total_value"]), reverse=True)
+
+            # ========== 步骤 6: emit table ==========
+            vue_table = {
+                "columns": [
+                    {"key": "energy_medium", "label": "能介"},
+                    {"key": "total_value", "label": "累计能耗"},
+                ],
+                "rows": [
+                    {"energy_medium": r["energy_medium"], "total_value": str(r["total_value"])}
+                    for r in energy_rows
+                ],
+                "total": len(energy_rows),
+            }
+            stream_summary["table"] = vue_table
+            stream_summary["row_count"] = len(energy_rows)
+            # 伪 SQL 描述(前端展示用, 不执行)
+            pseudo_sql = f"-- 能耗公式计算: 读 metering_point.true_formula, 按 type 分组汇总 (时间: {start_str} ~ {end_date.strftime('%Y-%m-%d')})"
+            stream_summary["sql"] = pseudo_sql
+            yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': pseudo_sql})}\n\n"
+            yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
+            await asyncio.sleep(0)
+
+            # ========== 步骤 7: emit chart (bar) ==========
+            chart_id = f"chart_energy_{datetime.now().strftime('%H%M%S%f')}"
+            x_axis = [r["energy_medium"] for r in energy_rows]
+            series_data = [float(r["total_value"]) for r in energy_rows]
+            chart = {
+                "chartType": "bar",
+                "chartId": chart_id,
+                "option": {
+                    "title": {"text": self._gen_chart_title(question, "能耗"), "left": "center"},
+                    "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                    "grid": {"left": "3%", "right": "4%", "bottom": "12%", "containLabel": True},
+                    "xAxis": {"type": "category", "data": x_axis, "axisLabel": {"rotate": 30, "interval": 0}},
+                    "yAxis": {"type": "value", "name": "累计能耗"},
+                    "series": [{
+                        "type": "bar",
+                        "data": series_data,
+                        "itemStyle": {
+                            "color": {"type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1,
+                                "colorStops": [
+                                    {"offset": 0, "color": "#5470C6"},
+                                    {"offset": 1, "color": "#91CC75"},
+                                ],
+                            },
+                            "borderRadius": [4, 4, 0, 0],
+                        },
+                        "label": {"show": True, "position": "top", "formatter": "{c}"},
+                    }],
+                },
+            }
+            stream_summary["chart"] = {"chartType": "bar", "chartId": chart_id}
+            yield f"data: {self._safe_json_dumps({'type': 'chart', **chart})}\n\n"
+            await asyncio.sleep(0)
+
+            # ========== 步骤 8: emit summary ==========
+            yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
+            summary = self._generate_summary(question, energy_rows, vue_table)
+            summary = summary.replace('\n', ' ').replace('\r', '').strip()
+            stream_summary["summary"] = summary
+            yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
+            await asyncio.sleep(0)
+
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+
+        except Exception as exc:
+            logger.exception(f"能耗查询异常: {exc}")
+            stream_summary["error"] = f"能耗查询异常: {exc}"
+            yield f"data: {self._safe_json_dumps({'type': 'error', 'message': f'能耗查询异常: {exc}'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+
     async def stream_chat(
         self,
         payload: dict[str, Any],
@@ -1637,15 +2567,32 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
     ) -> AsyncIterator[str]:
         """
         执行流式对话，产出 SSE 格式数据。
-        支持两种模式：
-        1. 数据库相关 → 生成SQL查询 → 返回 ECharts + Vue表格 + 总结
-        2. 非数据库相关 → 直接流式 LLM 回答
+
+        新版流程 (2026-08-31 改造):
+            1. QA 匹配: 调 LLM 比对"问题清单", 拿到 Q-ID
+            2. 匹配上 → 拿"问答手册"中该 Q-ID 的 SQL 范式
+                       → 调 LLM 生成 SQL (带范式参考)
+                       → SQL 安全门 → 达梦执行 → 表格/图表/总结
+            3. 未匹配 → 直接调 LLM 流式 (兜底回答, 跳过 SQL 路径)
+
+        SSE 事件协议保持 (前端零改动):
+            - mode: {value, message}
+            - sql: {sql}
+            - table: {columns, rows, total}
+            - chart: {chartType, chartId, option}
+            - summary: {content}
+            - message: {content}  (兜底分支的流式 token)
+            - error: {message}
+            - done: true
         """
         full_reply = ""
         mode = "unknown"
         # 收集流式结果摘要，供日志记录
         stream_summary = {
             "mode": None,
+            "qid": None,
+            "match_confidence": 0.0,
+            "fallback_reason": None,
             "sql": None,
             "table": None,
             "chart": None,
@@ -1655,17 +2602,63 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         }
 
         try:
-            # ========== 阶段1：判断是否数据库相关 ==========
+            # ========== 阶段1：QA 匹配 (核心: LLM 判用户问题 vs 问题清单) ==========
             yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'detecting'})}\n\n"
-            is_db_related = self._detect_db_related(question)
 
-            if is_db_related:
-                mode = "db"
+            # 能耗公式计算分支(拦截在 QA 匹配之前, 避免 30s 超时)
+            if self._is_energy_formula_query(question):
+                async for chunk in self._handle_energy_query(
+                    question, access_time, client_ip, user_agent, on_summary
+                ):
+                    yield chunk
+                return
+
+            match_result = None
+            try:
+                from app.services.qa_matcher import get_qa_matcher
+                from app.services.sql_template_loader import get_template_loader
+
+                matcher = get_qa_matcher()
+                template_loader = get_template_loader()
+
+                if matcher.available():
+                    # 同步阻塞调用 → 放线程池, 不卡 event loop
+                    match_result = await asyncio.to_thread(matcher.match, question)
+                else:
+                    logger.warning("QA 匹配器不可用, 走兜底")
+            except Exception as e:
+                logger.exception(f"QA 匹配异常, 走兜底: {e}")
+
+            # 判定是否匹配
+            #   - match_result.matched 用 confidence >= 0.6, 适合 LLM 时代
+            #   - 现在用 TF-IDF (score 通常 0.05~0.5), 改用 best_qid 非空判定
+            #   - TF-IDF 内部已有阈值过滤 (tfidf_threshold=0.15), 到这里 best_qid 非空 = 已过滤掉低质量候选
+            matched = (
+                match_result is not None
+                and bool(match_result.best_qid)
+            )
+
+            if matched:
+                qid = match_result.best_qid
+                confidence = match_result.best_confidence
                 stream_summary["mode"] = "db"
-                yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在分析数据库...'})}\n\n"
+                stream_summary["qid"] = qid
+                stream_summary["match_confidence"] = round(confidence, 3)
 
-                # ========== 阶段2：生成 SQL ==========
-                sql = self._generate_sql(question)
+                # 拿该 Q-ID 的 SQL 范式
+                sql_template = template_loader.get(qid) or ""
+                if not sql_template:
+                    logger.warning(f"Q{qid} 在问答手册中无 SQL 范式, 仍走 DB 模式但无范式参考")
+
+                mode = "db"
+                yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': f'匹配到标准问题 Q{qid} (置信度 {confidence:.0%}), 正在生成查询...'})}\n\n"
+
+                # ========== 阶段2：生成 SQL (带 Q-ID 范式) ==========
+                sql = self._generate_sql(
+                    question,
+                    sql_template=sql_template or None,
+                    qid=qid if sql_template else None,
+                )
                 if not sql:
                     stream_summary["error"] = "无法生成查询语句"
                     stream_summary["summary"] = None
@@ -1679,7 +2672,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': sql})}\n\n"
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在执行查询...'})}\n\n"
 
-                # ========== 阶段3：执行 SQL ==========
+                # ========== 阶段3：执行 SQL (内置 sql_guard 严格门) ==========
                 data, err = self._execute_sql(sql)
                 if err:
                     stream_summary["error"] = f"查询执行失败: {err}"
@@ -1722,15 +2715,33 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
                 await asyncio.sleep(0)
 
-                full_reply = f"[数据库查询结果] {summary}"
+                full_reply = f"[Q{qid} 匹配] {summary}"
                 yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
                 if on_summary:
                     await on_summary(stream_summary)
 
             else:
-                # ========== 非数据库相关：直接流式 LLM 回答 ==========
+                # ========== 兜底分支: 未匹配到标准问题, 直接调 LLM 流式回答 ==========
                 mode = "llm"
                 stream_summary["mode"] = "llm"
+                if match_result is not None:
+                    if match_result.error:
+                        stream_summary["fallback_reason"] = f"匹配异常: {match_result.error}"
+                    elif not match_result.best_qid:
+                        stream_summary["fallback_reason"] = "问题清单无匹配"
+                    else:
+                        stream_summary["fallback_reason"] = (
+                            f"匹配 Q{match_result.best_qid} 但置信度 {match_result.best_confidence:.0%} < 60%"
+                        )
+                else:
+                    stream_summary["fallback_reason"] = "匹配器不可用"
+
+                logger.info(
+                    f"兜底分支: 走 LLM 流式 | 原因={stream_summary['fallback_reason']}"
+                )
+
+                yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'llm', 'message': '本问题未匹配到业务清单, 使用通用 LLM 回答...'})}\n\n"
+
                 response_parts = []
                 prompt_tokens = None
                 completion_tokens = None

@@ -144,32 +144,76 @@ class AIPredictReportRequest(BaseModel):
     device_name: Optional[str] = Field(None, description="设备名称(可选)")
 
 
-class AIPredictItem(BaseModel):
-    """预测项"""
-    item_name: str = Field(..., description="预测项名称")
-    predict_value: str = Field(..., description="预测值")
-    confidence: Optional[float] = Field(None, description="置信度(0-1)")
-    trend: str = Field(..., description="趋势: up=上升, down=下降, stable=稳定")
-    description: Optional[str] = Field(None, description="预测描述")
+# ---- 预测报告子模型 ----
+
+class PredictMetricCard(BaseModel):
+    """预测报告关键指标卡片"""
+    value: str = Field(..., description="指标值（含变化方向，如：↑12.5%）")
+    label: str = Field(..., description="指标名称")
+    change: Optional[str] = Field(None, description="较上月变化（如：+2.3%）")
+    unit: Optional[str] = Field(None, description="单位")
 
 
-class AIWarningItem(BaseModel):
-    """预警项"""
+class EnergyTrendPoint(BaseModel):
+    """能耗趋势数据点"""
+    date: str = Field(..., description="日期（YYYY-MM-DD）")
+    value: Optional[float] = Field(None, description="历史/实际能耗值")
+    predicted_value: Optional[float] = Field(None, description="预测能耗值")
+    confidence_low: Optional[float] = Field(None, description="置信区间下限")
+    confidence_high: Optional[float] = Field(None, description="置信区间上限")
+
+
+class EnergyTrendChart(BaseModel):
+    """能耗趋势图表数据"""
+    history_data: List[EnergyTrendPoint] = Field(default_factory=list, description="历史数据点")
+    prediction_data: List[EnergyTrendPoint] = Field(default_factory=list, description="预测数据点（含置信区间）")
+    unit: Optional[str] = Field(None, description="能耗单位（如：kWh）")
+
+
+class EquipmentWarningItem(BaseModel):
+    """AI预测设备预警清单项"""
+    device_id: Optional[int] = Field(None, description="设备ID")
+    device_code: Optional[str] = Field(None, description="设备编号")
     device_name: str = Field(..., description="设备名称")
-    warning_type: str = Field(..., description="预警类型")
-    warning_content: str = Field(..., description="预警内容")
-    confidence: Optional[float] = Field(None, description="置信度")
-    suggest_time: Optional[str] = Field(None, description="建议处理时间")
+    warning_type: str = Field(..., description="预警类型（如：效率衰减、温度上升、寿命预警等）")
+    warning_content: str = Field(..., description="预警内容描述")
+    time_window_hours: Optional[int] = Field(None, description="预测触发时间窗口（小时）")
+    confidence: float = Field(..., description="预测置信度（0-1）")
+    suggest_time: Optional[str] = Field(None, description="建议处理时间（如：2小时内）")
+    priority: Optional[str] = Field(None, description="优先级：高/中/低")
 
 
 class AIPredictReportResponse(BaseModel):
     """AI预测报告响应"""
     report_id: Optional[int] = Field(None, description="报告ID(已保存到数据库)")
+    
+    # ---- 报告概述 ----
     report_title: str = Field(..., description="报告标题")
-    predict_items: List[AIPredictItem] = Field(default_factory=list, description="预测项列表")
-    warning_items: List[AIWarningItem] = Field(default_factory=list, description="预警项列表")
-    summary: str = Field(..., description="AI预测总结")
-    suggestions: List[str] = Field(default_factory=list, description="建议")
+    report_desc: str = Field(..., description="报告描述")
+    report_target: str = Field(..., description="报告对象")
+    prediction_models: str = Field(..., description="预测模型（如：LSTM时序预测模型 + XGBoost回归模型）")
+    confidence_interval: str = Field(..., description="置信区间（如：95%）")
+    core_conclusion: str = Field(..., description="核心结论（不超过100字）")
+    
+    # ---- 顶部关键指标卡（4个）----
+    key_metrics: List[PredictMetricCard] = Field(default_factory=list, description="关键指标卡片列表")
+    
+    # ---- 核心预测结果大数字卡片（4个）----
+    air_condition_predict: Optional[PredictMetricCard] = Field(None, description="空调能耗预测")
+    total_electricity_predict: Optional[PredictMetricCard] = Field(None, description="总用电量预测")
+    high_risk_equipment_count: Optional[PredictMetricCard] = Field(None, description="高风险设备数量")
+    prediction_confidence: Optional[PredictMetricCard] = Field(None, description="预测置信度")
+    
+    # ---- 能耗趋势预测（折线图数据）----
+    energy_trend_chart: Optional[EnergyTrendChart] = Field(None, description="能耗趋势图表数据")
+    
+    # ---- AI预测设备预警清单 ----
+    warning_items: List[EquipmentWarningItem] = Field(default_factory=list, description="AI预测设备预警清单")
+    warning_count: int = Field(0, description="预警总数")
+    
+    # ---- 总结和建议 ----
+    summary: str = Field(..., description="AI预测总结（不超过100字）")
+    suggestions: List[str] = Field(default_factory=list, description="建议列表")
 
 
 # ============ AI节能报告 ============
@@ -339,6 +383,48 @@ class CarbonTrendItem(BaseModel):
     target: Optional[float] = Field(None, description="目标排放量(吨CO₂)")
 
 
+# ============ 碳排放分析（根据图片要求）============
+
+class CarbonPerformanceMetrics(BaseModel):
+    """碳排放绩效指标"""
+    monthly_carbon: float = Field(..., description="本月碳排放量（吨CO₂）")
+    month_over_month_change: Optional[str] = Field(None, description="环比变化（如：-5.8%，下降为负）")
+    carbon_intensity: Optional[float] = Field(None, description="碳强度（kgCO₂/m²）")
+    reduction_potential: Optional[str] = Field(None, description="减排潜力（如：12.3%）")
+
+
+class CarbonSourceAnalysis(BaseModel):
+    """碳排放来源结构分析"""
+    total_carbon: float = Field(..., description="总碳排放量（吨CO₂）")
+    sources: List[CarbonSourceItem] = Field(default_factory=list, description="各来源占比列表")
+
+
+class CarbonTrendAnalysis(BaseModel):
+    """碳排放趋势分析"""
+    trend_items: List[CarbonTrendItem] = Field(default_factory=list, description="月度趋势数据")
+    peak_month: Optional[str] = Field(None, description="排放最高月份")
+    trough_month: Optional[str] = Field(None, description="排放最低月份")
+    average: Optional[float] = Field(None, description="月均排放量")
+
+
+class CarbonTargetComparison(BaseModel):
+    """碳排放目标对比"""
+    months: List[str] = Field(default_factory=list, description="月份列表")
+    actual_data: List[float] = Field(default_factory=list, description="实际排放量列表")
+    target_data: List[float] = Field(default_factory=list, description="目标排放量列表")
+    exceed_count: int = Field(0, description="超标月份数")
+    achieve_count: int = Field(0, description="达标月份数")
+
+
+class CarbonAnalysisResult(BaseModel):
+    """碳排放分析结果"""
+    performance: CarbonPerformanceMetrics = Field(..., description="整体碳排放绩效指标")
+    source_analysis: CarbonSourceAnalysis = Field(..., description="碳排放来源结构分析")
+    trend_analysis: CarbonTrendAnalysis = Field(..., description="碳排放时间趋势分析")
+    target_comparison: CarbonTargetComparison = Field(..., description="实际排放与目标对比")
+    core_conclusion: Optional[str] = Field(None, description="核心管理结论")
+
+
 class AICarbonReportResponse(BaseModel):
     """多模态能碳计算报告响应"""
     report_id: Optional[int] = Field(None, description="报告ID(已保存到数据库)")
@@ -362,6 +448,9 @@ class AICarbonReportResponse(BaseModel):
     
     # 碳排放趋势
     carbon_trends: List[CarbonTrendItem] = Field(default_factory=list, description="碳排放月度趋势")
+    
+    # 碳排放深度分析（根据图片要求新增）
+    carbon_analysis: Optional[CarbonAnalysisResult] = Field(None, description="碳排放深度分析结果")
     
     # 总结和建议
     summary: str = Field(..., description="AI分析总结")

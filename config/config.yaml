@@ -11,10 +11,10 @@ app:
     - "*"
 
 ollama:
-  chat_url: "http://192.168.204.169:11434/api/chat"
-#  chat_url: "http://localhost:11434/api/chat"
-  tags_url: "http://192.168.204.169:11434/api/tags"
-#  tags_url: "http://localhost:11434/api/tags"
+  #chat_url: "http://10.61.13.137:11434/api/chat"
+  chat_url: "http://localhost:11434/api/chat"
+  #tags_url: "http://10.61.13.137:11434/api/tags"
+  tags_url: "http://localhost:11434/api/tags"
   model: "qwen3.5:9b"
   timeout: 300.0          # 请求超时（秒）
   num_gpu: 99            # GPU 加速，99 表示全 GPU
@@ -30,12 +30,12 @@ model_defaults:
 
 # PostgreSQL - 访问日志存储
 database:
-  host: "192.168.204.169"
-#  host: "localhost"
+#  host: "192.168.204.169"
+  host: "localhost"
   port: 5432
   user: "postgres"
-  password: "PG_617871572"
-#  password: "postgres"
+#  password: "PG_617871572"
+  password: "postgres"
   name: "Hephaestus"
   min_size: 1
   max_size: 5

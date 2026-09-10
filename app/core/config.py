@@ -1,5 +1,4 @@
 """配置加载模块"""
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -150,11 +149,9 @@ class Settings:
     model_defaults: ModelDefaultsConfig
     app: AppConfig
     logging: LoggingConfig
-    query_config: Dict[str, Any]  # query.json 内容
 
     def __init__(self):
         self._load_main_config()
-        self._load_query_config()
 
     def _load_main_config(self) -> None:
         """加载主配置文件 config.yaml"""
@@ -174,16 +171,6 @@ class Settings:
         self.app = AppConfig(**data.get("app", {}))
         self.logging = LoggingConfig(**data.get("logging", {}))
 
-    def _load_query_config(self) -> None:
-        """加载 query.json 表结构配置"""
-        config_path = PROJECT_ROOT / "config" / "query.json"
-        if config_path.exists():
-            with open(config_path, "r", encoding="utf-8") as f:
-                self.query_config = json.load(f)
-        else:
-            self.query_config = {}
-            logger.warning("query.json 不存在，表结构信息将不可用")
-
     def _use_defaults(self) -> None:
         """使用硬编码默认值（兼容旧代码）"""
         self.database = DatabaseConfig()
@@ -192,7 +179,6 @@ class Settings:
         self.model_defaults = ModelDefaultsConfig()
         self.app = AppConfig()
         self.logging = LoggingConfig()
-        self.query_config = {}
 
 
 # 全局单例

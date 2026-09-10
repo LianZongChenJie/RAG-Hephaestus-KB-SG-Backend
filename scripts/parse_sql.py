@@ -18,7 +18,7 @@ def simplify_query_json(input_path: str, output_path: str) -> None:
         # 人员统计 - 服务人次、满意度
         "table_personnel_statistics",
         # 场馆客流 - 总客流、峰值客流
-        "table_venue_flow",
+        "table_venue_flow_hour",
         "table_venue_info",
         # 展会信息 - 展会天数、参展商
         "table_activeMeet_info",
@@ -52,7 +52,7 @@ def simplify_query_json(input_path: str, output_path: str) -> None:
         },
         "venue_system": {
             "name": "场馆与会展",
-            "tables": ["table_venue_info", "table_venue_flow", "table_activeMeet_info",
+            "tables": ["table_venue_info", "table_venue_flow_hour", "table_activeMeet_info",
                        "table_activeMeet_preparation_info", "table_activeMeet_preparation_type"]
         },
         "energy_system": {

@@ -5,7 +5,7 @@ key_tables = [
     'device', 'alarm_record', 'data_day', 'data_hour',
     'equipment_category', 'table_venue_info', 'space',
     'metering_point', 'metering_point_data_day',
-    'table_personnel_statistics', 'table_venue_flow',
+    'table_personnel_statistics', 'table_venue_flow_hour',
     'lighting_area', 'lighting_circuit',
     'energy_pricing_config', 'standard_coal_coefficient',
     'carbon_emission_factor', 'ai_report_history',

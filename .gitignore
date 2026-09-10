@@ -8,6 +8,12 @@ __pycache__/
 .idea/
 .vscode/
 
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
 # 敏感配置本地覆盖文件
 config/local_*.yaml
 config/secrets.yaml

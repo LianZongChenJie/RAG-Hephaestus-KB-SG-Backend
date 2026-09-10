@@ -9,12 +9,71 @@
 import gzip
 import logging
 import os
+import random
 import shutil
+import time
 from datetime import datetime, timedelta
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from threading import Thread
 from typing import Optional
+
+
+class SafeTimedRotatingFileHandler(TimedRotatingFileHandler):
+    """Windows 多进程安全的 TimedRotatingFileHandler。
+
+    Uvicorn --reload 同时启动 reloader 父进程与 worker 子进程，
+    两者都会打开同一份 info.log / error.log。doRollover() 内部
+    os.rename 在 Windows 上要求源文件句柄全部释放，否则抛出
+    PermissionError [WinError 32]。
+
+    策略：失败后关闭自身句柄，按指数退避 + 随机抖动重试。由于
+    所有进程重试时都会关闭句柄，存在一个极短的时间窗口所有进程
+    都没有句柄打开，那个窗口里先到先得。全部重试都失败时静默让
+    出本次 rollover，下一次触发（通常是第二天）会再试，避免刷屏
+    和日志处理器的递归调用。
+    """
+
+    # 重试参数
+    _MAX_RETRIES = 8
+    _INITIAL_BACKOFF_S = 0.05      # 首次重试前等待 50ms
+    _MAX_BACKOFF_S = 0.4           # 单次重试最多等 400ms
+    _JITTER_S = 0.05               # 随机抖动上限，避免多进程同步重试
+
+    def doRollover(self):
+        backoff = self._INITIAL_BACKOFF_S
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                super().doRollover()
+                if attempt > 0:
+                    # 重试后成功：仅打印到 stderr，不走 logger 避免递归
+                    print(
+                        f"[logger] 日志轮转在第 {attempt + 1} 次重试后成功: "
+                        f"{self.baseFilename}",
+                        flush=True,
+                    )
+                return
+            except PermissionError as e:
+                # winerror == 32: 另一个程序正在使用此文件
+                if getattr(e, "winerror", None) != 32:
+                    raise
+                # 关闭自身句柄，让出文件
+                if self.stream is not None:
+                    try:
+                        self.stream.close()
+                    except Exception:
+                        pass
+                    self.stream = None
+                if attempt < self._MAX_RETRIES - 1:
+                    time.sleep(backoff + random.uniform(0, self._JITTER_S))
+                    backoff = min(backoff * 2, self._MAX_BACKOFF_S)
+        # 全部重试都放弃：静默让出本次 rollover
+        print(
+            f"[logger] 日志轮转失败（{self._MAX_RETRIES} 次重试后仍占用），"
+            f"放弃本次: {self.baseFilename}",
+            flush=True,
+        )
+
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -25,7 +84,7 @@ LOG_LEVEL = logging.INFO
 RETENTION_DAYS = 30  # 日志保留天数
 COMPRESS_AFTER_DAYS = 30  # 压缩超过此天数的日志
 CLEANUP_INTERVAL_HOURS = 6  # 清理检查间隔（小时）
-CONSOLE_LOG_MAX_LENGTH = 50000  # 控制台日志最大字符数（设为超大值，禁用截断）
+CONSOLE_LOG_MAX_LENGTH = 200  # 控制台日志最大字符数（设为超大值，禁用截断）
 
 
 def setup_logs_directory():
@@ -95,7 +154,7 @@ def setup_logger(
 
     # 文件处理器（如果指定了日志文件，使用完整格式化器）
     if log_file:
-        file_handler = TimedRotatingFileHandler(
+        file_handler = SafeTimedRotatingFileHandler(
             filename=str(log_file),
             when="midnight",
             interval=1,
@@ -141,7 +200,7 @@ class InfoErrorLogger:
             self.logger.addHandler(console_handler)
 
             # Info 文件（记录完整日志）
-            info_handler = TimedRotatingFileHandler(
+            info_handler = SafeTimedRotatingFileHandler(
                 filename=str(get_log_file_path("info")),
                 when="midnight",
                 interval=1,
@@ -154,7 +213,7 @@ class InfoErrorLogger:
             self.logger.addHandler(info_handler)
 
             # Error 文件（记录完整日志）
-            error_handler = TimedRotatingFileHandler(
+            error_handler = SafeTimedRotatingFileHandler(
                 filename=str(get_log_file_path("error")),
                 when="midnight",
                 interval=1,

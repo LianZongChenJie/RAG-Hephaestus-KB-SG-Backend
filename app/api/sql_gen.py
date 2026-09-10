@@ -42,7 +42,7 @@ async def generate_sql(request: Request, body: GenerateSQLRequest) -> GenerateSQ
     """
     根据用户问题和历史上下文，调用大模型生成 SQL 语句。
 
-    - 读取 config/query.json 获取数据库表结构
+    - 读取 config/FWBZ_strut.sql 获取数据库表结构
     - 结合历史对话理解上下文
     - 返回生成的 SQL 及其说明
     """
@@ -81,7 +81,7 @@ async def generate_sql_by_device(request: Request, body: GenerateSQLByDeviceRequ
     """
     根据设备ID生成 SQL 查询语句。
 
-    前端传入设备ID，系统调用大模型根据该设备ID和query.json表结构，
+    前端传入设备ID，系统调用大模型根据该设备ID和 FWBZ_strut.sql 表结构，
     生成获取设备相关数据的SQL。
 
     示例请求：
