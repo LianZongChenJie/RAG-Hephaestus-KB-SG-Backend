@@ -116,7 +116,8 @@ class AIReportHistoryService:
             execute_update(sql, params)
             # 获取刚插入的ID
             result = execute_query('SELECT MAX("id") as new_id FROM FWBZ."ai_report_history"')
-            new_id = result[0].get('NEW_ID', 0) if result else 0
+            row = result[0] if result else {}
+            new_id = row.get("new_id") or row.get("NEW_ID") or 0
             logger.info(f"报告已保存，ID: {new_id}")
             return new_id
         except Exception as exc:

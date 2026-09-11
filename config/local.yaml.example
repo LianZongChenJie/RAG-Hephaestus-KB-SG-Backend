@@ -1,0 +1,10 @@
+# 本机调试覆盖。复制为 config/local.yaml 后填入 api_key。
+# 已 gitignore，不要部署到 105。
+# 105 只读 config.yaml，使用 10.61.13.137:11434 的 Ollama。
+
+ollama:
+  provider: openai
+  base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+  model: "qwen3.8-flash"
+  think: false
+  api_key: ""

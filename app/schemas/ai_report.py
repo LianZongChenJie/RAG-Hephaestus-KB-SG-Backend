@@ -2,7 +2,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ReportScope(str, Enum):
@@ -653,6 +653,15 @@ class EnergyAnalysisAnalyzeRequest(BaseModel):
     1. 前端自行查询后传入的平铺结构（推荐）
     2. 嵌套结构（兼容性）
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "system_type": "overview",
+                "time_range": "day",
+            }
+        }
+    )
+
     # 方式1：平铺结构（前端直接传）
     query_params: Optional[Dict[str, Any]] = Field(None, description="查询参数")
     overview: Optional[Dict[str, Any]] = Field(None, description="概览数据")

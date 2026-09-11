@@ -84,6 +84,147 @@ class AIReportService:
     def __init__(self):
         self.ollama = OllamaClient()
 
+    _SWAGGER_PLACEHOLDER_KEYS = frozenset({"additionalprop1", "additionalprop2", "additionalprop3"})
+    _VALID_SYSTEM_TYPES = frozenset({
+        "overview", "air_condition", "fresh_air",
+        "power_distribution", "cold_source", "photovoltaic", "all",
+    })
+    _VALID_TIME_RANGES = frozenset({"day", "week", "month", "quarter", "year"})
+
+    @staticmethod
+    def _normalize_optional_str(value: Optional[str]) -> Optional[str]:
+        """把 Swagger 占位值（string/null）当成未传。"""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            value = str(value)
+        stripped = value.strip()
+        if not stripped or stripped.lower() in ("string", "null", "none", "undefined"):
+            return None
+        return stripped
+
+    @classmethod
+    def _normalize_system_type(cls, value: Optional[str]) -> str:
+        normalized = cls._normalize_optional_str(value)
+        if normalized in cls._VALID_SYSTEM_TYPES:
+            return normalized
+        return "overview"
+
+    @classmethod
+    def _normalize_time_range(cls, value: Optional[str], default: str = "day") -> str:
+        normalized = cls._normalize_optional_str(value)
+        if normalized in cls._VALID_TIME_RANGES:
+            return normalized
+        return default
+
+    @classmethod
+    def _is_placeholder_mapping(cls, value: Any) -> bool:
+        if value is None:
+            return True
+        if not isinstance(value, dict):
+            return False
+        if not value:
+            return True
+        keys = {str(k).lower() for k in value.keys()}
+        return keys <= cls._SWAGGER_PLACEHOLDER_KEYS
+
+    @classmethod
+    def _is_empty_energy_query_data(cls, query_data: Optional[Dict[str, Any]]) -> bool:
+        if not query_data or cls._is_placeholder_mapping(query_data):
+            return True
+        keys = (
+            "overview", "air_condition", "fresh_air", "power_distribution",
+            "cold_source", "photovoltaic", "meter_data", "today_usage",
+            "venue_electricity_compare", "energy_structure",
+        )
+        present = [query_data.get(k) for k in keys]
+        return all(cls._is_placeholder_mapping(item) for item in present)
+
+    @staticmethod
+    def _coerce_float_list(values: Any) -> List[float]:
+        if isinstance(values, dict):
+            values = list(values.values())
+        if not isinstance(values, list):
+            return []
+        out: List[float] = []
+        for item in values:
+            if isinstance(item, list):
+                item = item[0] if item else 0
+            try:
+                out.append(float(item or 0))
+            except (TypeError, ValueError):
+                out.append(0.0)
+        return out
+
+    @classmethod
+    def _coerce_venue_compare(cls, raw: Any) -> Dict[str, Any]:
+        if not isinstance(raw, dict) or cls._is_placeholder_mapping(raw):
+            return {"categories": [], "data": {}}
+        categories = raw.get("categories") or []
+        if not isinstance(categories, list):
+            categories = list(categories) if categories else []
+        data_raw = raw.get("data") or {}
+        data: Dict[str, List[float]] = {}
+        if isinstance(data_raw, dict):
+            for key, val in data_raw.items():
+                data[str(key)] = cls._coerce_float_list(val if isinstance(val, list) else [val])
+        return {"categories": [str(c) for c in categories], "data": data}
+
+    @classmethod
+    def _coerce_energy_structure(cls, raw: Any) -> Dict[str, Any]:
+        if not isinstance(raw, dict) or cls._is_placeholder_mapping(raw):
+            return {"categories": [], "data": []}
+        categories = raw.get("categories") or []
+        if not isinstance(categories, list):
+            categories = list(categories) if categories else []
+        return {
+            "categories": [str(c) for c in categories],
+            "data": cls._coerce_float_list(raw.get("data")),
+        }
+
+    @classmethod
+    def _coerce_meter_data_list(cls, meter_data: Any) -> Dict[str, Any]:
+        empty = {"items": [], "total": 0, "page": 1, "page_size": 10, "total_pages": 1}
+        if not isinstance(meter_data, dict) or cls._is_placeholder_mapping(meter_data):
+            return empty
+        items = meter_data.get("items")
+        if isinstance(items, dict) and isinstance(items.get("items"), list):
+            nested = items
+            total = int(nested.get("total") or meter_data.get("total") or 0)
+            return {
+                "items": nested.get("items") or [],
+                "total": total,
+                "page": int(nested.get("page") or 1),
+                "page_size": int(nested.get("page_size") or 10),
+                "total_pages": int(nested.get("total_pages") or ((total + 9) // 10 if total else 1)),
+            }
+        if isinstance(items, list):
+            total = int(meter_data.get("total") or len(items) or 0)
+            return {
+                "items": items,
+                "total": total,
+                "page": int(meter_data.get("page") or 1),
+                "page_size": int(meter_data.get("page_size") or 10),
+                "total_pages": int(meter_data.get("total_pages") or ((total + 9) // 10 if total else 1)),
+            }
+        return empty
+
+    @classmethod
+    def _coerce_metric_card(cls, raw: Any) -> Dict[str, Any]:
+        if not isinstance(raw, dict) or cls._is_placeholder_mapping(raw):
+            return {"value": 0, "change": "0%"}
+        return {
+            "value": raw.get("value", 0),
+            "change": raw.get("change") or "0%",
+            "unit": raw.get("unit"),
+        }
+
+    @classmethod
+    def _coerce_subsystem_dict(cls, raw: Any) -> Dict[str, Any]:
+        if not isinstance(raw, dict) or cls._is_placeholder_mapping(raw):
+            return {}
+        return {k: v for k, v in raw.items() if str(k).lower() not in cls._SWAGGER_PLACEHOLDER_KEYS}
+
     def _get_venue_id(self, venue_name: str) -> Optional[int]:
         """根据会展名称获取 venue_id"""
         if not venue_name:
@@ -2848,25 +2989,24 @@ class AIReportService:
             time_range: 时间范围 (day/week/month/quarter/year)
             device_name: 设备名称
         """
-        # 1. 查询能源数据
-        query_data = self._query_energy_analysis_data(system_type, venue_name, time_range, device_name)
-        
-        # 2. 查询计费表计相关数据
-        meter_data = self._query_meter_data(venue_name)
-        
-        # 3. 查询今日用水用电量
-        today_usage = self._query_today_usage(venue_name)
-        
-        # 4. 查询各场馆用电对比数据
-        venue_electricity_compare = self._query_venue_electricity_compare(time_range, venue_name)
-        
-        # 5. 查询用能结构分析数据
-        energy_structure = self._query_energy_structure(venue_name)
-        
-        # 6. 构建结果
-        system_name = self._get_system_display_name(system_type)
+        venue_name = self._normalize_optional_str(venue_name)
+        device_name = self._normalize_optional_str(device_name)
+
+        # 1. 查询能源数据（_query_energy_analysis_data 是 async，必须走 query_energy_data）
+        query_data = await self.query_energy_data(
+            system_type, venue_name, time_range, device_name
+        )
+
+        meter_data = query_data.get("meter_data") or {}
+        today_usage = query_data.get("today_usage") or {}
+        venue_electricity_compare = query_data.get("venue_electricity_compare") or {}
+        energy_structure = query_data.get("energy_structure") or {}
+
+        # 2. 构建结果
         now = datetime.now()
-        
+        elec = today_usage.get("electricity") or {}
+        water = today_usage.get("water") or {}
+
         result = {
             "report_id": 0,
             "report_title": f"会展小镇能源分析报告 - {now.strftime('%Y-%m-%d')}",
@@ -2874,17 +3014,23 @@ class AIReportService:
             "system_type": system_type,
             
             # 核心指标卡片
-            "meter_total": meter_data.get("total", 0),
+            "meter_total": int(meter_data.get("total") or 0),
             "meter_online_rate": meter_data.get("online_rate", "0%"),
-            "today_electricity": today_usage.get("electricity", {"value": 0, "change": "0%"}),
-            "today_water": today_usage.get("water", {"value": 0, "change": "0%"}),
+            "today_electricity": elec if elec else {"value": 0, "change": "0%"},
+            "today_water": water if water else {"value": 0, "change": "0%"},
             
             # 图表数据
             "venue_electricity_compare": venue_electricity_compare,
             "energy_structure": energy_structure,
             
-            # 表计实时数据
-            "meter_data": meter_data.get("items", []),
+            # 表计实时数据（MeterDataList）
+            "meter_data": meter_data.get("items") or {
+                "items": [],
+                "total": 0,
+                "page": 1,
+                "page_size": 10,
+                "total_pages": 1,
+            },
             
             # 原始数据
             "overview": query_data.get("overview"),
@@ -2908,7 +3054,7 @@ class AIReportService:
         try:
             report_id = AIReportHistoryService.save_report(
                 report_type="energy_analysis",
-                title=result.get("report_title", f"{system_name}分析报告"),
+                title=result.get("report_title", "能源分析报告"),
                 content=json.dumps(result, ensure_ascii=False, default=json_serial),
                 summary=result.get("summary", "")[:500] if result.get("summary") else None,
                 time_range=time_range,
@@ -2934,6 +3080,8 @@ class AIReportService:
         """查询能源数据（不调用LLM，快速返回）"""
         import time
         t_start = time.time()
+        venue_name = self._normalize_optional_str(venue_name)
+        device_name = self._normalize_optional_str(device_name)
         logger.info("[开始] 查询能源数据（快速模式）")
 
         # 并行执行所有查询（注意：_query_energy_analysis_data 是 async 函数，直接 await）
@@ -2977,18 +3125,31 @@ class AIReportService:
         t_total = time.time()
         logger.info("[开始] AI能源分析（LLM推理模式）")
 
+        system_type = self._normalize_system_type(system_type)
+        venue_name = self._normalize_optional_str(venue_name)
+        time_range = self._normalize_time_range(time_range)
+        device_name = self._normalize_optional_str(device_name)
+
+        if self._is_empty_energy_query_data(query_data):
+            logger.info("分析入参为空或 Swagger 占位数据，改为先查库再推理")
+            query_data = await self.query_energy_data(
+                system_type, venue_name, time_range, device_name
+            )
+
         # 提取关键数据
-        overview = query_data.get("overview", {})
-        air_condition = query_data.get("air_condition", {})
-        fresh_air = query_data.get("fresh_air", {})
-        power_distribution = query_data.get("power_distribution", {})
-        cold_source = query_data.get("cold_source", {})
-        photovoltaic = query_data.get("photovoltaic", {})
-        meter_data = query_data.get("meter_data", {})
-        today_usage = query_data.get("today_usage", {})
-        venue_electricity_compare = query_data.get("venue_electricity_compare", {})
-        energy_structure = query_data.get("energy_structure", {})
-        query_params = query_data.get("query_params", {})
+        overview = self._coerce_subsystem_dict(query_data.get("overview"))
+        air_condition = self._coerce_subsystem_dict(query_data.get("air_condition"))
+        fresh_air = self._coerce_subsystem_dict(query_data.get("fresh_air"))
+        power_distribution = self._coerce_subsystem_dict(query_data.get("power_distribution"))
+        cold_source = self._coerce_subsystem_dict(query_data.get("cold_source"))
+        photovoltaic = self._coerce_subsystem_dict(query_data.get("photovoltaic"))
+        meter_data = query_data.get("meter_data") or {}
+        today_usage = query_data.get("today_usage") or {}
+        venue_electricity_compare = self._coerce_venue_compare(
+            query_data.get("venue_electricity_compare")
+        )
+        energy_structure = self._coerce_energy_structure(query_data.get("energy_structure"))
+        query_params = query_data.get("query_params") or {}
 
         system_name = self._get_system_display_name(system_type)
         start_date = query_params.get("start_date", "")
@@ -3065,17 +3226,17 @@ class AIReportService:
             "system_type": system_type,
 
             # 核心指标卡片
-            "meter_total": meter_data.get("total", 0),
-            "meter_online_rate": meter_data.get("online_rate", "0%"),
-            "today_electricity": today_usage.get("electricity", {"value": 0, "change": "0%"}),
-            "today_water": today_usage.get("water", {"value": 0, "change": "0%"}),
+            "meter_total": int(meter_data.get("total") or 0),
+            "meter_online_rate": meter_data.get("online_rate") or "0%",
+            "today_electricity": self._coerce_metric_card(today_usage.get("electricity")),
+            "today_water": self._coerce_metric_card(today_usage.get("water")),
 
             # 图表数据
             "venue_electricity_compare": venue_electricity_compare,
             "energy_structure": energy_structure,
 
             # 表计实时数据
-            "meter_data": meter_data.get("items", {}),
+            "meter_data": self._coerce_meter_data_list(meter_data),
 
             # 原始子系统数据
             "overview": overview,
@@ -3086,9 +3247,9 @@ class AIReportService:
             "photovoltaic": photovoltaic,
 
             # AI分析结果
-            "summary": result.get("summary", ""),
-            "suggestions": result.get("suggestions", []),
-            "warnings": result.get("warnings", []),
+            "summary": result.get("summary") or "",
+            "suggestions": result.get("suggestions") if isinstance(result.get("suggestions"), list) else [],
+            "warnings": result.get("warnings") if isinstance(result.get("warnings"), list) else [],
         }
 
         # 保存报告到数据库
@@ -3170,13 +3331,13 @@ class AIReportService:
             if meter_list:
                 items = [
                     {
-                        "meter_no": m.get("meter_no", ""),
-                        "meter_type": m.get("meter_type", "热量表"),
-                        "install_location": m.get("install_location", ""),
+                        "meter_no": m.get("meter_no") or "",
+                        "meter_type": m.get("meter_type") or "热量表",
+                        "install_location": m.get("install_location") or "",
                         "today_reading": m.get("today_reading", 0),
                         "today_usage": m.get("today_usage", 0),
                         "month_total": m.get("month_total", 0),
-                        "status": m.get("status", "在线"),
+                        "status": m.get("status") or "在线",
                         "detail_link": None
                     }
                     for m in meter_list

@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "total": 5,
+    "n_db": 3,
+    "n_sql": 3,
+    "n_guard": 3,
+    "n_exec": 0,
+    "n_skip": 3,
+    "skip_db": true
+  },
+  "results": [
+    {
+      "question": "最近一周系统生成了哪些 AI 报告？",
+      "is_db_related": true,
+      "sql_generated": "SELECT \"id\", \"report_type\", \"title\", \"content\", \"summary\", \"time_range\", \"target_id\", \"target_name\", \"scope\", \"query_params\", \"query_data\", \"created_at\", \"updated_at\" FROM \"FWBZ\".\"ai_report_history\" WHERE \"created_at\" >= TRUNC(SYSDATE) - 7 ORDER BY \"created_at\" DESC LIMIT 500 OFFSET 0",
+      "guard_ok": true,
+      "guard_reason": "",
+      "exec_ok": "skipped",
+      "exec_error": null,
+      "row_count": 0,
+      "sample_row": null,
+      "elapsed_ms": 6842,
+      "qid": "AI 报_1"
+    },
+    {
+      "question": "某设备最近一次\"故障分析报告\"是什么内容？",
+      "is_db_related": true,
+      "sql_generated": "SELECT \"content\" AS \"报告内容\", \"title\" AS \"报告标题\", \"time_range\" AS \"时间范围\" FROM \"FWBZ\".\"ai_report_history\" WHERE \"report_type\" = '故障分析报告' ORDER BY \"created_at\" DESC LIMIT 1 OFFSET 0",
+      "guard_ok": true,
+      "guard_reason": "",
+      "exec_ok": "skipped",
+      "exec_error": null,
+      "row_count": 0,
+      "sample_row": null,
+      "elapsed_ms": 6190,
+      "qid": "AI 报_2"
+    },
+    {
+      "question": "谁在什么时候调用了哪个接口、耗时多少？",
+      "is_db_related": false,
+      "sql_generated": null,
+      "guard_ok": null,
+      "guard_reason": null,
+      "exec_ok": null,
+      "exec_error": "未识别为 DB 相关(关键词未命中)",
+      "row_count": 0,
+      "sample_row": null,
+      "elapsed_ms": 0,
+      "qid": "AI 报_3"
+    },
+    {
+      "question": "最近 24 小时的登录日志有多少条？是否异常？",
+      "is_db_related": true,
+      "sql_generated": "SELECT COUNT(*) AS \"total_count\", CASE WHEN COUNT(*) > 0 THEN '正常' ELSE '无数据' END AS \"status\" FROM \"FWBZ\".\"sys_log\" WHERE \"create_time\" >= TRUNC(SYSDATE) - 1 AND \"create_time\" < TRUNC(SYSDATE) + 1 LIMIT 500 OFFSET 0",
+      "guard_ok": true,
+      "guard_reason": "",
+      "exec_ok": "skipped",
+      "exec_error": null,
+      "row_count": 0,
+      "sample_row": null,
+      "elapsed_ms": 6725,
+      "qid": "AI 报_4"
+    },
+    {
+      "question": "指定租户（多租户）最近一周的操作日志",
+      "is_db_related": false,
+      "sql_generated": null,
+      "guard_ok": null,
+      "guard_reason": null,
+      "exec_ok": null,
+      "exec_error": "未识别为 DB 相关(关键词未命中)",
+      "row_count": 0,
+      "sample_row": null,
+      "elapsed_ms": 0,
+      "qid": "AI 报_5"
+    }
+  ]
+}

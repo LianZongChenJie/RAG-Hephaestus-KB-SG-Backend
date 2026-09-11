@@ -1,0 +1,52 @@
+2026-09-10 10:11:13 | INFO     | dameng_jdbc:229 | 使用 JDBC 连接达梦: jdbc:dm://10.168.56.103:5236?schema=FWBZ (jar=/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/drivers/DmJdbcDriver18.jar)
+2026-09-10 10:11:22 | INFO     | dameng_jdbc:229 | 使用 JDBC 连接达梦: jdbc:dm://10.168.56.103:5236?schema=FWBZ (jar=/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/drivers/DmJdbcDriver18.jar)
+2026-09-10 10:11:23 | INFO     | dameng:229 | 达梦 JDBC 连接成功: fwbz@10.168.56.103:5236/FWBZ
+2026-09-10 10:11:23 | INFO     | dameng:229 | ================================================================================
+2026-09-10 10:11:23 | INFO     | dameng:229 | >>> 执行SQL查询 >>>
+2026-09-10 10:11:23 | INFO     | dameng:229 | SQL: SELECT COUNT(*) AS cnt FROM DUAL
+2026-09-10 10:11:23 | INFO     | dameng:229 | --------------------------------------------------------------------------------
+2026-09-10 10:11:23 | INFO     | dameng:229 | 返回 1 行数据
+2026-09-10 10:11:23 | INFO     | dameng:229 | 示例数据: {'cnt': 1}
+2026-09-10 10:11:23 | INFO     | dameng:229 | >>> SQL执行成功 <<<
+2026-09-10 10:11:23 | INFO     | dameng:229 | 达梦数据库连接已关闭
+2026-09-10 10:11:50 | INFO     | chat:229 | 动态 schema 生成完成，共 114 个表
+2026-09-10 10:11:51 | INFO     | chat:229 | 动态 schema 生成完成，共 114 个表
+2026-09-10 10:13:50 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/", "query": null, "request": null, "response": null, "status": 200, "duration_ms": 11.39}
+2026-09-10 10:13:50 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/api/health", "query": null, "request": null, "response": {"ok": true, "ollama": false, "model": "qwen3.5:9b", "model_ready": false, "mode": "qwen9b-gpu-fast", "detail": "Ollama 未启动或不可达"}, "status": 200, "duration_ms": 32.46}
+2026-09-10 10:13:57 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/", "query": null, "request": null, "response": null, "status": 200, "duration_ms": 0.32}
+2026-09-10 10:13:57 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/api/health", "query": null, "request": null, "response": {"ok": true, "ollama": false, "model": "qwen3.5:9b", "model_ready": false, "mode": "qwen9b-gpu-fast", "detail": "Ollama 未启动或不可达"}, "status": 200, "duration_ms": 7.01}
+2026-09-10 10:13:57 | INFO     | dameng:229 | ================================================================================
+2026-09-10 10:13:57 | INFO     | dameng:229 | >>> 执行SQL查询 >>>
+2026-09-10 10:13:57 | INFO     | dameng:229 | SQL: SELECT 1 AS ok FROM DUAL
+2026-09-10 10:13:57 | INFO     | dameng:229 | --------------------------------------------------------------------------------
+2026-09-10 10:13:57 | INFO     | dameng_jdbc:229 | 已设置 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home
+2026-09-10 10:13:57 | INFO     | dameng_jdbc:229 | 使用 JDBC 连接达梦: jdbc:dm://10.168.56.103:5236?schema=FWBZ (jar=/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/drivers/DmJdbcDriver18.jar)
+2026-09-10 10:13:57 | INFO     | dameng:229 | 达梦 JDBC 连接成功: fwbz@10.168.56.103:5236/FWBZ
+2026-09-10 10:13:58 | INFO     | dameng:229 | 返回 1 行数据
+2026-09-10 10:13:58 | INFO     | dameng:229 | 示例数据: {'ok': 1}
+2026-09-10 10:13:58 | INFO     | dameng:229 | >>> SQL执行成功 <<<
+2026-09-10 10:13:58 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "POST", "path": "/api/execute-sql", "query": null, "request": {"sql": "SELECT 1 AS ok FROM DUAL"}, "response": {"columns": ["ok"], "rows": [{"ok": 1}], "row_count": 1, "execution_time": 0.862}, "status": 200, "duration_ms": 865.57}
+2026-09-10 10:13:58 | INFO     | dameng:229 | ================================================================================
+2026-09-10 10:13:58 | INFO     | dameng:229 | >>> 执行SQL查询 >>>
+2026-09-10 10:13:58 | INFO     | dameng:229 | SQL: 
+            SELECT
+                "id",
+                "venue_name",
+                "location",
+                "orientation",
+                "area",
+                "floors"
+            FROM FWBZ."table_venue_info"
+            ORDER BY "id"
+        
+2026-09-10 10:13:58 | INFO     | dameng:229 | --------------------------------------------------------------------------------
+2026-09-10 10:13:58 | INFO     | dameng:229 | 返回 12 行数据
+2026-09-10 10:13:58 | INFO     | dameng:229 | 示例数据: {'id': 1, 'venue_name': '1号馆', 'location': None, 'orientation': None, 'area': '9900', 'floors': 2}
+2026-09-10 10:13:58 | INFO     | dameng:229 | >>> SQL执行成功 <<<
+2026-09-10 10:13:58 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/api/ai-report/venues", "query": null, "request": null, "response": {"items": [{"id": 1, "venue_name": "1号馆", "location": null, "orientation": null, "area": "9900", "floors": 2}, {"id": 2, "venue_name": "2号馆", "location": null, "orientation": null, "area": "14400", "floors": 2}, {"id": 3, "venue_name": "3号馆", "location": null, "orientation": null, "area": "7600", "floors": 1}, {"id": 4, "venue_name": "4号馆", "location": null, "orientation": null, "area": "26000", "floors": 2}, {"id": 7, "venue_name": "5号馆", "location": null, "orientation": null, "area": "6600", "floors": 1}, {"id": 9, "venue_name": "6号馆", "location": null, "orientation": null, "area": "6600", "floors": 1}, {"id": 10, "venue_name": "10号馆", "location": null, "orientation": null, "area": "4500", "floors": 1}, {"id": 11, "venue_name": "7号馆", "location": null, "orientation": null, "area": "6600", "floors": 1}, {"id": 12, "venue_name": "9号馆", "location": null, "orientation": null, "area": "4500", "floors": 1}, {"id": 13, "venue_name": "8号馆", "location": null, "orientation": null, "area": "3300", "floors": 1}, {"id": 14, "venue_name": "11号馆", "location": null, "orientation": null, "area": "3150", "floors": 1}, {"id": 15, "venue_name": "12号馆", "location": null, "orientation": null, "area": "4800", "floors": 1}], "total": 12}, "status": 200, "duration_ms": 111.61}
+2026-09-10 10:13:58 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/api/ai-report/energy-analysis/systems", "query": null, "request": null, "response": null, "status": 200, "duration_ms": 1.21}
+2026-09-10 10:15:54 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/docs", "query": null, "request": null, "response": null, "status": 200, "duration_ms": 0.53}
+2026-09-10 10:15:56 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/openapi.json", "query": null, "request": null, "response": null, "status": 200, "duration_ms": 193.38}
+2026-09-10 10:16:05 | INFO     | access:229 | 访问日志: {"ip": "127.0.0.1", "method": "GET", "path": "/api/health", "query": null, "request": null, "response": {"ok": true, "ollama": false, "model": "qwen3.5:9b", "model_ready": false, "mode": "qwen9b-gpu-fast", "detail": "Ollama 未启动或不可达"}, "status": 200, "duration_ms": 25.86}
+2026-09-10 14:16:38 | INFO     | chat:229 | 动态 schema 生成完成，共 114 个表
+2026-09-10 14:16:39 | INFO     | chat:229 | 动态 schema 生成完成，共 114 个表

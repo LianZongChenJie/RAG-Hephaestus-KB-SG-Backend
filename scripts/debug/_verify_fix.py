@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import sys
-sys.stdout.reconfigure(encoding='utf-8')
+from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from app.core.dameng import execute_query
 

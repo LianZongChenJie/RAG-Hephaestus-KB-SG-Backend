@@ -1,4 +1,5 @@
 """达梦数据库连接模块"""
+
 import importlib
 import logging
 import os
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 # 强制 UTF-8 避免 dmPython 在中文 Windows 上用 GBK 编码导致特殊字符报错
-os.environ['NLS_LANG'] = '.UTF8'
+os.environ["NLS_LANG"] = ".UTF8"
 
 from app.core.config import get_settings
 from app.core.logger import get_logger
@@ -72,25 +73,53 @@ def get_dameng_connection():
         except ImportError:
             continue
 
-    if dm_module is None:
-        logger.error("未找到达梦驱动模块，请执行: pip install dmpython")
-        raise ImportError("未找到达梦驱动模块")
+    if dm_module is not None:
+        try:
+            _dm_conn = dm_module.connect(
+                host=settings.dameng.host,
+                port=settings.dameng.port,
+                user=settings.dameng.user,
+                password=settings.dameng.password,
+                schema=settings.dameng.schema,
+            )
+            logger.info(
+                "达梦数据库连接成功: %s@%s:%s/%s",
+                settings.dameng.user,
+                settings.dameng.host,
+                settings.dameng.port,
+                settings.dameng.schema,
+            )
+            return _dm_conn
+        except Exception as exc:
+            logger.error("达梦数据库连接失败: %s", exc)
+            raise
 
+    # macOS 等平台没有 dmpython wheel，回退到 DBeaver 同款 JDBC
     try:
-        _dm_conn = dm_module.connect(
+        from app.core.dameng_jdbc import connect as jdbc_connect
+
+        _dm_conn = jdbc_connect(
             host=settings.dameng.host,
             port=settings.dameng.port,
             user=settings.dameng.user,
             password=settings.dameng.password,
             schema=settings.dameng.schema,
         )
-        logger.info("达梦数据库连接成功: %s@%s:%s/%s",
-            settings.dameng.user, settings.dameng.host,
-            settings.dameng.port, settings.dameng.schema)
+        logger.info(
+            "达梦 JDBC 连接成功: %s@%s:%s/%s",
+            settings.dameng.user,
+            settings.dameng.host,
+            settings.dameng.port,
+            settings.dameng.schema,
+        )
         return _dm_conn
     except Exception as exc:
-        logger.error("达梦数据库连接失败: %s", exc)
-        raise
+        logger.error(
+            "未找到达梦驱动：macOS 请用 JDBC（JayDeBeApi + DBeaver 的 DmJdbcDriver）；"
+            "Linux/Windows 可 pip install dmpython。原因: %s",
+            exc,
+        )
+        raise ImportError("未找到达梦驱动模块") from exc
 
 
 def close_dameng():
@@ -142,7 +171,9 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
                 cursor.execute(sql)
 
             # 获取列名
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            columns = (
+                [desc[0] for desc in cursor.description] if cursor.description else []
+            )
 
             # 获取所有结果
             rows = cursor.fetchall()
@@ -190,7 +221,9 @@ def execute_scalar(sql: str, params: Optional[Tuple] = None) -> Any:
         return row[0] if row else None
 
 
-def validate_sql_columns(sql: str, schema: str = "FWBZ") -> Tuple[bool, Optional[str], List[str]]:
+def validate_sql_columns(
+    sql: str, schema: str = "FWBZ"
+) -> Tuple[bool, Optional[str], List[str]]:
     """
     严格验证 SQL 中所有表引用和列引用的合法性 (P0 重构版)。
 
@@ -215,18 +248,52 @@ def validate_sql_columns(sql: str, schema: str = "FWBZ") -> Tuple[bool, Optional
             return True, None, []
 
         # ========== 步骤 1: 解析 FROM/JOIN 的表+别名映射 ==========
-        alias_to_table: dict[str, str] = {}  # alias.lower() -> table.lower() 或 "__subquery__"
+        alias_to_table: dict[str, str] = (
+            {}
+        )  # alias.lower() -> table.lower() 或 "__subquery__"
         sql_keywords_skip = {
-            "select", "from", "where", "group", "order", "having", "limit",
-            "offset", "union", "with", "on", "as", "join", "inner", "left",
-            "right", "outer", "full", "cross", "and", "or", "not", "in",
-            "is", "null", "like", "between", "exists", "case", "when",
-            "then", "else", "end", "set", "values", "into", "update",
+            "select",
+            "from",
+            "where",
+            "group",
+            "order",
+            "having",
+            "limit",
+            "offset",
+            "union",
+            "with",
+            "on",
+            "as",
+            "join",
+            "inner",
+            "left",
+            "right",
+            "outer",
+            "full",
+            "cross",
+            "and",
+            "or",
+            "not",
+            "in",
+            "is",
+            "null",
+            "like",
+            "between",
+            "exists",
+            "case",
+            "when",
+            "then",
+            "else",
+            "end",
+            "set",
+            "values",
+            "into",
+            "update",
         }
 
         # 1a) 匹配 FROM/JOIN 物理表
         from_table_pattern = re.compile(
-            r'\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+'
+            r"\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+"
             r'(?:(?:"?FWBZ"?\s*\.\s*)?)?"?([A-Za-z_]\w*)"?'
             r'(?:\s+(?:AS\s+)?"?([A-Za-z_]\w*)"?)?',
             re.IGNORECASE,
@@ -247,16 +314,16 @@ def validate_sql_columns(sql: str, schema: str = "FWBZ") -> Tuple[bool, Optional
 
         # 1b) 匹配 FROM/JOIN (subquery) [AS] alias
         # 用 Python 字符串扫描 (跳过嵌套括号)
-        sub_start_pattern = re.compile(r'\b(?:FROM|JOIN)\s*\(', re.IGNORECASE)
+        sub_start_pattern = re.compile(r"\b(?:FROM|JOIN)\s*\(", re.IGNORECASE)
         for m in sub_start_pattern.finditer(sql):
             # 找配对的 )
             depth = 1
             i = m.end()
             while i < len(sql) and depth > 0:
                 c = sql[i]
-                if c == '(':
+                if c == "(":
                     depth += 1
-                elif c == ')':
+                elif c == ")":
                     depth -= 1
                     if depth == 0:
                         break
@@ -265,7 +332,7 @@ def validate_sql_columns(sql: str, schema: str = "FWBZ") -> Tuple[bool, Optional
                 continue
             # i 指向 ) 之后, 找 AS alias 或 alias
             j = i + 1
-            while j < len(sql) and sql[j] in ' \t':
+            while j < len(sql) and sql[j] in " \t":
                 j += 1
             rest = sql[j:]
             am = re.match(r'(?:AS\s+)?"?([A-Za-z_]\w*)"?\b', rest, re.IGNORECASE)
@@ -336,13 +403,39 @@ def validate_sql_columns(sql: str, schema: str = "FWBZ") -> Tuple[bool, Optional
         # CAST/CONVERT 第一个参数是类型关键字
         # TRUNC 第一个参数是时间字段
         for kw in [
-            "year", "month", "day", "hour", "minute", "second",
-            "epoch", "timezone_hour", "timezone_minute",
-            "date", "time", "timestamp", "interval",
-            "char", "varchar", "varchar2", "nvarchar", "text", "number",
-            "int", "integer", "bigint", "smallint", "tinyint",
-            "decimal", "numeric", "float", "double", "real",
-            "binary", "varbinary", "blob", "clob",
+            "year",
+            "month",
+            "day",
+            "hour",
+            "minute",
+            "second",
+            "epoch",
+            "timezone_hour",
+            "timezone_minute",
+            "date",
+            "time",
+            "timestamp",
+            "interval",
+            "char",
+            "varchar",
+            "varchar2",
+            "nvarchar",
+            "text",
+            "number",
+            "int",
+            "integer",
+            "bigint",
+            "smallint",
+            "tinyint",
+            "decimal",
+            "numeric",
+            "float",
+            "double",
+            "real",
+            "binary",
+            "varbinary",
+            "blob",
+            "clob",
         ]:
             exclude_bare.add(kw)
 
@@ -377,7 +470,9 @@ def validate_sql_columns(sql: str, schema: str = "FWBZ") -> Tuple[bool, Optional
             owners = [t for t in real_tables if col_name in table_cols.get(t, set())]
             if not owners:
                 # 整个 schema 都找不到 → 臆造
-                schema_owners = [t for t, cols in table_cols.items() if col_name in cols]
+                schema_owners = [
+                    t for t, cols in table_cols.items() if col_name in cols
+                ]
                 if schema_owners:
                     owners_str = ", ".join(f'"{t}"' for t in schema_owners[:3])
                     invalid_cols.append(
@@ -405,7 +500,7 @@ def _extract_top_select(sql: str) -> Optional[str]:
     跳过嵌套括号内的 FROM (如 EXTRACT("EPOCH" FROM (...)) 不会干扰)。
     """
     sql_lower = sql.lower()
-    m = re.search(r'\bSELECT\b', sql, re.IGNORECASE)
+    m = re.search(r"\bSELECT\b", sql, re.IGNORECASE)
     if not m:
         return None
     i = m.end()
@@ -427,23 +522,73 @@ def _extract_top_select(sql: str) -> Optional[str]:
             in_str = c
             i += 1
             continue
-        if c == '(':
+        if c == "(":
             depth += 1
-        elif c == ')':
+        elif c == ")":
             depth -= 1
-        elif depth == 0 and sql_lower[i:i + 4] == 'from':
+        elif depth == 0 and sql_lower[i : i + 4] == "from":
             # 检查 FROM 后面是表名 (字母/引号/方括号), 不是 ( 用于 EXTRACT
             j = i + 4
-            while j < len(sql) and sql[j] in ' \t':
+            while j < len(sql) and sql[j] in " \t":
                 j += 1
-            if j < len(sql) and sql[j] in ('"', '[', 'A', 'B', 'C', 'D', 'E', 'F',
-                                            'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
-                                            'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',
-                                            'W', 'X', 'Y', 'Z', '_', 'a', 'b', 'c',
-                                            'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-                                            'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-                                            't', 'u', 'v', 'w', 'x', 'y', 'z'):
-                return sql[m.end():i].strip()
+            if j < len(sql) and sql[j] in (
+                '"',
+                "[",
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G",
+                "H",
+                "I",
+                "J",
+                "K",
+                "L",
+                "M",
+                "N",
+                "O",
+                "P",
+                "Q",
+                "R",
+                "S",
+                "T",
+                "U",
+                "V",
+                "W",
+                "X",
+                "Y",
+                "Z",
+                "_",
+                "a",
+                "b",
+                "c",
+                "d",
+                "e",
+                "f",
+                "g",
+                "h",
+                "i",
+                "j",
+                "k",
+                "l",
+                "m",
+                "n",
+                "o",
+                "p",
+                "q",
+                "r",
+                "s",
+                "t",
+                "u",
+                "v",
+                "w",
+                "x",
+                "y",
+                "z",
+            ):
+                return sql[m.end() : i].strip()
         i += 1
     return None
 
@@ -451,7 +596,7 @@ def _extract_top_select(sql: str) -> Optional[str]:
 def health_check() -> bool:
     """检查达梦数据库连接是否正常"""
     try:
-        result = execute_scalar('SELECT 1 FROM DUAL')
+        result = execute_scalar("SELECT 1 FROM DUAL")
         return result == 1
     except Exception as exc:
         logger.warning("达梦数据库健康检查失败: %s", exc)
@@ -471,11 +616,15 @@ def _get_db_executor() -> ThreadPoolExecutor:
     """获取数据库操作专用线程池"""
     global _db_executor
     if _db_executor is None:
-        _db_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="db_query_")
+        _db_executor = ThreadPoolExecutor(
+            max_workers=10, thread_name_prefix="db_query_"
+        )
     return _db_executor
 
 
-async def execute_query_async(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, Any]]:
+async def execute_query_async(
+    sql: str, params: Optional[Tuple] = None
+) -> List[Dict[str, Any]]:
     """
     异步执行查询SQL（在线程池中执行，不阻塞事件循环）
 
@@ -517,9 +666,9 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
             return cursor.rowcount
     except Exception as exc:
         # 编码错误时，尝试将特殊 Unicode 字符替换后重试
-        if params and ('gbk' in str(exc).lower() or 'codec' in str(exc).lower()):
+        if params and ("gbk" in str(exc).lower() or "codec" in str(exc).lower()):
             safe_params = tuple(
-                str(p).replace('\u00b3', '^3') if isinstance(p, str) else p
+                str(p).replace("\u00b3", "^3") if isinstance(p, str) else p
                 for p in params
             )
             logger.warning("参数编码异常，已自动替换特殊字符后重试: %s", exc)
@@ -566,9 +715,9 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
             return new_id
     except Exception as exc:
         # 编码错误时，尝试将特殊 Unicode 字符替换后重试
-        if params and ('gbk' in str(exc).lower() or 'codec' in str(exc).lower()):
+        if params and ("gbk" in str(exc).lower() or "codec" in str(exc).lower()):
             safe_params = tuple(
-                str(p).replace('\u00b3', '^3') if isinstance(p, str) else p
+                str(p).replace("\u00b3", "^3") if isinstance(p, str) else p
                 for p in params
             )
             logger.warning("INSERT参数编码异常，已自动替换特殊字符后重试: %s", exc)

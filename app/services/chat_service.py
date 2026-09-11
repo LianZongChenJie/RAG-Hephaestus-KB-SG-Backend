@@ -2747,6 +2747,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 completion_tokens = None
 
                 async for chunk in self.ollama.stream_chat(payload):
+                    if chunk.get("error"):
+                        yield f"data: {self._safe_json_dumps({'type': 'error', 'message': chunk.get('error')})}\n\n"
+                        yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+                        stream_summary["error"] = chunk.get("error")
+                        if on_summary:
+                            await on_summary(stream_summary)
+                        break
                     if chunk.get("done"):
                         prompt_tokens = chunk.get("prompt_eval_count")
                         completion_tokens = chunk.get("eval_count")

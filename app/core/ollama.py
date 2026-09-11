@@ -1,4 +1,4 @@
-"""Ollama 客户端封装"""
+"""LLM 客户端：默认 Ollama，本机可用 OpenAI 兼容公有云（阿里云 Token Plan 等）。"""
 import json
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -10,16 +10,73 @@ settings = get_settings()
 
 
 class OllamaClient:
-    """Ollama API 客户端"""
+    """Ollama / OpenAI 兼容客户端，对外仍输出 Ollama 形态的 chunk。"""
 
     def __init__(self):
-        self.chat_url = settings.ollama.chat_url
-        self.tags_url = settings.ollama.tags_url
-        self.model = settings.ollama.model
-        self.timeout = settings.ollama.timeout
-        self.num_gpu = settings.ollama.num_gpu
-        self.keep_alive = settings.ollama.keep_alive
-        self.think = settings.ollama.think
+        cfg = settings.ollama
+        self.chat_url = cfg.chat_url
+        self.tags_url = cfg.tags_url
+        self.model = cfg.model
+        self.timeout = cfg.timeout
+        self.num_gpu = cfg.num_gpu
+        self.keep_alive = cfg.keep_alive
+        self.think = cfg.think
+        self.provider = getattr(cfg, "provider", "ollama") or "ollama"
+        self.api_key = getattr(cfg, "api_key", "") or ""
+        self.base_url = (getattr(cfg, "base_url", "") or "").rstrip("/")
+
+    def _use_openai(self) -> bool:
+        return self.provider in ("openai", "openai_compat", "cloud", "dashscope", "token_plan")
+
+    def _openai_url(self) -> str:
+        return f"{self.base_url}/chat/completions"
+
+    def _openai_headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _openai_body(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float,
+        stream: bool,
+        max_tokens: Optional[int] = None,
+        json_mode: bool = False,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": stream,
+            "enable_thinking": bool(self.think),
+        }
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        return body
+
+    def _messages_from_payload(self, payload: Dict[str, Any]) -> List[Dict[str, str]]:
+        return list(payload.get("messages") or [])
+
+    def _temp_from_payload(self, payload: Dict[str, Any], default: float = 0.6) -> float:
+        opts = payload.get("options") or {}
+        return float(opts.get("temperature", default))
+
+    def _max_tokens_from_payload(self, payload: Dict[str, Any]) -> Optional[int]:
+        opts = payload.get("options") or {}
+        n = opts.get("num_predict")
+        return int(n) if n else None
+
+    def _content_from_openai(self, data: Dict[str, Any]) -> str:
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        msg = choices[0].get("message") or {}
+        return (msg.get("content") or "").strip()
 
     def build_chat_payload(
         self,
@@ -29,7 +86,7 @@ class OllamaClient:
         num_ctx: int,
         stream: bool = True,
     ) -> Dict[str, Any]:
-        """构建聊天请求 payload"""
+        """构建聊天请求 payload（Ollama 形态，OpenAI 路径会再转换）"""
         return {
             "model": self.model,
             "messages": messages,
@@ -47,13 +104,13 @@ class OllamaClient:
         self,
         messages: List[Dict[str, str]],
     ) -> Dict[str, Any]:
-        """构建 SQL 生成请求 payload（低温度保证准确性）"""
         return {
             "model": self.model,
             "messages": messages,
             "stream": False,
             "think": self.think,
             "keep_alive": self.keep_alive,
+            "format": "json",
             "options": {
                 "num_gpu": self.num_gpu,
                 "temperature": 0.3,
@@ -67,7 +124,6 @@ class OllamaClient:
         messages: List[Dict[str, str]],
         num_predict: int = None,
     ) -> Dict[str, Any]:
-        """构建报告生成请求 payload（长输出，高 num_predict）"""
         if num_predict is None:
             num_predict = settings.model_defaults.num_predict_report
         return {
@@ -88,12 +144,17 @@ class OllamaClient:
         self,
         payload: Dict[str, Any],
     ) -> AsyncIterator[Dict[str, Any]]:
-        """流式聊天，返回解析后的 chunk"""
+        if self._use_openai():
+            async for chunk in self._stream_openai(payload):
+                yield chunk
+            return
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream("POST", self.chat_url, json=payload) as response:
                 if response.status_code != 200:
                     text = await response.aread()
                     yield {"error": f"Ollama 返回 {response.status_code}: {text.decode('utf-8', errors='replace')}"}
+                    yield {"done": True}
                     return
 
                 async for line in response.aiter_lines():
@@ -105,8 +166,57 @@ class OllamaClient:
                     except json.JSONDecodeError:
                         continue
 
+    async def _stream_openai(self, payload: Dict[str, Any]) -> AsyncIterator[Dict[str, Any]]:
+        body = self._openai_body(
+            self._messages_from_payload(payload),
+            temperature=self._temp_from_payload(payload),
+            stream=True,
+            max_tokens=self._max_tokens_from_payload(payload),
+            json_mode=payload.get("format") == "json",
+        )
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with client.stream(
+                "POST", self._openai_url(), headers=self._openai_headers(), json=body
+            ) as response:
+                if response.status_code != 200:
+                    text = await response.aread()
+                    yield {"error": f"公有云 LLM 返回 {response.status_code}: {text.decode('utf-8', errors='replace')}"}
+                    yield {"done": True}
+                    return
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                    if not line or line == "[DONE]":
+                        if line == "[DONE]":
+                            yield {"done": True}
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = data.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = (choices[0].get("delta") or {})
+                    content = delta.get("content") or ""
+                    finish = choices[0].get("finish_reason")
+                    if content:
+                        yield {"message": {"content": content}, "done": False}
+                    if finish:
+                        usage = data.get("usage") or {}
+                        yield {
+                            "done": True,
+                            "prompt_eval_count": usage.get("prompt_tokens"),
+                            "eval_count": usage.get("completion_tokens"),
+                        }
+                        return
+                yield {"done": True}
+
     async def chat(self, payload: Dict[str, Any]) -> str:
-        """非流式聊天，返回完整回复"""
+        if self._use_openai():
+            return await self._chat_openai(payload)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(self.chat_url, json=payload)
             if response.status_code != 200:
@@ -118,10 +228,33 @@ class OllamaClient:
             result = response.json()
             return result.get("message", {}).get("content", "")
 
+    async def _chat_openai(self, payload: Dict[str, Any]) -> str:
+        body = self._openai_body(
+            self._messages_from_payload(payload),
+            temperature=self._temp_from_payload(payload, 0.3),
+            stream=False,
+            max_tokens=self._max_tokens_from_payload(payload),
+            json_mode=payload.get("format") == "json",
+        )
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                self._openai_url(), headers=self._openai_headers(), json=body
+            )
+            if response.status_code != 200:
+                raise httpx.HTTPStatusError(
+                    message=f"公有云 LLM 返回 {response.status_code}: {response.text[:300]}",
+                    request=response.request,
+                    response=response,
+                )
+            return self._content_from_openai(response.json())
+
     async def chat_for_report(self, payload: Dict[str, Any]) -> str:
-        """非流式聊天，返回完整回复（同步方式，确保完整读取，用于AI报告生成）"""
         import logging
         logger = logging.getLogger("app.core.ollama")
+        if self._use_openai():
+            content = await self._chat_openai(payload)
+            logger.warning(f"chat_for_report content 长度: {len(content)}")
+            return content
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(self.chat_url, json=payload)
             if response.status_code != 200:
@@ -137,8 +270,34 @@ class OllamaClient:
             logger.warning(f"chat_for_report content 长度: {len(content)}")
             return content
 
-    def call_llm(self, messages: List[Dict[str, str]], *, temperature: float = 0.1) -> str:
-        """同步调用 LLM，返回完整回复（用于 SQL 生成、检测等短文本任务）"""
+    def call_llm(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float = 0.1,
+        json_mode: bool = False,
+    ) -> str:
+        """同步调用 LLM，返回完整回复（SQL 生成、检测等）"""
+        if self._use_openai():
+            body = self._openai_body(
+                messages,
+                temperature=temperature,
+                stream=False,
+                max_tokens=settings.model_defaults.num_predict,
+                json_mode=json_mode,
+            )
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(
+                    self._openai_url(), headers=self._openai_headers(), json=body
+                )
+                if response.status_code != 200:
+                    raise httpx.HTTPStatusError(
+                        message=f"公有云 LLM 返回 {response.status_code}: {response.text[:300]}",
+                        request=response.request,
+                        response=response,
+                    )
+                return self._content_from_openai(response.json())
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -152,6 +311,8 @@ class OllamaClient:
                 "num_predict": settings.model_defaults.num_predict,
             },
         }
+        if json_mode:
+            payload["format"] = "json"
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(self.chat_url, json=payload)
             if response.status_code != 200:
@@ -164,7 +325,8 @@ class OllamaClient:
             return result.get("message", {}).get("content", "")
 
     async def check_health(self) -> tuple[bool, Optional[str], bool]:
-        """检查 Ollama 健康状态"""
+        if self._use_openai():
+            return await self._check_openai_health()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 r = await client.get(self.tags_url)
@@ -185,5 +347,24 @@ class OllamaClient:
                 return ollama_ok, detail, model_ready
         except httpx.ConnectError:
             return False, "Ollama 未启动或不可达", False
+        except Exception as exc:
+            return False, str(exc), False
+
+    async def _check_openai_health(self) -> tuple[bool, Optional[str], bool]:
+        if not self.api_key or not self.base_url:
+            return False, "未配置公有云 base_url / api_key", False
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(
+                    f"{self.base_url}/models",
+                    headers=self._openai_headers(),
+                )
+            if r.status_code != 200:
+                return False, f"models 接口状态 {r.status_code}", False
+            ids = [m.get("id") or "" for m in (r.json().get("data") or [])]
+            ready = self.model in ids or any(i.startswith(self.model) for i in ids)
+            return True, f"openai-compat models={len(ids)}", ready
+        except httpx.ConnectError:
+            return False, "公有云 LLM 不可达", False
         except Exception as exc:
             return False, str(exc), False

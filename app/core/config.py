@@ -1,4 +1,5 @@
 """配置加载模块"""
+
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,13 +12,30 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
+def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    """递归合并配置，overlay 覆盖 base。"""
+    out = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 class ModelDefaultsConfig:
     """模型默认参数"""
+
     num_ctx: int
     temperature: float
 
-    def __init__(self, num_ctx: int = 2048, temperature: float = 0.3,
-                 num_predict: int = 1024, num_predict_report: int = 2048):
+    def __init__(
+        self,
+        num_ctx: int = 2048,
+        temperature: float = 0.3,
+        num_predict: int = 1024,
+        num_predict_report: int = 2048,
+    ):
         self.num_ctx = num_ctx
         self.temperature = temperature
         self.num_predict = num_predict
@@ -26,6 +44,7 @@ class ModelDefaultsConfig:
 
 class OllamaConfig:
     """Ollama 配置"""
+
     chat_url: str
     tags_url: str
     model: str
@@ -33,6 +52,9 @@ class OllamaConfig:
     num_gpu: int
     keep_alive: str
     think: bool
+    provider: str
+    api_key: str
+    base_url: str
 
     def __init__(
         self,
@@ -43,7 +65,12 @@ class OllamaConfig:
         num_gpu: int = 99,
         keep_alive: str = "24h",
         think: bool = False,
+        provider: str = "ollama",
+        api_key: str = "",
+        base_url: str = "",
     ):
+        import os
+
         self.chat_url = chat_url
         self.tags_url = tags_url
         self.model = model
@@ -51,39 +78,20 @@ class OllamaConfig:
         self.num_gpu = num_gpu
         self.keep_alive = keep_alive
         self.think = think
-
-
-class DatabaseConfig:
-    """数据库配置"""
-    host: str
-    port: int
-    user: str
-    password: str
-    name: str
-    min_size: int
-    max_size: int
-
-    def __init__(
-        self,
-        host: str = "localhost",
-        port: int = 5432,
-        user: str = "postgres",
-        password: str = "",
-        name: str = "hephaestus",
-        min_size: int = 1,
-        max_size: int = 5,
-    ):
-        self.host = host
-        self.port = port
-        self.user = user
-        self.password = password
-        self.name = name
-        self.min_size = min_size
-        self.max_size = max_size
+        self.provider = (provider or "ollama").strip().lower()
+        self.base_url = (base_url or "").rstrip("/")
+        self.api_key = (
+            api_key
+            or os.environ.get("LLM_API_KEY")
+            or os.environ.get("DASHSCOPE_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or ""
+        )
 
 
 class DamengConfig:
     """达梦数据库配置"""
+
     host: str
     port: int
     user: str
@@ -115,6 +123,7 @@ class DamengConfig:
 
 class AppConfig:
     """应用配置"""
+
     host: str
     port: int
     title: str
@@ -135,6 +144,7 @@ class AppConfig:
 
 class LoggingConfig:
     """日志配置"""
+
     level: str
 
     def __init__(self, level: str = "INFO"):
@@ -143,7 +153,7 @@ class LoggingConfig:
 
 class Settings:
     """全局配置对象"""
-    database: DatabaseConfig
+
     dameng: DamengConfig
     ollama: OllamaConfig
     model_defaults: ModelDefaultsConfig
@@ -154,7 +164,7 @@ class Settings:
         self._load_main_config()
 
     def _load_main_config(self) -> None:
-        """加载主配置文件 config.yaml"""
+        """加载 config.yaml，再用 config/local.yaml 覆盖（本机调试，不入库）"""
         config_path = PROJECT_ROOT / "config" / "config.yaml"
         if not config_path.exists():
             logger.warning("配置文件不存在: %s，使用默认配置", config_path)
@@ -162,9 +172,15 @@ class Settings:
             return
 
         with open(config_path, "r", encoding="utf-8") as f:
-            data: Dict[str, Any] = yaml.safe_load(f)
+            data: Dict[str, Any] = yaml.safe_load(f) or {}
 
-        self.database = DatabaseConfig(**data.get("database", {}))
+        local_path = PROJECT_ROOT / "config" / "local.yaml"
+        if local_path.exists():
+            with open(local_path, "r", encoding="utf-8") as f:
+                overlay = yaml.safe_load(f) or {}
+            data = _deep_merge(data, overlay)
+            logger.info("已合并本地配置: %s", local_path)
+
         self.dameng = DamengConfig(**data.get("dameng", {}))
         self.ollama = OllamaConfig(**data.get("ollama", {}))
         self.model_defaults = ModelDefaultsConfig(**data.get("model_defaults", {}))
@@ -173,7 +189,6 @@ class Settings:
 
     def _use_defaults(self) -> None:
         """使用硬编码默认值（兼容旧代码）"""
-        self.database = DatabaseConfig()
         self.dameng = DamengConfig()
         self.ollama = OllamaConfig()
         self.model_defaults = ModelDefaultsConfig()

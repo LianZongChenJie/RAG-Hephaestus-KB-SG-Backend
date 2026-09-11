@@ -1,0 +1,382 @@
+2026-09-11 11:15:26 | ERROR    | dameng:232 | 未找到达梦驱动模块，请执行: pip install dmpython
+2026-09-11 17:37:37 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:37:37 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:37:37 | ERROR    | dameng:232 | SQL: 
+                SELECT 
+                    AVG(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as avg_response_minutes,
+                    MIN(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as min_response_minutes,
+                    MAX(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as max_response_minutes
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                AND ar."process_time" IS NOT NULL
+                
+            
+2026-09-11 17:37:37 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第12 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:37:37 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第12 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:37:37 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:06 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:06 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:38:06 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    COUNT(*) as total_count,
+                    SUM(CASE WHEN COALESCE(ar."level", '普通') IN ('紧急', '严重', '停机') THEN 1 ELSE 0 END) as high_level_count,
+                    SUM(CASE WHEN COALESCE(ar."level", '普通') = '普通' THEN 1 ELSE 0 END) as normal_count
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                
+            
+2026-09-11 17:38:06 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第11 行附近出现错误:
+无法解析的成员访问表达式[ar.level]
+2026-09-11 17:38:06 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第11 行附近出现错误:
+无法解析的成员访问表达式[ar.level]
+
+2026-09-11 17:38:06 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:06 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:06 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:38:06 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    d."id" as device_id,
+                    d."device_code",
+                    d."device_name",
+                    COALESCE(ec."category_name", '其他') as category,
+                    d."device_status"
+                FROM FWBZ."device" d
+                LEFT JOIN FWBZ."equipment_category" ec ON d."category_id" = ec."id"
+                WHERE 1=1
+                
+                ORDER BY d."device_name"
+                LIMIT 100
+            
+2026-09-11 17:38:06 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第14 行附近出现错误:
+无法解析的成员访问表达式[d.device_status]
+2026-09-11 17:38:06 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第14 行附近出现错误:
+无法解析的成员访问表达式[d.device_status]
+
+2026-09-11 17:38:06 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:07 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:07 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:38:07 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    da."device_id",
+                    d."device_name",
+                    d."device_code",
+                    da."attribute_name",
+                    da."value",
+                    da."gather_time"
+                FROM FWBZ."device_attribute_history" da
+                LEFT JOIN FWBZ."device" d ON da."device_id" = d."id"
+                WHERE da."collection_time" >= '2026-09-04'
+                AND da."collection_time" <= '2026-09-11 23:59:59'
+                
+                ORDER BY da."collection_time" DESC
+                LIMIT 100
+            
+2026-09-11 17:38:07 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[da.attribute_name]
+2026-09-11 17:38:07 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[da.attribute_name]
+
+2026-09-11 17:38:07 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:07 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:38:07 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:38:07 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    d."id" as device_id,
+                    d."device_code",
+                    d."device_name",
+                    COUNT(ar."id") as alarm_count,
+                    SUM(CASE WHEN COALESCE(ar."level", '普通') IN ('紧急', '严重', '停机') THEN 1 ELSE 0 END) as high_level_count
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                
+                GROUP BY d."id", d."device_code", d."device_name"
+                ORDER BY alarm_count DESC, high_level_count DESC
+                LIMIT 10
+            
+2026-09-11 17:38:07 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[ar.level]
+2026-09-11 17:38:07 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[ar.level]
+
+2026-09-11 17:38:07 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:13 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:13 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:39:13 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    AVG(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as avg_repair_minutes
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                AND ar."process_time" IS NOT NULL
+                 AND ar."device_name" LIKE '%string%'
+            
+2026-09-11 17:39:13 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第10 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:39:13 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第10 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:39:13 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:13 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:13 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:39:13 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    ar."id", ar."device_name", ar."alarm_category_name", ar."alarm_level_name",
+                    ar."alarm_time", ar."alarm_content", ar."alarm_status",
+                    NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) as duration_minutes
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                 AND ar."device_name" LIKE '%string%'
+                ORDER BY ar."alarm_time" DESC
+                LIMIT 30
+            
+2026-09-11 17:39:13 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第13 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:39:13 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第13 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:39:13 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:14 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:14 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:39:14 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    COUNT(*) as total_alarms,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 30 THEN 1 END) as within_30min,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 30
+                        AND NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 60 THEN 1 END) as within_1hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 60
+                        AND NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 240 THEN 1 END) as within_4hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 240 THEN 1 END) as over_4hour,
+                    COUNT(CASE WHEN ar."process_time" IS NULL THEN 1 END) as not_processed
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                 AND ar."device_name" LIKE '%string%'
+            
+2026-09-11 17:39:14 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:39:14 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:39:14 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:30 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:30 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:39:30 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    ar."id", ar."device_name", ar."alarm_category_name", ar."alarm_level_name",
+                    ar."alarm_time", ar."alarm_content", ar."alarm_status",
+                    NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) as duration_minutes
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                 AND ar."device_name" LIKE '%string%'
+                ORDER BY ar."alarm_time" DESC
+                LIMIT 30
+            
+2026-09-11 17:39:30 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第13 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:39:30 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第13 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:39:30 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:30 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:30 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:39:30 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    AVG(NVL((ar."process_time" - ar."alarm_time") * 1440, NULL)) as avg_repair_minutes
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                AND ar."process_time" IS NOT NULL
+                 AND ar."device_name" LIKE '%string%'
+            
+2026-09-11 17:39:30 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第10 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:39:30 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第10 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:39:30 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:31 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:39:31 | ERROR    | dameng:232 | >>> SQL执行失败 <<<
+2026-09-11 17:39:31 | ERROR    | dameng:232 | SQL: 
+                SELECT
+                    COUNT(*) as total_alarms,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 30 THEN 1 END) as within_30min,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 30
+                        AND NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 60 THEN 1 END) as within_1hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 60
+                        AND NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) <= 240 THEN 1 END) as within_4hour,
+                    COUNT(CASE WHEN NVL((ar."process_time" - ar."alarm_time") * 1440, NULL) > 240 THEN 1 END) as over_4hour,
+                    COUNT(CASE WHEN ar."process_time" IS NULL THEN 1 END) as not_processed
+                FROM FWBZ."alarm_record" ar
+                LEFT JOIN FWBZ."device" d ON ar."device_id" = d."id"
+                WHERE ar."alarm_time" >= '2026-09-10'
+                AND ar."alarm_time" <= '2026-09-11 23:59:59'
+                 AND ar."device_name" LIKE '%string%'
+            
+2026-09-11 17:39:31 | ERROR    | dameng:232 | 错误: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+2026-09-11 17:39:31 | ERROR    | dameng:232 | 堆栈: Traceback (most recent call last):
+  File "SourceFile", line 1402, in dm.jdbc.driver.DmdbConnection.prepareStatement
+Exception: Java Exception
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng.py", line 171, in execute_query
+    cursor.execute(sql)
+  File "/Volumes/T7/联纵宸捷/15首钢电信项目/RAG一体机/codeBackend/app/core/dameng_jdbc.py", line 95, in execute
+    self._raw.execute(sql)
+  File "/opt/homebrew/lib/python3.10/site-packages/jaydebeapi/__init__.py", line 531, in execute
+    self._prep = self._connection.jconn.prepareStatement(operation)
+dm.jdbc.driver.dm.jdbc.driver.DMException: dm.jdbc.driver.DMException: 第16 行附近出现错误:
+无法解析的成员访问表达式[ar.process_time]
+
+2026-09-11 17:39:31 | ERROR    | dameng:232 | ================================================================================
+2026-09-11 17:40:49 | ERROR    | access:232 | 访问日志: {"ip": "127.0.0.1", "method": "POST", "path": "/api/ai-report/energy-analysis", "query": null, "request": {"system_type": "overview", "venue_name": "string", "time_range": "day", "device_name": "string"}, "response": null, "status": 500, "duration_ms": 595.44}
+2026-09-11 17:41:07 | ERROR    | access:232 | 访问日志: {"ip": "127.0.0.1", "method": "POST", "path": "/api/ai-report/energy-analysis", "query": null, "request": {"system_type": "overview", "venue_name": "string", "time_range": "day", "device_name": "string"}, "response": null, "status": 500, "duration_ms": 612.46}
+2026-09-11 18:06:53 | ERROR    | access:232 | 访问日志: {"ip": "127.0.0.1", "method": "POST", "path": "/api/ai-report/energy-analysis/analyze", "query": null, "request": {"query_params": {"additionalProp1": {}}, "overview": {"additionalProp1": {}}, "air_condition": {"additionalProp1": {}}, "fresh_air": {"additionalProp1": {}}, "power_distribution": {"additionalProp1": {}}, "cold_source": {"additionalProp1": {}}, "photovoltaic": {"additionalProp1": {}}, "meter_data": {"additionalProp1": {}}, "today_usage": {"additionalProp1": {}}, "venue_electricity_compare": {"additionalProp1": {}}, "energy_structure": {"additionalProp1": {}}, "system_type": "string", "venue_name": "string", "time_range": "string", "device_name": "string"}, "response": null, "status": 500, "duration_ms": 4024.71}

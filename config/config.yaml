@@ -10,11 +10,12 @@ app:
   cors_origins:
     - "*"
 
+# 105 生产：访问 10.61.13.137 上的 Ollama。
+# 本机调试不要改这里，用 gitignore 的 config/local.yaml 覆盖为云上 Qwen。
 ollama:
-  #chat_url: "http://10.61.13.137:11434/api/chat"
-  chat_url: "http://localhost:11434/api/chat"
-  #tags_url: "http://10.61.13.137:11434/api/tags"
-  tags_url: "http://localhost:11434/api/tags"
+  provider: ollama
+  chat_url: "http://10.61.13.137:11434/api/chat"
+  tags_url: "http://10.61.13.137:11434/api/tags"
   model: "qwen3.5:9b"
   timeout: 300.0          # 请求超时（秒）
   num_gpu: 99            # GPU 加速，99 表示全 GPU
@@ -28,19 +29,7 @@ model_defaults:
   num_predict: 20480      # 默认最大生成 token 数（SQL、检测等短输出场景）
   num_predict_report: 2048   # 报告生成场景的最大 token 数（长输出），2048 足够覆盖 summary+suggestions+warnings
 
-# PostgreSQL - 访问日志存储
-database:
-#  host: "192.168.204.169"
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-#  password: "PG_617871572"
-  password: "postgres"
-  name: "Hephaestus"
-  min_size: 1
-  max_size: 5
-
-# 达梦数据库 - 业务数据查询
+# 达梦数据库 - 业务查询 + 访问日志
 dameng:
 #  host: "localhost"
   host: "10.168.56.103"

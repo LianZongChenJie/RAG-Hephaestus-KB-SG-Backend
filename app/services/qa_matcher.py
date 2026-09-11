@@ -498,39 +498,14 @@ class QAMatcher:
             - 强制 JSON 格式
             - 短超时 (6s, 超时直接 fallback)
         """
-        import httpx
-        from app.core.config import get_settings
+        from app.core.ollama import OllamaClient
 
-        s = get_settings()
-        payload = {
-            "model": s.ollama.model,
-            "messages": [{"role": "user", "content": full_prompt}],
-            "stream": False,
-            "keep_alive": s.ollama.keep_alive,
-            "format": "json",
-            "options": {
-                "temperature": 0.1,
-                "num_ctx": 2048,        # 输入小, 上下文不需要太大
-                "num_predict": 512,     # 给 thinking 留 300 + JSON 200
-            },
-        }
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.post(s.ollama.chat_url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            data = resp.json()
-
-        msg = data.get("message") or {}
-        # qwen3.5 thinking 模式下, 真实答案可能放在 thinking 末尾
-        # 先取 content (Ollama format=json 时会输出合法 JSON), 再 fallback 到 thinking
-        content = (msg.get("content") or "").strip()
-        thinking = (msg.get("thinking") or "").strip()
-        if content:
-            return content
-        if thinking:
-            logger.debug(f"content 为空, fallback 到 thinking ({len(thinking)} chars)")
-            return thinking
-        return ""
+        client = OllamaClient()
+        return client.call_llm(
+            [{"role": "user", "content": full_prompt}],
+            temperature=0.1,
+            json_mode=True,
+        )
 
     def _parse_response(self, question: str, raw: str, t0: float) -> MatchResult:
         """鲁棒解析 LLM 输出"""

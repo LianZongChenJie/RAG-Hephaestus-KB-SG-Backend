@@ -1,7 +1,7 @@
 """
 FastAPI 后端入口
 代理 Ollama Chat API，提供 SSE 流式对话与 SQL 生成功能。
-访问记录写入 PostgreSQL。
+访问记录写入达梦 hephaestus_chat_access_logs。
 """
 from __future__ import annotations
 

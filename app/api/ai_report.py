@@ -644,19 +644,28 @@ async def analyze_energy_report(body: EnergyAnalysisAnalyzeRequest) -> EnergyAna
     try:
         service = AIReportService()
 
-        # 判断传入格式：平铺结构 vs 嵌套结构
+        qp = body.query_params if isinstance(body.query_params, dict) else {}
+        if AIReportService._is_placeholder_mapping(qp):
+            qp = {}
+
+        # query_params 优先，缺省再回落到顶层字段（避免 Swagger 空对象把 system_type 盖成 None）
+        system_type = AIReportService._normalize_system_type(
+            qp.get("system_type") or body.system_type
+        )
+        venue_name = AIReportService._normalize_optional_str(
+            qp.get("venue_name") or body.venue_name
+        )
+        time_range = AIReportService._normalize_time_range(
+            qp.get("time_range") or body.time_range, default="day"
+        )
+        device_name = AIReportService._normalize_optional_str(
+            qp.get("device_name") or body.device_name
+        )
+
         if body.overview is not None or body.query_params is not None:
-            # 方式1：前端平铺结构
-            system_type = body.query_params.get("system_type") if body.query_params else body.system_type or "overview"
-            venue_name = body.query_params.get("venue_name") if body.query_params else body.venue_name
-            # 修复：如果 time_range 为 None 或空，使用默认值 "month"
-            time_range = (body.query_params.get("time_range") if body.query_params else None) or body.time_range or "month"
-            device_name = body.query_params.get("device_name") if body.query_params else body.device_name
-            # 确保 query_params 中的 time_range 有值（避免保存到数据库时为 null）
-            safe_query_params = body.query_params.copy() if body.query_params else {}
-            if not safe_query_params.get("time_range"):
-                safe_query_params["time_range"] = time_range
-            
+            safe_query_params = dict(qp)
+            safe_query_params.setdefault("system_type", system_type)
+            safe_query_params["time_range"] = time_range
             query_data = {
                 "query_params": safe_query_params,
                 "overview": body.overview or {},
@@ -671,11 +680,6 @@ async def analyze_energy_report(body: EnergyAnalysisAnalyzeRequest) -> EnergyAna
                 "energy_structure": body.energy_structure or {},
             }
         else:
-            # 方式2：嵌套结构（兼容性）
-            system_type = body.system_type or "overview"
-            venue_name = body.venue_name
-            time_range = body.time_range or "month"
-            device_name = body.device_name
             query_data = {}
 
         report = await service.analyze_energy_data(
