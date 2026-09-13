@@ -3,8 +3,10 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, date
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, AsyncIterator, List, Optional
 
 import httpx
@@ -36,6 +38,12 @@ def _build_schema_text() -> str:
 
 # 一次性构建动态表结构（服务启动时）
 _SCHEMA_TEXT: str = _build_schema_text()
+
+# 上一轮截断查询（进程内短时记忆，供「查看全部」复用 SQL）
+_VIEW_ALL_TTL_SEC = 30 * 60
+_VIEW_ALL_HARD_CAP = 50000
+_LAST_TRUNCATED_QUERY: dict[str, dict[str, Any]] = {}
+_VIEW_ALL_PROMPT: Optional[str] = None
 
 
 # 达梦数据库 Schema 上下文（供 LLM 生成 SQL 使用）
@@ -960,8 +968,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         logger.warning(">>> SQL生成失败，已达到最大重试次数 <<<")
         return None
 
-    def _execute_sql(self, sql: str) -> tuple[Optional[List[dict]], Optional[str]]:
-        """执行 SQL 并返回结果"""
+    def _execute_sql(
+        self,
+        sql: str,
+        *,
+        result_cap: Optional[int] = None,
+    ) -> tuple[Optional[List[dict]], Optional[str]]:
+        """执行 SQL 并返回结果。result_cap 用于「查看全部」：先去掉原 LIMIT，再按该上限兜底。"""
         logger.info("=" * 80)
         logger.info(">>> SQL执行开始 >>>")
         logger.info("SQL语句: %s", sql)
@@ -969,7 +982,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         # 严格安全门: 仅 SELECT / 拦截多语句 / 强制 LIMIT (明细 500 / 聚合 200)
         from app.core.sql_guard import validate as guard_validate
-        guard = guard_validate(sql)
+        if result_cap is not None:
+            sql = self._strip_result_limit(sql)
+            guard = guard_validate(sql, detail_limit=result_cap, aggregate_limit=result_cap)
+        else:
+            guard = guard_validate(sql)
         if not guard.ok:
             logger.warning(f"SQL 安全门拒绝: {guard.reason} | sql={sql[:200]}")
             return None, f"SQL 未通过安全门: {guard.reason}"
@@ -1039,8 +1056,8 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             logger.error("=" * 80)
             return None, str(e)
 
-    def _build_vue_table(self, data: List[dict]) -> dict:
-        """根据查询结果构建 Vue table 结构"""
+    def _build_vue_table(self, data: List[dict], *, max_rows: Optional[int] = 500) -> dict:
+        """根据查询结果构建 Vue table 结构。查看全部时 max_rows=None。"""
         if not data:
             return {"columns": [], "rows": []}
 
@@ -1073,7 +1090,8 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 "width": "auto"
             })
 
-        for row in data[:500]:
+        row_source = data if max_rows is None else data[:max_rows]
+        for row in row_source:
             formatted_row = {}
             for k, v in row.items():
                 # 提取原始列名（处理 NVL/SUM/AVG/COUNT 等函数包裹）
@@ -2223,42 +2241,370 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         q_short = re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9]', '', question)[:20]
         return f"{q_short} {label}分布" if q_short else f"{label}分布"
 
-    def _generate_summary(self, question: str, data: List[dict], vue_table: dict) -> str:
+    _DETAIL_CAP = 500
+    _AGGREGATE_CAP = 200
+    _COUNT_QUESTION_KWS = ("有多少", "多少个", "多少台", "共几", "总共多少", "总数", "共多少")
+    _VIEW_ALL_HINT = "回复「查看全部」则进行全部信息查看。"
+
+    def _sql_has_group_by(self, sql: str) -> bool:
+        return bool(re.search(r"\bGROUP\s+BY\b", sql or "", re.IGNORECASE))
+
+    def _sql_safety_cap(self, sql: str) -> int:
+        """明细 500 / 聚合 200，与 sql_guard、SQL 生成侧一致。"""
+        return self._AGGREGATE_CAP if self._sql_has_group_by(sql) else self._DETAIL_CAP
+
+    def _extract_sql_limit(self, sql: str) -> Optional[int]:
+        if not sql:
+            return None
+        m = re.search(r"\bLIMIT\s+(\d+)", sql, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        m = re.search(r"\bFETCH\s+FIRST\s+(\d+)\s+ROWS", sql, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        return None
+
+    def _strip_result_limit(self, sql: str) -> str:
+        s = (sql or "").strip().rstrip(";").strip()
+        s = re.sub(r"\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*$", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\s*$", "", s, flags=re.IGNORECASE)
+        return s.strip()
+
+    def _is_truncated_preview(self, sql: str, row_count: int) -> bool:
+        """只有撞上安全上限（500/200）才算截断；LIMIT 10 这类业务分页不算。"""
+        if row_count <= 0:
+            return False
+        ceiling = self._sql_safety_cap(sql)
+        applied = self._extract_sql_limit(sql)
+        if applied is not None and applied < ceiling:
+            return False
+        return row_count >= ceiling
+
+    def _count_unbounded_rows(self, sql: str) -> Optional[int]:
+        """去掉 LIMIT 后包一层 COUNT(*)，失败返回 None。"""
+        inner = self._strip_result_limit(sql)
+        if not inner:
+            return None
+        count_sql = f'SELECT COUNT(*) AS "total_count" FROM ({inner}) "_cnt"'
+        try:
+            from app.core.sql_guard import validate as guard_validate
+            guard = guard_validate(count_sql)
+            if not guard.ok:
+                logger.warning("全量 COUNT 被安全门拒绝: %s", guard.reason)
+                return None
+            rows = execute_query(guard.sql)
+            if not rows:
+                return None
+            raw = next(iter(rows[0].values()), None)
+            if raw is None:
+                return None
+            return int(raw)
+        except Exception as exc:
+            logger.warning("全量 COUNT 失败: %s", exc)
+            return None
+
+    def _resolve_result_cardinality(self, sql: str, data: List[dict]) -> tuple[int, Optional[int], bool]:
+        """返回 (preview_count, total_count, truncated)。"""
+        preview = len(data or [])
+        truncated = self._is_truncated_preview(sql, preview)
+        total: Optional[int] = None
+        if truncated:
+            total = self._count_unbounded_rows(sql)
+        else:
+            total = preview
+        return preview, total, truncated
+
+    def _is_count_question(self, question: str) -> bool:
+        q = question or ""
+        return any(kw in q for kw in self._COUNT_QUESTION_KWS)
+
+    def _append_view_all_hint(self, summary: str, truncated: bool) -> str:
+        """截断结果在总结末尾追加操作提示（代码追加，不占模型 200 字配额）。"""
+        text = (summary or "").replace("\n", " ").replace("\r", "").strip()
+        if not truncated or not text:
+            return text
+        if "查看全部" in text:
+            return text
+        return f"{text} {self._VIEW_ALL_HINT}"
+
+    def _query_store_key(self, client_ip: Optional[str]) -> str:
+        return (client_ip or "unknown").strip() or "unknown"
+
+    def _remember_truncated_query(
+        self,
+        client_ip: Optional[str],
+        *,
+        sql: str,
+        question: str,
+        qid: Optional[str],
+        preview_count: int,
+        total_count: Optional[int],
+    ) -> None:
+        _LAST_TRUNCATED_QUERY[self._query_store_key(client_ip)] = {
+            "sql": sql,
+            "question": question,
+            "qid": qid,
+            "preview_count": preview_count,
+            "total_count": total_count,
+            "ts": time.time(),
+        }
+
+    def _load_truncated_query(self, client_ip: Optional[str]) -> Optional[dict[str, Any]]:
+        key = self._query_store_key(client_ip)
+        ctx = _LAST_TRUNCATED_QUERY.get(key)
+        if not ctx:
+            return None
+        if time.time() - float(ctx.get("ts") or 0) > _VIEW_ALL_TTL_SEC:
+            _LAST_TRUNCATED_QUERY.pop(key, None)
+            return None
+        return ctx
+
+    def _clear_truncated_query(self, client_ip: Optional[str]) -> None:
+        _LAST_TRUNCATED_QUERY.pop(self._query_store_key(client_ip), None)
+
+    def _normalize_view_all_text(self, question: str) -> str:
+        return re.sub(r"[\s。！？!?,.，、]+", "", question or "")
+
+    def _is_exact_view_all(self, question: str) -> bool:
+        compact = self._normalize_view_all_text(question)
+        if compact in {
+            "查看全部", "看全部", "显示全部", "全部数据", "全部信息",
+            "导出全部", "查看全部数据", "查看全部信息", "请查看全部",
+        }:
+            return True
+        return compact.endswith("查看全部") and len(compact) <= 8
+
+    def _load_view_all_prompt(self) -> str:
+        global _VIEW_ALL_PROMPT
+        if _VIEW_ALL_PROMPT is not None:
+            return _VIEW_ALL_PROMPT
+        path = Path(__file__).resolve().parents[2] / "prompts" / "view_all.md"
+        try:
+            _VIEW_ALL_PROMPT = path.read_text(encoding="utf-8")
+        except OSError:
+            _VIEW_ALL_PROMPT = "判断用户是否要查看上一轮截断查询的全部数据。只输出 JSON {\"action\":\"export_all\"} 或 {\"action\":\"unrelated\"}。"
+        return _VIEW_ALL_PROMPT
+
+    def _classify_view_all_intent(
+        self,
+        question: str,
+        last_query: Optional[dict[str, Any]],
+    ) -> bool:
+        """是否要把上一轮截断结果一次拉全。"""
+        if self._is_exact_view_all(question):
+            return True
+        if not last_query:
+            return False
+        compact = self._normalize_view_all_text(question)
+        if "全部" not in compact or len(compact) > 24:
+            return False
+        prompt = self._load_view_all_prompt()
+        user = (
+            f"{prompt}\n\n## 用户原话\n{question}\n\n"
+            f"## 上一轮\n已截断：是；预览 {last_query.get('preview_count')} 条；"
+            f"全量 {last_query.get('total_count')}\n"
+        )
+        try:
+            raw = self.ollama.call_llm(
+                [{"role": "user", "content": user}],
+                temperature=0.1,
+                json_mode=True,
+            )
+            text = (raw or "").strip()
+            start, end = text.find("{"), text.rfind("}")
+            if start >= 0 and end > start:
+                payload = json.loads(text[start:end + 1])
+                return str(payload.get("action") or "").strip() == "export_all"
+        except Exception as exc:
+            logger.warning("查看全部意图判别失败: %s", exc)
+        return False
+
+    async def _handle_view_all_followup(
+        self,
+        *,
+        question: str,
+        client_ip: Optional[str],
+        on_summary: Optional[callable],
+        stream_summary: dict[str, Any],
+    ) -> AsyncIterator[str]:
+        last = self._load_truncated_query(client_ip)
+        if not last or not last.get("sql"):
+            msg = "请先完成一次查询。结果超出预览条数后，再回复「查看全部」。"
+            stream_summary["mode"] = "db"
+            stream_summary["error"] = "无上一轮截断查询"
+            stream_summary["summary"] = msg
+            yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '未找到可展开的上一轮查询'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'type': 'message', 'content': msg})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+
+        orig_question = last.get("question") or question
+        sql = last["sql"]
+        stream_summary["mode"] = "db"
+        stream_summary["qid"] = last.get("qid")
+        stream_summary["sql"] = sql
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在查询全部数据...'})}\n\n"
+        yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': self._strip_result_limit(sql)})}\n\n"
+
+        data, err = self._execute_sql(sql, result_cap=_VIEW_ALL_HARD_CAP)
+        if err:
+            stream_summary["error"] = f"查询执行失败: {err}"
+            yield f"data: {self._safe_json_dumps({'type': 'error', 'message': f'查询执行失败: {err}'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+        if not data:
+            stream_summary["error"] = "查询结果为空"
+            stream_summary["summary"] = "查询结果为空"
+            yield f"data: {self._safe_json_dumps({'type': 'message', 'content': '查询结果为空，请尝试调整查询条件。'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+
+        row_count = len(data)
+        still_capped = row_count >= _VIEW_ALL_HARD_CAP
+        total_count = last.get("total_count") if still_capped else row_count
+        stream_summary["row_count"] = row_count
+        stream_summary["preview_count"] = row_count
+        stream_summary["total_count"] = total_count
+        stream_summary["truncated"] = still_capped
+
+        vue_table = self._build_vue_table(data, max_rows=None)
+        stream_summary["table"] = vue_table
+        yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
+        await asyncio.sleep(0)
+
+        echarts = self._build_echarts(data, orig_question)
+        if echarts:
+            stream_summary["chart"] = {
+                "chartType": echarts.get("chartType"),
+                "chartId": echarts.get("chartId"),
+            }
+            yield f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n"
+            await asyncio.sleep(0)
+
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
+        summary = self._generate_summary(
+            orig_question,
+            data,
+            vue_table,
+            preview_count=row_count,
+            total_count=total_count,
+            truncated=still_capped,
+        )
+        if still_capped:
+            summary = self._append_view_all_hint(summary, True)
+        stream_summary["summary"] = summary
+        yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
+        yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+        if not still_capped:
+            self._clear_truncated_query(client_ip)
+        if on_summary:
+            await on_summary(stream_summary)
+
+    def _fallback_summary(
+        self,
+        preview_count: int,
+        total_count: Optional[int],
+        truncated: bool,
+    ) -> str:
+        if truncated and total_count is not None:
+            return self._append_view_all_hint(
+                f"共 {total_count} 条，下表为前 {preview_count} 条预览。", True
+            )
+        if truncated:
+            return self._append_view_all_hint(
+                f"下表为前 {preview_count} 条预览，已截断，实际总数可能更多。", True
+            )
+        return f"查询返回 {preview_count} 条数据，详见下方图表和表格。"
+
+    def _generate_summary(
+        self,
+        question: str,
+        data: List[dict],
+        vue_table: dict,
+        *,
+        preview_count: Optional[int] = None,
+        total_count: Optional[int] = None,
+        truncated: bool = False,
+    ) -> str:
         """让 LLM 根据查询结果生成简短总结（<= 200字）"""
-        data_summary = self._summarize_data(data)
+        preview = preview_count if preview_count is not None else len(data or [])
+        data_summary = self._summarize_data(
+            data,
+            preview_count=preview,
+            total_count=total_count,
+            truncated=truncated,
+        )
+        if truncated:
+            total_text = f"{total_count} 条" if total_count is not None else "未知（已截断，不少于预览条数）"
+            count_rule = (
+                f"必须写「共 {total_count} 条，下表为前 {preview} 条预览」。"
+                if total_count is not None
+                else f"必须写「仅前 {preview} 条预览，已截断，实际可能更多」。"
+            )
+        else:
+            total_text = f"{total_count if total_count is not None else preview} 条（未截断，即全量）"
+            count_rule = f"可以说「共 {preview} 条」，这就是全量。"
+
+        count_lead = ""
+        if self._is_count_question(question):
+            count_lead = "用户在问数量：先给全量数字，再说明表格是否为预览。\n"
+
         prompt = f"""## 用户问题
 {question}
 
-## 查询结果摘要
+## 条数说明（以这里为准，不要自己数预览行）
+- 预览条数：{preview}
+- 全量总数：{total_text}
+- 是否截断：{"是" if truncated else "否"}
+
+## 查询结果摘要（仅预览样本，不是全集）
 {data_summary}
 
 ## Vue表格预览
 列：{[c["label"] for c in vue_table.get("columns", [])]}
-行数：{len(vue_table.get("rows", []))} 条
+预览行数：{len(vue_table.get("rows", []))} 条
 
 ## 任务
-根据以上信息，生成一段简短的总结性语句（不超过200字），说明数据的主要发现和结论。
+生成一段简短总结（不超过200字）。
+{count_lead}## 强制规则
+1. {count_rule}
+2. 禁止把预览条数写成总数。禁止「共获取{preview}条」「共检索到{preview}条」「系统共有{preview}条」「共监测到{preview}条」。
+3. 禁止根据预览推断「全部在线 / 未发现异常 / 整体稳定」。
+4. 禁止评价「数据结构完整、可用于资产管理」等空话。
+5. 只概括预览里能看见的分布，并点明这是预览（若已截断）。
 直接输出总结内容，不要解释，不要用引号包裹。"""
         try:
             response = self.ollama.call_llm([
                 {"role": "user", "content": prompt}
             ], temperature=0.3)
-            return response.strip()[:200]
+            return self._append_view_all_hint(response.strip()[:200], truncated)
         except Exception as e:
             logger.warning(f"总结生成失败: {e}")
-            return f"查询返回 {len(data)} 条数据，详见下方图表和表格。"
+            return self._fallback_summary(preview, total_count, truncated)
 
-    def _summarize_data(self, data: List[dict]) -> str:
+    def _summarize_data(
+        self,
+        data: List[dict],
+        *,
+        preview_count: int,
+        total_count: Optional[int],
+        truncated: bool,
+    ) -> str:
         """将查询结果压缩为文本摘要（供总结生成用）"""
         if not data:
             return "无数据"
         sample = data[0]
         keys = list(sample.keys())
-        # 取前5条数据的关键字段
         lines = []
         for i, row in enumerate(data[:5]):
             vals = []
-            for k in keys[:4]:  # 最多4个字段
+            for k in keys[:4]:
                 v = row.get(k)
                 if v is None:
                     vals.append("空")
@@ -2267,7 +2613,14 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 else:
                     vals.append(str(v)[:20])
             lines.append(f"第{i+1}行: " + ", ".join(vals))
-        more = f"\n...共 {len(data)} 条数据" if len(data) > 5 else ""
+        if truncated and total_count is not None:
+            more = f"\n...以上为前 {preview_count} 条预览，全量共 {total_count} 条（已截断，不是全集）"
+        elif truncated:
+            more = f"\n...以上为前 {preview_count} 条预览，已截断，不是全量，实际总数未知且不少于 {preview_count}"
+        elif preview_count > 5:
+            more = f"\n...共 {preview_count} 条（未截断，即全量）"
+        else:
+            more = f"\n共 {preview_count} 条（未截断，即全量）"
         return "\n".join(lines) + more
 
     def _safe_json_dumps(self, obj: Any) -> str:
@@ -2598,12 +2951,26 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             "chart": None,
             "summary": None,
             "row_count": 0,
+            "preview_count": 0,
+            "total_count": None,
+            "truncated": False,
             "error": None,
         }
 
         try:
             # ========== 阶段1：QA 匹配 (核心: LLM 判用户问题 vs 问题清单) ==========
             yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'detecting'})}\n\n"
+
+            last_truncated = self._load_truncated_query(client_ip)
+            if self._classify_view_all_intent(question, last_truncated):
+                async for chunk in self._handle_view_all_followup(
+                    question=question,
+                    client_ip=client_ip,
+                    on_summary=on_summary,
+                    stream_summary=stream_summary,
+                ):
+                    yield chunk
+                return
 
             # 能耗公式计算分支(拦截在 QA 匹配之前, 避免 30s 超时)
             if self._is_energy_formula_query(question):
@@ -2692,7 +3059,28 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         await on_summary(stream_summary)
                     return
 
-                stream_summary["row_count"] = len(data)
+                preview_count, total_count, truncated = self._resolve_result_cardinality(
+                    stream_summary.get("sql") or sql, data
+                )
+                stream_summary["row_count"] = preview_count
+                stream_summary["preview_count"] = preview_count
+                stream_summary["total_count"] = total_count
+                stream_summary["truncated"] = truncated
+                if truncated:
+                    logger.info(
+                        "查询结果已截断: preview=%s total=%s sql_cap=%s",
+                        preview_count,
+                        total_count,
+                        self._sql_safety_cap(stream_summary.get("sql") or sql),
+                    )
+                    self._remember_truncated_query(
+                        client_ip,
+                        sql=stream_summary.get("sql") or sql,
+                        question=question,
+                        qid=qid,
+                        preview_count=preview_count,
+                        total_count=total_count,
+                    )
 
                 # ========== 阶段4：构建 Vue 表格 ==========
                 vue_table = self._build_vue_table(data)
@@ -2709,8 +3097,15 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
                 # ========== 阶段6：生成总结 ==========
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
-                summary = self._generate_summary(question, data, vue_table)
-                summary = summary.replace('\n', ' ').replace('\r', '').strip()
+                summary = self._generate_summary(
+                    question,
+                    data,
+                    vue_table,
+                    preview_count=preview_count,
+                    total_count=total_count,
+                    truncated=truncated,
+                )
+                summary = self._append_view_all_hint(summary, truncated)
                 stream_summary["summary"] = summary
                 yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
                 await asyncio.sleep(0)
