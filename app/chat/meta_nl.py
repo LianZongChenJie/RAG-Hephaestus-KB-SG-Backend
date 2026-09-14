@@ -484,9 +484,20 @@ def _pick_dim_key(
     data: Sequence[dict],
     question: str,
     already_aggregated: bool = False,
+    prefer_dims: Optional[Sequence[str]] = None,
 ) -> Optional[str]:
-    preferred = _question_dim_hints(question) + _synonym_hits(cat, question, tables)
-    candidates = list(preferred) + [c for c in _DEFAULT_DIM_ORDER if c not in preferred]
+    preferred = list(prefer_dims or ())
+    preferred += _question_dim_hints(question) + _synonym_hits(cat, question, tables)
+    seen_pref = set()
+    ordered_pref = []
+    for c in preferred:
+        n = _norm(c)
+        if n and n not in seen_pref:
+            seen_pref.add(n)
+            ordered_pref.append(c)
+    candidates = ordered_pref + [
+        c for c in _DEFAULT_DIM_ORDER if _norm(c) not in seen_pref
+    ]
     # 结果里已有可读维表名，优先于外键
     for readable in (
         "category_name",
@@ -516,9 +527,11 @@ def _pick_dim_key(
         }:
             continue
         join = _join_for(cat, tables, raw)
+        forced = _norm(col) in seen_pref
         max_ratio = 0.85 if join or (meta and (meta.is_fk or meta.role == "fk")) else 0.45
         if (
             not already_aggregated
+            and not forced
             and data
             and _unique_ratio(data, raw) > max_ratio
         ):
@@ -564,6 +577,7 @@ def plan_stat_chart(
     question: str,
     data: Sequence[dict],
     catalog: Optional[MetaCatalog] = None,
+    prefer_dims: Optional[Sequence[str]] = None,
 ) -> Optional[ChartPlan]:
     """根据元数据决定图表：明细走维度 COUNT；外键 JOIN 名称列。"""
     if not keys:
@@ -598,6 +612,7 @@ def plan_stat_chart(
         data=data,
         question=question,
         already_aggregated=already,
+        prefer_dims=prefer_dims,
     )
     if not dim_raw:
         return None
@@ -611,6 +626,8 @@ def plan_stat_chart(
     )
     if label.endswith("id") or label.endswith("ID"):
         label = (join.label_cn if join else label.replace("ID", "").replace("id", "")) or label
+    if _norm(dim_raw) in {"run_state", "online", "status"}:
+        label = "在线情况"
 
     fact = tables[0] if tables else None
     if metric_keys and already:

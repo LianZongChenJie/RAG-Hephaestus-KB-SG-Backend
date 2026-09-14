@@ -47,6 +47,8 @@ _VIEW_ALL_TTL_SEC = 30 * 60
 _VIEW_ALL_HARD_CAP = 50000
 _LAST_TRUNCATED_QUERY: dict[str, dict[str, Any]] = {}
 _VIEW_ALL_PROMPT: Optional[str] = None
+# 上一张可下钻统计图（无过期；仅当新问题画出新统计图时替换）
+_LAST_CHART_FOLLOWUP: dict[str, dict[str, Any]] = {}
 
 
 # 达梦数据库 Schema 上下文（供 LLM 生成 SQL 使用）
@@ -2674,6 +2676,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         if not echarts:
             return []
         chart_sql = echarts.pop("sql", "") or ""
+        echarts.pop("_followup", None)
         return [
             f"data: {self._safe_json_dumps({'type': 'sql', 'sql': chart_sql})}\n\n",
             f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n",
@@ -2730,6 +2733,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         *,
         full_stats: bool = False,
         source_sql: Optional[str] = None,
+        prefer_dims: Optional[List[str]] = None,
     ) -> dict:
         """根据查询结果构建 ECharts 配置。full_stats=True 时按全量聚合。"""
         if not data:
@@ -2773,6 +2777,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             keys=keys,
             question=question,
             data=data,
+            prefer_dims=prefer_dims,
         )
         dim_join: Optional[DimJoin] = plan.join if plan else None
         already_aggregated = bool(plan.already_aggregated) if plan else False
@@ -2868,6 +2873,20 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 dim_join=dim_join,
                 already_aggregated=already_aggregated,
             )
+            payload["_followup"] = {
+                "cat_key": cat_key_raw or cat_key,
+                "join": (
+                    {
+                        "to_table": dim_join.to_table,
+                        "to_column": dim_join.to_column,
+                        "name_column": dim_join.name_column,
+                        "join_type": dim_join.join_type,
+                        "label_cn": dim_join.label_cn,
+                    }
+                    if dim_join
+                    else None
+                ),
+            }
             return payload
 
         # 明细无真实指标：按维 COUNT（外键 JOIN 名称），不要把 category_id 当 Y 轴
@@ -3136,6 +3155,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             return "未知"
 
         if col_key.lower() in {"run_state", "status", "online"}:
+            raw = raw_value.strip().lower()
+            if raw.endswith(".0"):
+                raw = raw[:-2]
             mapped = {
                 "0": "离线",
                 "1": "在线",
@@ -3145,7 +3167,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 "false": "离线",
                 "true": "在线",
             }
-            return mapped.get(raw_value.strip().lower(), raw_value)
+            return mapped.get(raw, raw_value)
 
         # 编码类列的格式化规则
         code_format_rules = {
@@ -3365,6 +3387,136 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
     def _clear_truncated_query(self, client_ip: Optional[str]) -> None:
         _LAST_TRUNCATED_QUERY.pop(self._query_store_key(client_ip), None)
 
+    def _chart_slice_names(self, echarts: Optional[dict]) -> List[str]:
+        if not echarts:
+            return []
+        option = echarts.get("option") or {}
+        names: List[str] = []
+        xaxis = option.get("xAxis")
+        if isinstance(xaxis, dict):
+            for n in xaxis.get("data") or []:
+                if n is not None and str(n).strip():
+                    names.append(str(n).strip())
+        if not names:
+            for series in option.get("series") or []:
+                for item in series.get("data") or []:
+                    if isinstance(item, dict) and item.get("name") not in (None, ""):
+                        names.append(str(item["name"]).strip())
+        seen = set()
+        out = []
+        for n in names:
+            if n not in seen:
+                seen.add(n)
+                out.append(n)
+        return out
+
+    def _is_chart_slice_sql(self, sql: str) -> bool:
+        """下钻 SQL 带 slice_dim，不能当成下一轮匹配用的父图。"""
+        return "slice_dim" in (sql or "")
+
+    def _remember_chart_followup(
+        self,
+        client_ip: Optional[str],
+        *,
+        sql: str,
+        question: str,
+        qid: Optional[str],
+        echarts: Optional[dict],
+    ) -> None:
+        slices = self._chart_slice_names(echarts)
+        follow = (echarts or {}).get("_followup") or {}
+        if not slices or not sql:
+            return
+        key = self._query_store_key(client_ip)
+        # 某一类设备的明细/在线情况图：不覆盖父图切片，便于接着看其它类
+        if self._is_chart_slice_sql(sql):
+            return
+        _LAST_CHART_FOLLOWUP[key] = {
+            "sql": self._strip_result_limit(sql),
+            "question": question,
+            "qid": qid,
+            "cat_key": follow.get("cat_key"),
+            "join": follow.get("join"),
+            "slices": slices,
+        }
+        logger.info(
+            "记住图表切片: n=%s dim=%s join=%s sample=%s",
+            len(slices),
+            follow.get("cat_key"),
+            (follow.get("join") or {}).get("to_table"),
+            slices[:5],
+        )
+
+    def _load_chart_followup(
+        self, client_ip: Optional[str]
+    ) -> Optional[dict[str, Any]]:
+        return _LAST_CHART_FOLLOWUP.get(self._query_store_key(client_ip))
+
+    def _normalize_slice_question(self, question: str) -> str:
+        s = (question or "").strip()
+        s = s.strip("\"'“”‘’「」『』")
+        return s.strip()
+
+    def _match_last_chart_slice(
+        self, question: str, slices: List[str]
+    ) -> Optional[str]:
+        """用户原话是否点到上一张图的某个切片名（不依赖特定问法）。"""
+        if self._is_exact_view_all(question):
+            return None
+        raw = self._normalize_slice_question(question)
+        if len(raw) < 2:
+            return None
+        candidates = [
+            str(s).strip()
+            for s in slices or []
+            if s is not None and str(s).strip() and str(s).strip() != "其他"
+        ]
+        if not candidates:
+            return None
+        ranked = sorted(candidates, key=len, reverse=True)
+        for name in ranked:
+            if raw == name:
+                return name
+        for name in ranked:
+            if name in raw:
+                return name
+        return None
+
+    def _compose_slice_filter_sql(
+        self, ctx: dict[str, Any], slice_name: str
+    ) -> str:
+        inner = self._strip_result_limit(ctx.get("sql") or "").strip().rstrip(";")
+        cat_key = ctx.get("cat_key")
+        join = ctx.get("join") or {}
+        if not inner or not cat_key:
+            return ""
+        literal = str(slice_name).replace("'", "''")
+        cat = self._quote_sql_ident(cat_key)
+        if join.get("to_table") and join.get("name_column"):
+            dim_table = self._quote_sql_ident(join["to_table"])
+            dim_pk = self._quote_sql_ident(join.get("to_column") or "id")
+            dim_name = self._quote_sql_ident(join["name_column"])
+            if literal == "未知":
+                return (
+                    f"SELECT src.*\n"
+                    f"FROM (\n{inner}\n) src\n"
+                    f'LEFT JOIN "FWBZ".{dim_table} slice_dim\n'
+                    f"  ON src.{cat} = slice_dim.{dim_pk}\n"
+                    f"WHERE slice_dim.{dim_name} IS NULL"
+                )
+            return (
+                f"SELECT src.*\n"
+                f"FROM (\n{inner}\n) src\n"
+                f'LEFT JOIN "FWBZ".{dim_table} slice_dim\n'
+                f"  ON src.{cat} = slice_dim.{dim_pk}\n"
+                f"WHERE NVL(slice_dim.{dim_name}, '未知') = '{literal}'"
+            )
+        return (
+            f"SELECT src.*\n"
+            f"FROM (\n{inner}\n) src\n"
+            f"WHERE CAST(src.{cat} AS VARCHAR) = '{literal}'"
+        )
+
     def _normalize_view_all_text(self, question: str) -> str:
         return re.sub(r"[\s。！？!?,.，、]+", "", question or "")
 
@@ -3500,6 +3652,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 "chartId": echarts.get("chartId"),
             }
             stream_summary["chart_sql"] = echarts.get("sql") or ""
+            self._remember_chart_followup(
+                client_ip,
+                sql=self._strip_result_limit(sql),
+                question=orig_question,
+                qid=last.get("qid"),
+                echarts=echarts,
+            )
             for packet in self._sse_chart_packets(echarts):
                 yield packet
             await asyncio.sleep(0)
@@ -3520,6 +3679,103 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
         if not still_capped:
             self._clear_truncated_query(client_ip)
+        if on_summary:
+            await on_summary(stream_summary)
+
+    async def _handle_chart_slice_followup(
+        self,
+        *,
+        question: str,
+        slice_name: str,
+        client_ip: Optional[str],
+        on_summary: Optional[callable],
+        stream_summary: dict[str, Any],
+    ) -> AsyncIterator[str]:
+        ctx = self._load_chart_followup(client_ip) or {}
+        sql = self._compose_slice_filter_sql(ctx, slice_name)
+        if not sql:
+            stream_summary["error"] = "无法按图表切片生成查询"
+            yield f"data: {self._safe_json_dumps({'type': 'error', 'message': '无法按上一张图的切片筛选数据。'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+
+        stream_summary["mode"] = "db"
+        stream_summary["qid"] = ctx.get("qid")
+        stream_summary["sql"] = sql
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': f'正在查看「{slice_name}」...'})}\n\n"
+        yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': sql})}\n\n"
+
+        data, err = self._execute_sql(sql)
+        if err:
+            stream_summary["error"] = f"查询执行失败: {err}"
+            yield f"data: {self._safe_json_dumps({'type': 'error', 'message': f'查询执行失败: {err}'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+        if not data:
+            msg = f"上一张图中的「{slice_name}」没有对应明细。"
+            stream_summary["error"] = "查询结果为空"
+            stream_summary["summary"] = msg
+            yield f"data: {self._safe_json_dumps({'type': 'message', 'content': msg})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+
+        preview_count, total_count, truncated = self._resolve_result_cardinality(
+            sql, data
+        )
+        stream_summary["row_count"] = preview_count
+        stream_summary["preview_count"] = preview_count
+        stream_summary["total_count"] = total_count
+        stream_summary["truncated"] = truncated
+        if truncated:
+            self._remember_truncated_query(
+                client_ip,
+                sql=sql,
+                question=question,
+                qid=ctx.get("qid"),
+                preview_count=preview_count,
+                total_count=total_count,
+            )
+
+        vue_table = self._build_vue_table(data)
+        stream_summary["table"] = vue_table
+        yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': sql, **vue_table})}\n\n"
+        await asyncio.sleep(0)
+
+        echarts = self._build_echarts(
+            data,
+            question,
+            source_sql=sql,
+            prefer_dims=["run_state", "status", "online"],
+        )
+        if echarts:
+            stream_summary["chart"] = {
+                "chartType": echarts.get("chartType"),
+                "chartId": echarts.get("chartId"),
+            }
+            stream_summary["chart_sql"] = echarts.get("sql") or ""
+            for packet in self._sse_chart_packets(echarts):
+                yield packet
+            await asyncio.sleep(0)
+
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
+        summary = self._generate_summary(
+            question,
+            data,
+            vue_table,
+            preview_count=preview_count,
+            total_count=total_count,
+            truncated=truncated,
+        )
+        summary = self._append_view_all_hint(summary, truncated)
+        stream_summary["summary"] = summary
+        yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
+        yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
         if on_summary:
             await on_summary(stream_summary)
 
@@ -4046,6 +4302,21 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     yield chunk
                 return
 
+            last_chart = self._load_chart_followup(client_ip)
+            slice_name = self._match_last_chart_slice(
+                question, (last_chart or {}).get("slices") or []
+            )
+            if last_chart and slice_name:
+                async for chunk in self._handle_chart_slice_followup(
+                    question=question,
+                    slice_name=slice_name,
+                    client_ip=client_ip,
+                    on_summary=on_summary,
+                    stream_summary=stream_summary,
+                ):
+                    yield chunk
+                return
+
             # 能耗公式计算分支(拦截在 QA 匹配之前, 避免 30s 超时)
             if self._is_energy_formula_query(question):
                 async for chunk in self._handle_energy_query(
@@ -4175,6 +4446,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         "chartId": echarts.get("chartId"),
                     }
                     stream_summary["chart_sql"] = echarts.get("sql") or ""
+                    self._remember_chart_followup(
+                        client_ip,
+                        sql=stream_summary.get("sql") or sql,
+                        question=question,
+                        qid=qid,
+                        echarts=echarts,
+                    )
                     for packet in self._sse_chart_packets(echarts):
                         yield packet
                     await asyncio.sleep(0)
