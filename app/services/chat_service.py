@@ -1,4 +1,5 @@
 """聊天服务 - SSE 流式对话处理，支持数据库智能问答"""
+
 import asyncio
 import json
 import logging
@@ -28,6 +29,7 @@ def _build_schema_text() -> str:
     实际解析逻辑收敛在 app.core.sql_schema_parser。
     """
     from app.core.sql_schema_parser import build_schema_text
+
     text = build_schema_text()
     if text:
         # 行数 ≈ "## 标题" + N × ("### table" + "  列: ..." + "")
@@ -192,7 +194,6 @@ CAST(DATEDIFF(MINUTE, "alarm_time", "event_completion_time") AS VARCHAR)
 """
 
 
-
 class ChatService:
     """聊天服务"""
 
@@ -230,38 +231,148 @@ class ChatService:
         # 业务关键词匹配——命中才走 DB/RAG
         db_keywords = [
             # 设备
-            "设备", "离线", "在线", "运行状态", "运行状态", "设备数量", "设备统计", "设备类型",
-            "阀门", "传感器", "仪表", "机组", "冷机", "热机", "空调", "新风", "风机", "水泵", "光伏",
+            "设备",
+            "离线",
+            "在线",
+            "运行状态",
+            "运行状态",
+            "设备数量",
+            "设备统计",
+            "设备类型",
+            "阀门",
+            "传感器",
+            "仪表",
+            "机组",
+            "冷机",
+            "热机",
+            "空调",
+            "新风",
+            "风机",
+            "水泵",
+            "光伏",
             # 告警
-            "告警", "报警", "故障", "停机", "异常", "重要", "一般", "告警级别", "告警状态",
-            "告警内容", "告警时间", "告警记录", "告警处理",
+            "告警",
+            "报警",
+            "故障",
+            "停机",
+            "异常",
+            "重要",
+            "一般",
+            "告警级别",
+            "告警状态",
+            "告警内容",
+            "告警时间",
+            "告警记录",
+            "告警处理",
             # 能耗/碳排放
-            "能耗", "电耗", "水耗", "气耗", "热耗", "蒸汽", "用能", "综合能耗",
-            "碳排放", "碳排放量", "碳强度", "碳因子", "标准煤",
+            "能耗",
+            "电耗",
+            "水耗",
+            "气耗",
+            "热耗",
+            "蒸汽",
+            "用能",
+            "综合能耗",
+            "碳排放",
+            "碳排放量",
+            "碳强度",
+            "碳因子",
+            "标准煤",
             # 监测数据
-            "温度", "湿度", "压力", "流量", "co2", "CO2", "浓度",
+            "温度",
+            "湿度",
+            "压力",
+            "流量",
+            "co2",
+            "CO2",
+            "浓度",
             # 场馆/空间
-            "场馆", "会展", "空间", "区域", "楼层", "建筑", "位置", "地址",
-            "场馆信息", "空间信息", "面积", "经纬度", "朝向",
+            "场馆",
+            "会展",
+            "空间",
+            "区域",
+            "楼层",
+            "建筑",
+            "位置",
+            "地址",
+            "场馆信息",
+            "空间信息",
+            "面积",
+            "经纬度",
+            "朝向",
             # 客流/人员
-            "客流", "人流量", "入场", "出场", "访客", "人员", "人员统计",
-            "在馆人数", "最大人数", "实时客流",
+            "客流",
+            "人流量",
+            "入场",
+            "出场",
+            "访客",
+            "人员",
+            "人员统计",
+            "在馆人数",
+            "最大人数",
+            "实时客流",
             # 停车
-            "停车", "车位", "车辆", "停车场", "剩余车位", "停车时长", "停车统计",
+            "停车",
+            "车位",
+            "车辆",
+            "停车场",
+            "剩余车位",
+            "停车时长",
+            "停车统计",
             # 照明
-            "照明", "灯光", "回路", "灯组", "照明区域", "亮灯",
+            "照明",
+            "灯光",
+            "回路",
+            "灯组",
+            "照明区域",
+            "亮灯",
             # 计量
-            "计量", "计量点", "分时", "尖", "峰", "平", "谷", "电费",
+            "计量",
+            "计量点",
+            "分时",
+            "尖",
+            "峰",
+            "平",
+            "谷",
+            "电费",
             # 数据/统计/报表
-            "数据", "统计", "报表", "报告", "记录", "查询", "分析", "汇总", "同比", "环比",
+            "数据",
+            "统计",
+            "报表",
+            "报告",
+            "记录",
+            "查询",
+            "分析",
+            "汇总",
+            "同比",
+            "环比",
             # AI报告
-            "ai报告", "AI报告", "分析报告", "日报", "周报", "月报",
+            "ai报告",
+            "AI报告",
+            "分析报告",
+            "日报",
+            "周报",
+            "月报",
             # 运维
-            "维护", "保养", "检修", "巡检", "启停", "开关",
+            "维护",
+            "保养",
+            "检修",
+            "巡检",
+            "启停",
+            "开关",
             # 阈值/配置
-            "阈值", "上下限", "配置", "参数",
+            "阈值",
+            "上下限",
+            "配置",
+            "参数",
             # 通用业务
-            "总数", "数量", "有多少", "多少个", "统计", "分布", "占比",
+            "总数",
+            "数量",
+            "有多少",
+            "多少个",
+            "统计",
+            "分布",
+            "占比",
         ]
         return any(kw in q for kw in db_keywords)
 
@@ -284,8 +395,15 @@ class ChatService:
             return False
         # 累计能耗意图
         consumption_kws = [
-            "累计能耗", "总能耗", "综合能耗", "能耗是多少", "能耗多少",
-            "能耗统计", "能耗汇总", "用电量", "耗能量",
+            "累计能耗",
+            "总能耗",
+            "综合能耗",
+            "能耗是多少",
+            "能耗多少",
+            "能耗统计",
+            "能耗汇总",
+            "用电量",
+            "耗能量",
         ]
         return any(k in q for k in consumption_kws)
 
@@ -307,7 +425,7 @@ class ChatService:
             return last_month_start, last_month_end
 
         # 最近N天 / 近N天 / 过去N天
-        m = re.search(r'最近\s*(\d+)\s*天|近\s*(\d+)\s*天|过去\s*(\d+)\s*天', question)
+        m = re.search(r"最近\s*(\d+)\s*天|近\s*(\d+)\s*天|过去\s*(\d+)\s*天", question)
         if m:
             n = int(next(g for g in m.groups() if g))
             return today - timedelta(days=n - 1), today
@@ -333,7 +451,7 @@ class ChatService:
         """
         if not true_formula:
             return []
-        return list(dict.fromkeys(re.findall(r'\[([^\]]+)\]', true_formula)))
+        return list(dict.fromkeys(re.findall(r"\[([^\]]+)\]", true_formula)))
 
     @staticmethod
     def _eval_formula(true_formula, device_values: dict) -> Optional[float]:
@@ -367,7 +485,7 @@ class ChatService:
                 val = 0.0
             return repr(float(val))
 
-        expr_str = re.sub(r'\[([^\]]+)\]', _substitute, true_formula)
+        expr_str = re.sub(r"\[([^\]]+)\]", _substitute, true_formula)
 
         # 2. AST 安全求值
         _ALLOWED_BINOPS = {
@@ -396,7 +514,7 @@ class ChatService:
             raise ValueError(f"不允许的 AST 节点: {type(node).__name__}")
 
         try:
-            tree = ast.parse(expr_str, mode='eval')
+            tree = ast.parse(expr_str, mode="eval")
             result = _eval_node(tree)
             if isinstance(result, float) and (math.isnan(result) or math.isinf(result)):
                 return None
@@ -443,11 +561,17 @@ class ChatService:
         if any(k in q for k in ["停车", "车位", "停车场"]):
             table_hints.append("table_parking_count（停车场统计）")
         if any(k in q for k in ["照明", "灯光", "回路"]):
-            table_hints.append("lighting_area（照明区域）/ lighting_circuit（照明回路）")
+            table_hints.append(
+                "lighting_area（照明区域）/ lighting_circuit（照明回路）"
+            )
         if any(k in q for k in ["计量", "分时"]):
-            table_hints.append("metering_point_data_day（计量点日数据）/ metering_point（计量点）")
+            table_hints.append(
+                "metering_point_data_day（计量点日数据）/ metering_point（计量点）"
+            )
         if any(k in q for k in ["碳", "碳排放", "碳强度"]):
-            table_hints.append("carbon_emission_factor（碳排放因子）/ data_day（能耗数据）")
+            table_hints.append(
+                "carbon_emission_factor（碳排放因子）/ data_day（能耗数据）"
+            )
         if any(k in q for k in ["报告", "ai报告", "报表"]):
             table_hints.append("ai_report_history（AI报告历史）")
         if any(k in q for k in ["设备类型", "category", "分类"]):
@@ -455,7 +579,9 @@ class ChatService:
 
         hint_text = ""
         if table_hints:
-            hint_text = f"\n\n## 可能的关联表（根据问题推断）\n" + "\n".join(f"- {t}" for t in table_hints)
+            hint_text = f"\n\n## 可能的关联表（根据问题推断）\n" + "\n".join(
+                f"- {t}" for t in table_hints
+            )
 
         # 重试时附带的错误反馈（初始为空，验证失败后填充）
         retry_hint = ""
@@ -606,56 +732,97 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         logger.info(">>> 开始生成SQL >>>")
         logger.info("用户问题: %s", question)
         logger.info("-" * 60)
-        
+
         for attempt in range(3):
             try:
-                response = self.ollama.call_llm([
-                    {"role": "user", "content": base_prompt_header + template_section + retry_hint}
-                ], temperature=0.1)
+                response = self.ollama.call_llm(
+                    [
+                        {
+                            "role": "user",
+                            "content": base_prompt_header
+                            + template_section
+                            + retry_hint,
+                        }
+                    ],
+                    temperature=0.1,
+                )
                 sql = response.strip()
-                sql = re.sub(r'^```sql\s*', '', sql, flags=re.IGNORECASE)
-                sql = re.sub(r'^```\s*', '', sql)
-                sql = re.sub(r'\s*```$', '', sql)
+                sql = re.sub(r"^```sql\s*", "", sql, flags=re.IGNORECASE)
+                sql = re.sub(r"^```\s*", "", sql)
+                sql = re.sub(r"\s*```$", "", sql)
                 # 清理末尾分号和空白
-                sql = sql.rstrip(';').strip()
+                sql = sql.rstrip(";").strip()
 
                 logger.info("LLM原始输出: %s", sql[:1000] if len(sql) > 1000 else sql)
 
                 # 基础验证：必须包含 SELECT 和 FROM
-                if sql.upper().startswith('SELECT') and 'FROM' in sql.upper():
+                if sql.upper().startswith("SELECT") and "FROM" in sql.upper():
                     # ========== LLM 生成的基础语法修复（必须在包装之前执行）==========
-                    
+
                     # 1. 修复 LLM 常见的错误语法：ORDER BY ... WHERE（WHERE 应该在 ORDER BY 之前）
                     # 匹配 "ORDER BY xxx WHERE" 或 "ORDER BY xxx DESC WHERE" 这种错误顺序
-                    order_where_match = re.search(r'(\s+ORDER\s+BY\s+.+?)\s+WHERE\s+', sql, re.IGNORECASE | re.DOTALL)
+                    order_where_match = re.search(
+                        r"(\s+ORDER\s+BY\s+.+?)\s+WHERE\s+",
+                        sql,
+                        re.IGNORECASE | re.DOTALL,
+                    )
                     if order_where_match:
                         # 提取 ORDER BY 子句和 WHERE 后面的条件
                         order_part = order_where_match.group(1).strip()
-                        where_rest = sql[order_where_match.end() - 1:]  # 从 WHERE 开始到末尾
-                        
+                        where_rest = sql[
+                            order_where_match.end() - 1 :
+                        ]  # 从 WHERE 开始到末尾
+
                         # 找到 WHERE 后面第一个非空格字符
-                        where_start = re.search(r'\WHERE\s+', sql, re.IGNORECASE)
+                        where_start = re.search(r"\WHERE\s+", sql, re.IGNORECASE)
                         if where_start:
                             # 提取 WHERE 及其后的条件
                             where_clause = where_rest.strip()
                             # 移除 WHERE 后面的 ROWNUM 相关条件（LLM 常见错误）
-                            where_clause = re.sub(r'AND\s*\(?\s*ROWNUM\s*[\-<>=\d\s]+\)?', '', where_clause, flags=re.IGNORECASE)
-                            where_clause = re.sub(r'WHERE\s+ROWNUM\s*[\-<>=\d\s]+', '', where_clause, flags=re.IGNORECASE)
+                            where_clause = re.sub(
+                                r"AND\s*\(?\s*ROWNUM\s*[\-<>=\d\s]+\)?",
+                                "",
+                                where_clause,
+                                flags=re.IGNORECASE,
+                            )
+                            where_clause = re.sub(
+                                r"WHERE\s+ROWNUM\s*[\-<>=\d\s]+",
+                                "",
+                                where_clause,
+                                flags=re.IGNORECASE,
+                            )
                             where_clause = where_clause.strip()
-                            
+
                             # 重建 SQL：ORDER BY 放到 WHERE 后面
-                            base_part = sql[:order_where_match.start()].strip()
+                            base_part = sql[: order_where_match.start()].strip()
                             if where_clause:
                                 sql = f"{base_part} WHERE {where_clause} {order_part}"
                             else:
                                 sql = f"{base_part} {order_part}"
-                    
+
                     # 2. 移除 LLM 生成的无效 ROWNUM 条件（如 "AND (ROWNUM - 1) > 0"）
-                    sql = re.sub(r'\s+AND\s*\(\s*ROWNUM\s*[\-<>=\d\s()]+\)', '', sql, flags=re.IGNORECASE)
-                    sql = re.sub(r'\s+AND\s+ROWNUM\s*[\-<>=\d\s()]+\s*>', ' WHERE ', sql, flags=re.IGNORECASE)
-                    sql = re.sub(r'WHERE\s+ROWNUM\s*[\-<>=\d\s()]+\s*>', 'WHERE ', sql, flags=re.IGNORECASE)
-                    
-                    logger.info("修复WHERE/ORDER后: %s", sql[:500] if len(sql) > 500 else sql)
+                    sql = re.sub(
+                        r"\s+AND\s*\(\s*ROWNUM\s*[\-<>=\d\s()]+\)",
+                        "",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
+                    sql = re.sub(
+                        r"\s+AND\s+ROWNUM\s*[\-<>=\d\s()]+\s*>",
+                        " WHERE ",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
+                    sql = re.sub(
+                        r"WHERE\s+ROWNUM\s*[\-<>=\d\s()]+\s*>",
+                        "WHERE ",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
+
+                    logger.info(
+                        "修复WHERE/ORDER后: %s", sql[:500] if len(sql) > 500 else sql
+                    )
 
                     # ========== 达梦 SQL 语法修复 ==========
 
@@ -664,23 +831,42 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     # 2. 修复分页语法 → 达梦 ROWNUM
                     # 支持：LIMIT N, FETCH FIRST N ROWS ONLY
                     # 分场景限制：明细查询（无 GROUP BY）500条，聚合查询（有 GROUP BY）200条
-                    has_group_by = bool(re.search(r'\bGROUP\s+BY\b', sql, re.IGNORECASE))
+                    has_group_by = bool(
+                        re.search(r"\bGROUP\s+BY\b", sql, re.IGNORECASE)
+                    )
 
                     limit_n = None
                     # 2.1 处理 FETCH FIRST N ROWS ONLY（PostgreSQL/Oracle 语法）
-                    fetch_match = re.search(r'\bFETCH\s+FIRST\s+(\d+)\s+ROWS\s+ONLY\b', sql, re.IGNORECASE)
+                    fetch_match = re.search(
+                        r"\bFETCH\s+FIRST\s+(\d+)\s+ROWS\s+ONLY\b", sql, re.IGNORECASE
+                    )
                     if fetch_match:
                         limit_n = int(fetch_match.group(1))
                         # 移除 FETCH FIRST 子句
-                        sql = re.sub(r'\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\b', '', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r"\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\b",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
                     # 2.2 处理 LIMIT N
-                    elif re.search(r'\bLIMIT\s+\d+', sql, re.IGNORECASE):
-                        limit_match = re.search(r'LIMIT\s+(\d+)', sql, re.IGNORECASE)
+                    elif re.search(r"\bLIMIT\s+\d+", sql, re.IGNORECASE):
+                        limit_match = re.search(r"LIMIT\s+(\d+)", sql, re.IGNORECASE)
                         if limit_match:
                             limit_n = int(limit_match.group(1))
                             # 移除原 LIMIT 子句
-                            sql = re.sub(r'\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?', '', sql, flags=re.IGNORECASE)
-                            sql = re.sub(r'\s+LIMIT\s+\d+\s*,\s*\d+', '', sql, flags=re.IGNORECASE)
+                            sql = re.sub(
+                                r"\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?",
+                                "",
+                                sql,
+                                flags=re.IGNORECASE,
+                            )
+                            sql = re.sub(
+                                r"\s+LIMIT\s+\d+\s*,\s*\d+",
+                                "",
+                                sql,
+                                flags=re.IGNORECASE,
+                            )
                     # 2.3 没有分页语法，自动加上限制防止全表扫描
                     if limit_n is None:
                         limit_n = 200 if has_group_by else 500
@@ -698,91 +884,225 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         # ── 步骤 1：修复 WHERE 和 ORDER BY 的顺序（必须在清理 LIMIT 之前做，
                         #            因为交换正则依赖 LIMIT 作为右边界才能正确匹配）
                         def swap_order_where(m):
-                            return m.group(2) + ' ' + m.group(1)
+                            return m.group(2) + " " + m.group(1)
+
                         sql = re.sub(
-                            r'(ORDER\s+BY\s+(?:(?!\bLIMIT\b).)+?)\s+(WHERE\s+(?:(?!\bLIMIT\b).)+?)\s+LIMIT',
+                            r"(ORDER\s+BY\s+(?:(?!\bLIMIT\b).)+?)\s+(WHERE\s+(?:(?!\bLIMIT\b).)+?)\s+LIMIT",
                             swap_order_where,
                             sql,
-                            flags=re.IGNORECASE
+                            flags=re.IGNORECASE,
                         )
 
                         # ── 步骤 2：清理所有分页语法残留
                         # FETCH FIRST N ROWS ONLY（PostgreSQL/DB2）
-                        sql = re.sub(r',\s*FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY', '', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r",\s*FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
                         # LIMIT N OFFSET M / LIMIT N, M / LIMIT N（MySQL）
-                        sql = re.sub(r'\s+LIMIT\s+\d+\s+OFFSET\s+\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+LIMIT\s+\d+\s*,\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+LIMIT\s+\d+', '', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r"\s+LIMIT\s+\d+\s+OFFSET\s+\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+LIMIT\s+\d+\s*,\s*\d+", "", sql, flags=re.IGNORECASE
+                        )
+                        sql = re.sub(r"\s+LIMIT\s+\d+", "", sql, flags=re.IGNORECASE)
                         # OFFSET ... 独立写法
-                        sql = re.sub(r'\s+OFFSET\s+\d+\s*,\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+OFFSET\s+\d+', '', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r"\s+OFFSET\s+\d+\s*,\s*\d+", "", sql, flags=re.IGNORECASE
+                        )
+                        sql = re.sub(r"\s+OFFSET\s+\d+", "", sql, flags=re.IGNORECASE)
                         # TOP N（SQL Server）
-                        sql = re.sub(r'\s+TOP\s+\d+', '', sql, flags=re.IGNORECASE)
+                        sql = re.sub(r"\s+TOP\s+\d+", "", sql, flags=re.IGNORECASE)
                         # WHERE ROWNUM / 各类 Oracle/达梦分页残留
-                        sql = re.sub(r'\s+WHERE\s+ROWNUM\s*<=\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+WHERE\s+ROWNUM\s*<\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+WHERE\s+\(\s*ROWNUM\s*-\s*\d+\s*\)\s*\*\s*\d+\s*\+\s*\d+\s*>\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+WHERE\s+\d+\s*<\s*ROWNUM\s*<\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+WHERE\s+ROWNUM\s+between\s+\d+\s+and\s+\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+WHERE\s+rn\s*>\s*\d+\s+AND\s+rn\s*<=\s*\d+', '', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\s+WHERE\s+rn\s*>=\s*\d+\s+AND\s+rn\s*<\s*\d+', '', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r"\s+WHERE\s+ROWNUM\s*<=\s*\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+WHERE\s+ROWNUM\s*<\s*\d+", "", sql, flags=re.IGNORECASE
+                        )
+                        sql = re.sub(
+                            r"\s+WHERE\s+\(\s*ROWNUM\s*-\s*\d+\s*\)\s*\*\s*\d+\s*\+\s*\d+\s*>\s*\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+WHERE\s+\d+\s*<\s*ROWNUM\s*<\s*\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+WHERE\s+ROWNUM\s+between\s+\d+\s+and\s+\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+WHERE\s+rn\s*>\s*\d+\s+AND\s+rn\s*<=\s*\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
+                        sql = re.sub(
+                            r"\s+WHERE\s+rn\s*>=\s*\d+\s+AND\s+rn\s*<\s*\d+",
+                            "",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
 
                         # ── 步骤 3：修复 ORDER BY 后 DESC/ASC 和 LIMIT 之间缺少空格
                         #    如 "ORDER BY col DESC LIMIT" → "ORDER BY col DESC LIMIT"
-                        sql = re.sub(r'(DESC|ASC)\s*(LIMIT|OFFSET)', r'\1 \2', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r"(DESC|ASC)\s*(LIMIT|OFFSET)",
+                            r"\1 \2",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
 
                         # ── 步骤 4：清理 ORDER BY 后残留的 ROWNUM 算术表达式
                         #    如 "ORDER BY col DESC * 5 + 1 > 0" → "ORDER BY col DESC"
                         sql = re.sub(
-                            r'ORDER\s+BY\s+[^()]*?\*\s*\d+\s*[+-]\s*\d+\s*[<>=]+\s*\d+',
+                            r"ORDER\s+BY\s+[^()]*?\*\s*\d+\s*[+-]\s*\d+\s*[<>=]+\s*\d+",
                             lambda m: re.sub(
-                                r'\s*\*\s*\d+\s*[+-]\s*\d+\s*[<>=]+\s*\d+\s*$',
-                                '',
+                                r"\s*\*\s*\d+\s*[+-]\s*\d+\s*[<>=]+\s*\d+\s*$",
+                                "",
                                 m.group(0),
-                                flags=re.IGNORECASE
+                                flags=re.IGNORECASE,
                             ),
                             sql,
-                            flags=re.IGNORECASE
+                            flags=re.IGNORECASE,
                         )
 
                         # ── 步骤 5：清理 ORDER BY 后残留的孤立 LIMIT 数字
                         #    如 "ORDER BY col DESC 500 OFFSET 0" → "ORDER BY col DESC"
                         sql = re.sub(
-                            r'ORDER\s+BY\s+[^()]*?\s+\d+\s+OFFSET',
-                            lambda m: re.sub(r'\s+\d+(?=\s+OFFSET)', '', m.group(0)),
+                            r"ORDER\s+BY\s+[^()]*?\s+\d+\s+OFFSET",
+                            lambda m: re.sub(r"\s+\d+(?=\s+OFFSET)", "", m.group(0)),
                             sql,
-                            flags=re.IGNORECASE
+                            flags=re.IGNORECASE,
                         )
 
                         # ── 步骤 6：修复无意义的 WHERE 条件
-                        sql = re.sub(r'\bWHERE\s+0\b', 'WHERE 1=1', sql, flags=re.IGNORECASE)
-                        sql = re.sub(r'\bWHERE\s+1\s*=\s*0\b', 'WHERE 1=1', sql, flags=re.IGNORECASE)
+                        sql = re.sub(
+                            r"\bWHERE\s+0\b", "WHERE 1=1", sql, flags=re.IGNORECASE
+                        )
+                        sql = re.sub(
+                            r"\bWHERE\s+1\s*=\s*0\b",
+                            "WHERE 1=1",
+                            sql,
+                            flags=re.IGNORECASE,
+                        )
 
                         # ── 步骤 7：统一追加达梦 LIMIT 分页
-                        sql = sql.rstrip() + f' LIMIT {final_limit} OFFSET 0'
+                        sql = sql.rstrip() + f" LIMIT {final_limit} OFFSET 0"
 
                     # ── 步骤 8：达梦大小写敏感，所有标识符必须双引号
                     # 达梦 DM8 开启大小写敏感后，未加双引号的表名/列名无法识别。
                     # 策略：直接匹配单词字符序列，在回调里判断是否需要加引号。
                     # 关键字和已引号的标识符跳过，其余全部加双引号。
-                    _SQL_KEYWORDS = frozenset({
-                        'ASC', 'DESC', 'NULL', 'SYSDATE', 'AND', 'OR', 'NOT',
-                        'AS', 'IN', 'ON', 'BY', 'IS', 'LIKE', 'BETWEEN',
-                        'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS',
-                        'JOIN', 'FROM', 'WHERE', 'ORDER', 'GROUP', 'HAVING',
-                        'LIMIT', 'OFFSET', 'SELECT', 'UNION', 'ALL', 'DISTINCT',
-                        'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'OVER', 'PARTITION',
-                        'MINUTE', 'HOUR', 'DAY', 'SECOND', 'YEAR', 'MONTH',
-                        'SUM', 'AVG', 'COUNT', 'MAX', 'MIN', 'TRUNC', 'TO_CHAR',
-                        'CAST', 'COALESCE', 'GREATEST', 'LEAST', 'NVL', 'NVL2',
-                        'DATEDIFF', 'TIMESTAMPDIFF', 'DATE', 'TIME',
-                        'TO_DATE', 'TO_NUMBER', 'ROW_NUMBER', 'ROWNUM',
-                        'SYSTIMESTAMP', 'ROWID', 'ROWIDTOCHAR',
-                        'INSERT', 'UPDATE', 'DELETE', 'SET', 'VALUES',
-                        'TABLE', 'INDEX', 'VIEW', 'SEQUENCE', 'TRIGGER',
-                        'TRUE', 'FALSE', 'UNKNOWN', 'EXISTS',
-                    })
+                    _SQL_KEYWORDS = frozenset(
+                        {
+                            "ASC",
+                            "DESC",
+                            "NULL",
+                            "SYSDATE",
+                            "AND",
+                            "OR",
+                            "NOT",
+                            "AS",
+                            "IN",
+                            "ON",
+                            "BY",
+                            "IS",
+                            "LIKE",
+                            "BETWEEN",
+                            "LEFT",
+                            "RIGHT",
+                            "INNER",
+                            "OUTER",
+                            "FULL",
+                            "CROSS",
+                            "JOIN",
+                            "FROM",
+                            "WHERE",
+                            "ORDER",
+                            "GROUP",
+                            "HAVING",
+                            "LIMIT",
+                            "OFFSET",
+                            "SELECT",
+                            "UNION",
+                            "ALL",
+                            "DISTINCT",
+                            "CASE",
+                            "WHEN",
+                            "THEN",
+                            "ELSE",
+                            "END",
+                            "OVER",
+                            "PARTITION",
+                            "MINUTE",
+                            "HOUR",
+                            "DAY",
+                            "SECOND",
+                            "YEAR",
+                            "MONTH",
+                            "SUM",
+                            "AVG",
+                            "COUNT",
+                            "MAX",
+                            "MIN",
+                            "TRUNC",
+                            "TO_CHAR",
+                            "CAST",
+                            "COALESCE",
+                            "GREATEST",
+                            "LEAST",
+                            "NVL",
+                            "NVL2",
+                            "DATEDIFF",
+                            "TIMESTAMPDIFF",
+                            "DATE",
+                            "TIME",
+                            "TO_DATE",
+                            "TO_NUMBER",
+                            "ROW_NUMBER",
+                            "ROWNUM",
+                            "SYSTIMESTAMP",
+                            "ROWID",
+                            "ROWIDTOCHAR",
+                            "INSERT",
+                            "UPDATE",
+                            "DELETE",
+                            "SET",
+                            "VALUES",
+                            "TABLE",
+                            "INDEX",
+                            "VIEW",
+                            "SEQUENCE",
+                            "TRIGGER",
+                            "TRUE",
+                            "FALSE",
+                            "UNKNOWN",
+                            "EXISTS",
+                        }
+                    )
 
                     # 用于判断当前上下文是否在字符串/数字常量中
                     def _add_quotes_to_identifiers(sql: str) -> str:
@@ -822,9 +1142,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                                 continue
 
                             # 尝试匹配标识符（字母或下划线开头）
-                            if c.isalpha() or c == '_':
+                            if c.isalpha() or c == "_":
                                 j = i
-                                while j < n and (sql[j].isalnum() or sql[j] == '_'):
+                                while j < n and (sql[j].isalnum() or sql[j] == "_"):
                                     j += 1
                                 identifier = sql[i:j]
                                 upper = identifier.upper()
@@ -852,7 +1172,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             result.append(c)
                             i += 1
 
-                        return ''.join(result)
+                        return "".join(result)
 
                     sql = _add_quotes_to_identifiers(sql)
                     logger.info("双引号修复后: %s", sql)
@@ -867,33 +1187,47 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     logger.info("日期列修复后: %s", sql)
 
                     # 4. 修复单引号别名 → 去掉引号（达梦里别名不加引号）
-                    sql = re.sub(r"\s+AS\s+'([^']+)'", r' AS \1', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        r"\s+AS\s+'([^']+)'", r" AS \1", sql, flags=re.IGNORECASE
+                    )
 
                     # 5. 修复 DATE() 函数 → TRUNC()
-                    sql = re.sub(r'\bDATE\(("?[\w.]+"?)\)', r'TRUNC(\1)', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        r'\bDATE\(("?[\w.]+"?)\)',
+                        r"TRUNC(\1)",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
 
                     # 6. 修复 IFNULL() → NVL()
-                    sql = re.sub(r'\bIFNULL\(', 'NVL(', sql, flags=re.IGNORECASE)
+                    sql = re.sub(r"\bIFNULL\(", "NVL(", sql, flags=re.IGNORECASE)
 
                     # 7. 修复 DATE_SUB/DATE_ADD → +/- INTERVAL
-                    sql = re.sub(r'DATE_SUB\(', '(', sql, flags=re.IGNORECASE)
-                    sql = re.sub(r'DATE_ADD\(', '(', sql, flags=re.IGNORECASE)
-                    sql = re.sub(r'INTERVAL\s+\d+\s+DAY', '', sql, flags=re.IGNORECASE)
+                    sql = re.sub(r"DATE_SUB\(", "(", sql, flags=re.IGNORECASE)
+                    sql = re.sub(r"DATE_ADD\(", "(", sql, flags=re.IGNORECASE)
+                    sql = re.sub(r"INTERVAL\s+\d+\s+DAY", "", sql, flags=re.IGNORECASE)
 
                     # 8. 修复 NOW() → SYSDATE
-                    sql = re.sub(r'\bNOW\(\)', 'SYSDATE', sql, flags=re.IGNORECASE)
+                    sql = re.sub(r"\bNOW\(\)", "SYSDATE", sql, flags=re.IGNORECASE)
 
                     # 9. 修复 CONCAT_WS → ||
-                    sql = re.sub(r'\bCONCAT_WS\(["\'](.+?)["\']\s*,\s*', lambda m: '(', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        r'\bCONCAT_WS\(["\'](.+?)["\']\s*,\s*',
+                        lambda m: "(",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
 
                     # 10. 如果有 GROUP BY + ORDER BY，把 ORDER BY 中的别名替换为列位置序号
                     #    达梦不支持 ORDER BY 使用 SELECT 列表别名（如 ORDER BY alarm_count），
                     #    需要替换为 ORDER BY n（n = 该别名在 SELECT 列表中的位置序号）。
-                    if 'GROUP BY' in sql.upper() and re.search(r'\bORDER BY\b', sql, re.IGNORECASE):
+                    if "GROUP BY" in sql.upper() and re.search(
+                        r"\bORDER BY\b", sql, re.IGNORECASE
+                    ):
                         sql = self._fix_order_by_alias(sql)
 
                     # 11. 如果有 GROUP BY，移除未分组的非聚合列（如 "id"）
-                    if 'GROUP BY' in sql.upper():
+                    if "GROUP BY" in sql.upper():
                         logger.info(">>> 进入 GROUP BY 修复，原始 SQL: %s", sql)
                         sql = self._fix_group_by(sql)
                         logger.info(">>> GROUP BY 修复完成: %s", sql)
@@ -920,13 +1254,16 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
                     # 生成后验证：发现臆造列名则触发重试
                     from app.core.dameng import validate_sql_columns
+
                     col_valid, col_err, invalid_list = validate_sql_columns(sql)
                     if not col_valid:
                         # 构造更具体的错误反馈: 列出每个具体列名 + 所在表
                         invalid_detail = []
                         for inv in invalid_list[:5]:
                             invalid_detail.append(f"  - {inv}")
-                        invalid_text = "\n".join(invalid_detail) if invalid_detail else col_err
+                        invalid_text = (
+                            "\n".join(invalid_detail) if invalid_detail else col_err
+                        )
 
                         hint_suffix = (
                             f"\n\n【严重错误 - 上一轮 SQL 验证失败】\n"
@@ -934,7 +1271,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             f"请重新生成, 严格只使用上方「数据库真实表结构」!\n"
                             f"**对照上方表结构, 逐个核对表名和字段名**!"
                         )
-                        logger.warning(f"SQL 生成后验证失败（attempt {attempt}）: {col_err}，将重试")
+                        logger.warning(
+                            f"SQL 生成后验证失败（attempt {attempt}）: {col_err}，将重试"
+                        )
                         if attempt < 2:
                             # 第 1/2 次失败: 带上具体提示重试
                             # 第 2 次重试时, 不传模板 (让 LLM 凭 schema 自由发挥)
@@ -945,22 +1284,43 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             continue
                         else:
                             # 第 3 次还失败：主动清理臆造列名后再返回
-                            logger.warning("3 次重试后仍含臆造列, 主动清理后继续: %s", invalid_list)
+                            logger.warning(
+                                "3 次重试后仍含臆造列, 主动清理后继续: %s", invalid_list
+                            )
                             for bad_col in invalid_list:
                                 # 去掉双引号
                                 col_name = bad_col.strip('"')
                                 # 从 SELECT 列表中移除（支持带 AS 别名的情况）
-                                sql = re.sub(rf',?\s*"{re.escape(col_name)}"(\s+(?:AS\s+(?:"[^"]*"|\w+))?)(?=[,\)]|$)', '', sql, flags=re.IGNORECASE)
-                                sql = re.sub(rf',?\s*\b{re.escape(col_name)}\b(\s+(?:AS\s+(?:"[^"]*"|\w+))?)(?=[,\)]|$)', '', sql, flags=re.IGNORECASE)
+                                sql = re.sub(
+                                    rf',?\s*"{re.escape(col_name)}"(\s+(?:AS\s+(?:"[^"]*"|\w+))?)(?=[,\)]|$)',
+                                    "",
+                                    sql,
+                                    flags=re.IGNORECASE,
+                                )
+                                sql = re.sub(
+                                    rf',?\s*\b{re.escape(col_name)}\b(\s+(?:AS\s+(?:"[^"]*"|\w+))?)(?=[,\)]|$)',
+                                    "",
+                                    sql,
+                                    flags=re.IGNORECASE,
+                                )
                             # 清理残留逗号
-                            sql = re.sub(r',\s*\b(WHERE|ORDER|GROUP|LIMIT)\b', r' \1', sql, flags=re.IGNORECASE)
-                            sql = re.sub(r'SELECT\s+,', 'SELECT ', sql, flags=re.IGNORECASE)
+                            sql = re.sub(
+                                r",\s*\b(WHERE|ORDER|GROUP|LIMIT)\b",
+                                r" \1",
+                                sql,
+                                flags=re.IGNORECASE,
+                            )
+                            sql = re.sub(
+                                r"SELECT\s+,", "SELECT ", sql, flags=re.IGNORECASE
+                            )
                             logger.info("清理后SQL: %s", sql)
                             return sql
 
                     return sql
                 else:
-                    logger.warning("SQL 生成结果无效（attempt %d）: %s", attempt + 1, sql[:200])
+                    logger.warning(
+                        "SQL 生成结果无效（attempt %d）: %s", attempt + 1, sql[:200]
+                    )
 
             except Exception as e:
                 logger.error("SQL 生成失败（attempt %d）: %s", attempt + 1, str(e))
@@ -982,9 +1342,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         # 严格安全门: 仅 SELECT / 拦截多语句 / 强制 LIMIT (明细 500 / 聚合 200)
         from app.core.sql_guard import validate as guard_validate
+
         if result_cap is not None:
             sql = self._strip_result_limit(sql)
-            guard = guard_validate(sql, detail_limit=result_cap, aggregate_limit=result_cap)
+            guard = guard_validate(
+                sql, detail_limit=result_cap, aggregate_limit=result_cap
+            )
         else:
             guard = guard_validate(sql)
         if not guard.ok:
@@ -995,15 +1358,16 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         try:
             # 安全检查：禁止危险操作（单词边界匹配，避免误伤 create_time 等列名）
             import re
+
             sql_upper = sql.upper()
             # INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER 用单词边界检测
-            if re.search(r'\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER)\b', sql_upper):
+            if re.search(r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER)\b", sql_upper):
                 logger.warning(f"SQL 安全检查拒绝（危险关键词）: {sql[:200]}")
                 return None, "禁止执行非查询语句"
-            if re.search(r'\bCREATE\b', sql_upper):
+            if re.search(r"\bCREATE\b", sql_upper):
                 # CREATE 作为独立单词检测（排除 CREATE_TIME 这类列名）
                 # 只有出现在句首或前面有分号的才是 DDL
-                safe_pattern = r'(?:^|[;])\s*CREATE\b|^\s*CREATE\s+'
+                safe_pattern = r"(?:^|[;])\s*CREATE\b|^\s*CREATE\s+"
                 if not re.search(safe_pattern, sql_upper):
                     pass  # CREATE_TIME 等列名是安全的
                 else:
@@ -1013,50 +1377,72 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # 预清理：自动剔除已知臆造列名（LLM 常见幻觉）
             # 表 → 臆造列名列表（这些列在该表中不存在，LLM 经常臆造）
             KNOWN_HALLUCINATED_COLS: dict[str, frozenset[str]] = {
-                'alarm_record': frozenset({'area_id', 'circuit_name', 'area_name', 'device_code'}),
-                'lighting_area': frozenset({'space_id', 'create_time', 'area_id'}),
-                'alarm_category': frozenset({'create_time'}),
+                "alarm_record": frozenset(
+                    {"area_id", "circuit_name", "area_name", "device_code"}
+                ),
+                "lighting_area": frozenset({"space_id", "create_time", "area_id"}),
+                "alarm_category": frozenset({"create_time"}),
             }
             for table, bad_cols in KNOWN_HALLUCINATED_COLS.items():
                 for col in bad_cols:
                     # 从 SELECT 列表中移除（支持带 AS 别名的情况）
                     # 先处理 `"col"` 形式
-                    sql = re.sub(rf',?\s*"{re.escape(col)}"(\s+(?:AS\s+\w+)?(?=[,\)]|$))', '', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        rf',?\s*"{re.escape(col)}"(\s+(?:AS\s+\w+)?(?=[,\)]|$))',
+                        "",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
                     # 再处理 `col` 形式（加了双引号的已经是 `"col"`，但保险起见）
-                    sql = re.sub(rf',?\s*\b"{re.escape(col)}"\b(\s+(?:AS\s+\w+)?(?=[,\)]|$))', '', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        rf',?\s*\b"{re.escape(col)}"\b(\s+(?:AS\s+\w+)?(?=[,\)]|$))',
+                        "",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
                     # 也处理无引号的（如果还有）
-                    sql = re.sub(rf',?\s*\b{re.escape(col)}\b(\s+(?:AS\s+\w+)?(?=[,\)]|$))', '', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        rf",?\s*\b{re.escape(col)}\b(\s+(?:AS\s+\w+)?(?=[,\)]|$))",
+                        "",
+                        sql,
+                        flags=re.IGNORECASE,
+                    )
                 # 清理 SELECT 列表首列被单独移除后的残留逗号
-                sql = re.sub(r',\s*\bWHERE\b', ' WHERE', sql, flags=re.IGNORECASE)
-                sql = re.sub(r'SELECT\s+,', 'SELECT ', sql, flags=re.IGNORECASE)
+                sql = re.sub(r",\s*\bWHERE\b", " WHERE", sql, flags=re.IGNORECASE)
+                sql = re.sub(r"SELECT\s+,", "SELECT ", sql, flags=re.IGNORECASE)
 
-            if sql.strip() == '' or re.match(r'^\s*SELECT\s*\s*$', sql):
+            if sql.strip() == "" or re.match(r"^\s*SELECT\s*\s*$", sql):
                 return None, "清理臆造列后 SQL 为空"
 
             # 列名 schema 验证：检查是否有臆造列名
             from app.core.dameng import validate_sql_columns
+
             col_valid, col_err, invalid_list = validate_sql_columns(sql)
             if not col_valid:
                 logger.warning(f"SQL 列名验证失败: {col_err}")
                 return None, f"SQL 包含不存在的列名: {', '.join(invalid_list)}"
 
             results = execute_query(sql)
-            
+
             if results:
                 logger.info(">>> SQL执行成功，返回 %d 条记录 <<<", len(results))
                 if results:
-                    logger.info("示例数据(第一条): %s", dict(list(results[0].items())[:5]))
+                    logger.info(
+                        "示例数据(第一条): %s", dict(list(results[0].items())[:5])
+                    )
             else:
                 logger.warning(">>> SQL执行成功，但返回 0 条记录 <<<")
             logger.info("=" * 80)
-            
+
             return results, None
         except Exception as e:
             logger.error(">>> SQL执行异常: %s <<<", str(e))
             logger.error("=" * 80)
             return None, str(e)
 
-    def _build_vue_table(self, data: List[dict], *, max_rows: Optional[int] = 500) -> dict:
+    def _build_vue_table(
+        self, data: List[dict], *, max_rows: Optional[int] = 500
+    ) -> dict:
         """根据查询结果构建 Vue table 结构。查看全部时 max_rows=None。"""
         if not data:
             return {"columns": [], "rows": []}
@@ -1067,39 +1453,77 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         for key in sample.keys():
             # 提取原始列名（去掉 SUM()/AVG()/COUNT()/NVL()/COALESCE 等函数包裹）
-            clean_key = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE|NVL)\s*\(\s*"([^"]+)"\s*,\s*[^)]+\s*\)$', r'\2', key, flags=re.IGNORECASE)
-            clean_key = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(\s*"([^"]+)"\s*\)$', r'\2', clean_key, flags=re.IGNORECASE)
-            clean_key = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN|NVL)\s*\(\s*([^)]+)\s*\)$', r'\2', clean_key, flags=re.IGNORECASE)
+            clean_key = re.sub(
+                r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE|NVL)\s*\(\s*"([^"]+)"\s*,\s*[^)]+\s*\)$',
+                r"\2",
+                key,
+                flags=re.IGNORECASE,
+            )
+            clean_key = re.sub(
+                r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(\s*"([^"]+)"\s*\)$',
+                r"\2",
+                clean_key,
+                flags=re.IGNORECASE,
+            )
+            clean_key = re.sub(
+                r"^(SUM|AVG|COUNT|MAX|MIN|NVL)\s*\(\s*([^)]+)\s*\)$",
+                r"\2",
+                clean_key,
+                flags=re.IGNORECASE,
+            )
 
             # 排除 id 列
-            if clean_key.lower() in ('id', 'bigint', 'rn'):
+            if clean_key.lower() in ("id", "bigint", "rn"):
                 continue
 
             # 格式化列为中文标签
             label = self._format_column_label(clean_key)
 
             # 聚合函数的列添加"总和/平均/计数"后缀
-            if re.match(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(', key, re.IGNORECASE):
-                agg_map = {"SUM": "总和", "AVG": "平均值", "COUNT": "计数", "MAX": "最大值", "MIN": "最小值"}
-                agg = re.match(r'^(SUM|AVG|COUNT|MAX|MIN)', key, re.IGNORECASE).group(1).upper()
-                label = self._format_column_label(clean_key) + f"({agg_map.get(agg, agg)})"
+            if re.match(r"^(SUM|AVG|COUNT|MAX|MIN)\s*\(", key, re.IGNORECASE):
+                agg_map = {
+                    "SUM": "总和",
+                    "AVG": "平均值",
+                    "COUNT": "计数",
+                    "MAX": "最大值",
+                    "MIN": "最小值",
+                }
+                agg = (
+                    re.match(r"^(SUM|AVG|COUNT|MAX|MIN)", key, re.IGNORECASE)
+                    .group(1)
+                    .upper()
+                )
+                label = (
+                    self._format_column_label(clean_key) + f"({agg_map.get(agg, agg)})"
+                )
 
-            columns.append({
-                "key": clean_key,
-                "label": label,
-                "width": "auto"
-            })
+            columns.append({"key": clean_key, "label": label, "width": "auto"})
 
         row_source = data if max_rows is None else data[:max_rows]
         for row in row_source:
             formatted_row = {}
             for k, v in row.items():
                 # 提取原始列名（处理 NVL/SUM/AVG/COUNT 等函数包裹）
-                clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE|NVL)\s*\(\s*"([^"]+)"\s*,\s*[^)]+\s*\)$', r'\2', k, flags=re.IGNORECASE)
-                clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(\s*"([^"]+)"\s*\)$', r'\2', clean_k, flags=re.IGNORECASE)
-                clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN|NVL)\s*\(\s*([^)]+)\s*\)$', r'\2', clean_k, flags=re.IGNORECASE)
+                clean_k = re.sub(
+                    r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE|NVL)\s*\(\s*"([^"]+)"\s*,\s*[^)]+\s*\)$',
+                    r"\2",
+                    k,
+                    flags=re.IGNORECASE,
+                )
+                clean_k = re.sub(
+                    r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(\s*"([^"]+)"\s*\)$',
+                    r"\2",
+                    clean_k,
+                    flags=re.IGNORECASE,
+                )
+                clean_k = re.sub(
+                    r"^(SUM|AVG|COUNT|MAX|MIN|NVL)\s*\(\s*([^)]+)\s*\)$",
+                    r"\2",
+                    clean_k,
+                    flags=re.IGNORECASE,
+                )
                 # 排除 id 列
-                if clean_k.lower() in ('id', 'bigint', 'rn'):
+                if clean_k.lower() in ("id", "bigint", "rn"):
                     continue
                 if v is None:
                     formatted_row[clean_k] = "-"
@@ -1107,7 +1531,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     formatted_row[clean_k] = round(float(v), 2)
                 elif isinstance(v, datetime):
                     formatted_row[clean_k] = v.strftime("%Y-%m-%d")
-                elif hasattr(v, 'strftime'):  # date 对象
+                elif hasattr(v, "strftime"):  # date 对象
                     formatted_row[clean_k] = v.strftime("%Y-%m-%d")
                 else:
                     formatted_row[clean_k] = v
@@ -1123,7 +1547,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         """
         try:
             # 提取 SELECT 列表中的别名映射：别名 → 位置序号（从1开始）
-            select_match = re.search(r'SELECT\s+(.+?)\s+FROM', sql, re.IGNORECASE)
+            select_match = re.search(r"SELECT\s+(.+?)\s+FROM", sql, re.IGNORECASE)
             if not select_match:
                 return sql
 
@@ -1135,14 +1559,14 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             select_str = select_content.strip()
             while i < len(select_str):
                 # 跳过空白
-                while i < len(select_str) and select_str[i] in ' \t\n':
+                while i < len(select_str) and select_str[i] in " \t\n":
                     i += 1
                 if i >= len(select_str):
                     break
 
                 # 判断起始字符
                 ch = select_str[i]
-                if ch == ',':
+                if ch == ",":
                     i += 1
                     continue
 
@@ -1151,11 +1575,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 start = i
                 while i < len(select_str):
                     c = select_str[i]
-                    if c in '([':
+                    if c in "([":
                         depth += 1
-                    elif c in ')]':
+                    elif c in ")]":
                         depth -= 1
-                    elif c == ',' and depth == 0:
+                    elif c == "," and depth == 0:
                         break
                     i += 1
                 item = select_str[start:i].strip()
@@ -1166,12 +1590,16 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 pos += 1
 
                 # 检测是否有 AS 别名
-                as_match = re.search(r'\s+AS\s+(["\']?)(\w+)\1\s*$', item, re.IGNORECASE)
+                as_match = re.search(
+                    r'\s+AS\s+(["\']?)(\w+)\1\s*$', item, re.IGNORECASE
+                )
                 if as_match:
                     alias_lower = as_match.group(2).lower()
                     alias_map[alias_lower] = pos
                 # 也检测没有 AS 的列名（可能是聚合函数 SUM(...)）
-                elif re.match(r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(', item, re.IGNORECASE):
+                elif re.match(
+                    r"^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(", item, re.IGNORECASE
+                ):
                     # 聚合函数没有 AS，尝试提取内部列名作为别名（宽松处理）
                     pass
 
@@ -1179,7 +1607,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 return sql
 
             # 提取 ORDER BY 部分
-            order_match = re.search(r'ORDER BY\s+(.+?)(?=\s+LIMIT|\s*$|$)', sql, re.IGNORECASE)
+            order_match = re.search(
+                r"ORDER BY\s+(.+?)(?=\s+LIMIT|\s*$|$)", sql, re.IGNORECASE
+            )
             if not order_match:
                 return sql
 
@@ -1191,15 +1621,15 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             for col_m in re.finditer(
                 r'(["\']?)(\w+)\1\s+(ASC|DESC)?(?=\s*,|\s+ORDER\s+BY|\s+LIMIT|\s*$)',
                 order_expr,
-                re.IGNORECASE
+                re.IGNORECASE,
             ):
                 raw_alias = col_m.group(2)
-                direction = col_m.group(3) or ''
+                direction = col_m.group(3) or ""
                 alias_lower = raw_alias.lower()
 
                 if alias_lower in alias_map:
                     col_pos = alias_map[alias_lower]
-                    fixed_parts.append(f'{col_pos} {direction}'.strip())
+                    fixed_parts.append(f"{col_pos} {direction}".strip())
                     logger.info(
                         f"ORDER BY 别名 '{raw_alias}' → 列位置 {col_pos} "
                         f"(SELECT 第 {col_pos} 项)"
@@ -1211,8 +1641,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             if not fixed_parts:
                 return sql
 
-            new_order = 'ORDER BY ' + ', '.join(fixed_parts)
-            sql = sql[:order_match.start()] + new_order + sql[order_match.start() + len(order_text):]
+            new_order = "ORDER BY " + ", ".join(fixed_parts)
+            sql = (
+                sql[: order_match.start()]
+                + new_order
+                + sql[order_match.start() + len(order_text) :]
+            )
             logger.info(f"ORDER BY 别名替换完成: {sql}")
 
         except Exception as e:
@@ -1228,7 +1662,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         """
         try:
             # 提取 GROUP BY 部分
-            group_by_match = re.search(r'GROUP BY\s+(.+?)(?=\s+ORDER|\s+LIMIT|\s*$|$)', sql, re.IGNORECASE)
+            group_by_match = re.search(
+                r"GROUP BY\s+(.+?)(?=\s+ORDER|\s+LIMIT|\s*$|$)", sql, re.IGNORECASE
+            )
             if not group_by_match:
                 return sql
 
@@ -1242,7 +1678,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 grouped_col_originals[col.lower()] = col
 
             # 提取 SELECT 和 FROM 之间的部分
-            select_match = re.search(r'SELECT\s+(.+?)\s+FROM', sql, re.IGNORECASE)
+            select_match = re.search(r"SELECT\s+(.+?)\s+FROM", sql, re.IGNORECASE)
             if not select_match:
                 return sql
 
@@ -1253,7 +1689,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             i = 0
             while i < len(select_content):
                 # 跳过空白和逗号
-                while i < len(select_content) and select_content[i] in ' \t\n,':
+                while i < len(select_content) and select_content[i] in " \t\n,":
                     i += 1
                 if i >= len(select_content):
                     break
@@ -1263,11 +1699,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 start = i
                 while i < len(select_content):
                     c = select_content[i]
-                    if c in '([,':
-                        if c == ',' and depth == 0:
+                    if c in "([,":
+                        if c == "," and depth == 0:
                             break
-                        depth += 1 if c in '([' else 0
-                    elif c in ')]':
+                        depth += 1 if c in "([" else 0
+                    elif c in ")]":
                         depth -= 1
                     i += 1
                 item = select_content[start:i].strip()
@@ -1280,7 +1716,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             for item in items:
                 item_upper = item.upper()
                 # 聚合函数（含 COUNT(*)、SUM("x") 等）→ 全部保留
-                if re.match(r'^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(', item_upper):
+                if re.match(r"^(SUM|AVG|COUNT|MAX|MIN|COALESCE)\s*\(", item_upper):
                     new_select_items.append(item)
                 # 裸列名（双引号）→ 必须在 GROUP BY 中
                 elif re.match(r'^"[^"]+"$', item) or re.match(r"^'[^']+'$", item):
@@ -1292,20 +1728,22 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 return sql
 
             # 重建 SELECT
-            new_select = ', '.join(new_select_items)
+            new_select = ", ".join(new_select_items)
             sql = re.sub(
-                r'SELECT\s+.+?\s+FROM',
-                f'SELECT {new_select} FROM',
+                r"SELECT\s+.+?\s+FROM",
+                f"SELECT {new_select} FROM",
                 sql,
                 count=1,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
 
             # 修正 ORDER BY：确保 ORDER BY 中的列都在 GROUP BY 中
             # 关键：列位置序号（如 ORDER BY 3）保持不变，不要转成列名
             if grouped_col_originals:
                 # 提取 ORDER BY 部分（可能在 LIMIT 之前或之后）
-                order_match = re.search(r'ORDER BY\s+(.+?)(?=\s+LIMIT|\s*$|$)', sql, re.IGNORECASE)
+                order_match = re.search(
+                    r"ORDER BY\s+(.+?)(?=\s+LIMIT|\s*$|$)", sql, re.IGNORECASE
+                )
                 if order_match:
                     order_text = order_match.group(0)  # 完整 "ORDER BY xxx"
                     order_expr = order_match.group(1).strip()  # ORDER BY 后的内容
@@ -1315,22 +1753,26 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     for col_m in re.finditer(
                         r'("?[\w.]+"?)\s+(ASC|DESC)?(?=\s*,|\s+ORDER|\s+LIMIT|\s*$)',
                         order_expr,
-                        re.IGNORECASE
+                        re.IGNORECASE,
                     ):
                         raw_col = col_m.group(1).strip()
-                        direction = col_m.group(2) or ''
+                        direction = col_m.group(2) or ""
 
                         # 情况 1：列位置序号（如 ORDER BY 3）→ 保持不变，达梦原生支持
                         if raw_col.isdigit():
-                            fixed_order_parts.append(f'{raw_col} {direction}'.strip())
+                            fixed_order_parts.append(f"{raw_col} {direction}".strip())
                             continue
 
                         # 情况 2：列名 → 检查是否在 GROUP BY 中
                         clean_col = raw_col.strip('"').strip("'").lower()
                         if clean_col in grouped_cols:
                             # 在 GROUP BY 中，加上双引号保留
-                            quoted = '"' + grouped_col_originals.get(clean_col, clean_col) + '"'
-                            fixed_order_parts.append(f'{quoted} {direction}'.strip())
+                            quoted = (
+                                '"'
+                                + grouped_col_originals.get(clean_col, clean_col)
+                                + '"'
+                            )
+                            fixed_order_parts.append(f"{quoted} {direction}".strip())
                         else:
                             # 不在 GROUP BY 中 → 跳过（达梦报错，改用 GROUP BY 第一列兜底）
                             logger.warning(
@@ -1339,11 +1781,15 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
                     # 如果有有效列，用它们重建 ORDER BY；否则只用第一列
                     if fixed_order_parts:
-                        new_order = 'ORDER BY ' + ', '.join(fixed_order_parts)
+                        new_order = "ORDER BY " + ", ".join(fixed_order_parts)
                     else:
                         first_col = '"' + list(grouped_col_originals.values())[0] + '"'
-                        new_order = f'ORDER BY {first_col}'
-                    sql = sql[:order_match.start()] + new_order + sql[order_match.start() + len(order_text):]
+                        new_order = f"ORDER BY {first_col}"
+                    sql = (
+                        sql[: order_match.start()]
+                        + new_order
+                        + sql[order_match.start() + len(order_text) :]
+                    )
                     logger.info(f"ORDER BY 修复: {sql}")
 
             logger.info(f"GROUP BY 修复: {sql}")
@@ -1374,8 +1820,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # 匹配 FWBZ."table_name"（捕获 table_name）或 "table_name"（直接捕获）
             from_tables = set()
             for m in re.finditer(
-                r'(?:FROM|JOIN)\s+(?:FWBZ\."([^"]+)"|"([^"]+)")',
-                sql, re.IGNORECASE
+                r'(?:FROM|JOIN)\s+(?:FWBZ\."([^"]+)"|"([^"]+)")', sql, re.IGNORECASE
             ):
                 # group(1) = FWBZ."table" 情况下的表名，group(2) = 直接 "table" 情况
                 captured = m.group(1) or m.group(2)
@@ -1396,7 +1841,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             logger.warning(f">>> 发现幽灵表引用: {phantom_tables}，尝试自动修复")
 
             for phantom in phantom_tables:
-                if phantom == 'device':
+                if phantom == "device":
                     # "device" 表缺失：需要补全 alarm_record → device 的 JOIN
                     # 策略：在第一个 JOIN 之前插入 LEFT JOIN device，并修正后续 ON 条件
                     # 示例：把 ON "device"."category_id" 改为 ON d."category_id"，
@@ -1404,8 +1849,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
                     # 找 alarm_record 的位置（主表）
                     alarm_record_pos = re.search(
-                        r'FROM\s+(?:FWBZ\.)?"alarm_record"',
-                        sql, re.IGNORECASE
+                        r'FROM\s+(?:FWBZ\.)?"alarm_record"', sql, re.IGNORECASE
                     )
                     if not alarm_record_pos:
                         # 找不到 alarm_record，跳过
@@ -1413,8 +1857,10 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         continue
 
                     # 找第一个 JOIN 关键字的位置（用于确定插入点）
-                    first_join = re.search(r'\s+LEFT\s+JOIN\s+', sql, re.IGNORECASE)
-                    first_inner_join = re.search(r'\s+INNER\s+JOIN\s+', sql, re.IGNORECASE)
+                    first_join = re.search(r"\s+LEFT\s+JOIN\s+", sql, re.IGNORECASE)
+                    first_inner_join = re.search(
+                        r"\s+INNER\s+JOIN\s+", sql, re.IGNORECASE
+                    )
 
                     # 取最早出现的 JOIN
                     join_positions = []
@@ -1426,8 +1872,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     if not join_positions:
                         # 没有 JOIN，在 FROM 子句之后插入
                         insert_pos = re.search(
-                            r'FROM\s+(?:FWBZ\.)?"alarm_record"[^"]*',
-                            sql, re.IGNORECASE
+                            r'FROM\s+(?:FWBZ\.)?"alarm_record"[^"]*', sql, re.IGNORECASE
                         )
                         if insert_pos:
                             insert_pos = insert_pos.end()
@@ -1443,8 +1888,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
                     # 找第一个引用 "device"."xxx" 的位置，用于确定需要修复的 ON 条件
                     first_device_ref = re.search(
-                        r'"device"\."(\w+)"',
-                        sql, re.IGNORECASE
+                        r'"device"\."(\w+)"', sql, re.IGNORECASE
                     )
                     if not first_device_ref:
                         continue
@@ -1461,19 +1905,23 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     # 其他幽灵表：无法安全推断 JOIN 路径，直接移除整个 JOIN 块
                     # 原因：去掉表前缀后剩下的裸列名会引入歧义（多表都有 id 等），
                     #       后续修复逻辑无法安全推断应该加哪个表的前缀。
-                    logger.warning(f"幽灵表 '{phantom}' 无法安全修复，将移除整个 JOIN 块")
+                    logger.warning(
+                        f"幽灵表 '{phantom}' 无法安全修复，将移除整个 JOIN 块"
+                    )
 
                     # 匹配包含该幽灵表的完整 JOIN 块（从 JOIN 到下一个 JOIN/WHERE/ORDER 之前）
                     # 格式: LEFT JOIN "phantom" ON (...) 或 LEFT JOIN FWBZ."phantom" ON (...)
                     phantom_join_pattern = (
-                        rf'\s+(LEFT\s+JOIN|INNER\s+JOIN|RIGHT\s+JOIN|JOIN)\s+'
+                        rf"\s+(LEFT\s+JOIN|INNER\s+JOIN|RIGHT\s+JOIN|JOIN)\s+"
                         rf'(?:FWBZ\.)?"{re.escape(phantom)}"'
                         rf'(?:\s+AS\s+"[^"]+")?\s+ON\s+.+?'
-                        rf'(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)'
+                        rf"(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)"
                     )
-                    sql = re.sub(phantom_join_pattern, '', sql, flags=re.IGNORECASE | re.DOTALL)
+                    sql = re.sub(
+                        phantom_join_pattern, "", sql, flags=re.IGNORECASE | re.DOTALL
+                    )
                     # 清理可能遗留的连续空格
-                    sql = re.sub(r'\s{2,}', ' ', sql)
+                    sql = re.sub(r"\s{2,}", " ", sql)
 
             logger.info(f"幽灵表修复后 SQL: {sql}")
         except Exception as e:
@@ -1499,37 +1947,71 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         """
         try:
             # 预定义：alarm_record 的外键列（用于判断左操作数应加 alarm_record. 前缀）
-            AR_FK_COLUMNS = frozenset({
-                'alarm_rule_id', 'device_id', 'space_id', 'alarm_category_id',
-                'alarm_level_id', 'point_id', 'alarm_rule_point_id', 'device_category_id',
-                'charge_person', 'device_category_id',
-            })
+            AR_FK_COLUMNS = frozenset(
+                {
+                    "alarm_rule_id",
+                    "device_id",
+                    "space_id",
+                    "alarm_category_id",
+                    "alarm_level_id",
+                    "point_id",
+                    "alarm_rule_point_id",
+                    "device_category_id",
+                    "charge_person",
+                    "device_category_id",
+                }
+            )
 
             # alarm_record 的自有列（用于判断右操作数可能属于 alarm_record 而非 JOIN 表）
-            AR_COLUMNS = frozenset({
-                'id', 'create_time', 'update_time', 'create_by', 'update_by',
-                'sys_org_code', 'alarm_rule_id', 'device_id', 'device_name',
-                'space_id', 'space_name', 'alarm_content', 'alarm_time',
-                'alarm_category_id', 'alarm_category_name', 'alarm_level_id',
-                'alarm_level_name', 'charge_person', 'charge_person_name',
-                'alarm_status', 'point_id', 'point_name', 'value',
-                'condition_value', 'operator', 'time_granularity',
-                'alarm_rule_point_id', 'device_category_id', 'alarm_level_color',
-                'event_id',
-            })
+            AR_COLUMNS = frozenset(
+                {
+                    "id",
+                    "create_time",
+                    "update_time",
+                    "create_by",
+                    "update_by",
+                    "sys_org_code",
+                    "alarm_rule_id",
+                    "device_id",
+                    "device_name",
+                    "space_id",
+                    "space_name",
+                    "alarm_content",
+                    "alarm_time",
+                    "alarm_category_id",
+                    "alarm_category_name",
+                    "alarm_level_id",
+                    "alarm_level_name",
+                    "charge_person",
+                    "charge_person_name",
+                    "alarm_status",
+                    "point_id",
+                    "point_name",
+                    "value",
+                    "condition_value",
+                    "operator",
+                    "time_granularity",
+                    "alarm_rule_point_id",
+                    "device_category_id",
+                    "alarm_level_color",
+                    "event_id",
+                }
+            )
 
             def fix_single_on(on_clause_str: str, joined_table: str) -> str:
                 """
                 修复一个完整 ON 子句（含多 AND 条件）中的裸列名歧义。
                 joined_table: 当前 JOIN 的表名（如 alarm_rules, alarm_level 等）
-                
+
                 处理格式：
                 - ON ("cond1") AND ("cond2") AND ("cond3")
                 - ON (cond1 AND cond2)
                 - ON cond1=cond2 AND cond3=cond4
                 """
                 # 步骤1：去除 ON 关键字
-                content = re.sub(r'\bON\b', '', on_clause_str, flags=re.IGNORECASE).strip()
+                content = re.sub(
+                    r"\bON\b", "", on_clause_str, flags=re.IGNORECASE
+                ).strip()
 
                 # 步骤2：提取括号内容（如果整个 ON 被一对外括号包裹）
                 # 例如 ON ("device_id"="device_id" AND ...) → content = "device_id"="device_id" AND ..."
@@ -1543,31 +2025,35 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 in_quote = False
                 while i < len(content):
                     c = content[i]
-                    if c == '"' and (i == 0 or content[i-1] != '\\'):
+                    if c == '"' and (i == 0 or content[i - 1] != "\\"):
                         in_quote = not in_quote
                         i += 1
                         continue
                     if in_quote:
                         i += 1
                         continue
-                    if c == '(':
+                    if c == "(":
                         depth += 1
-                    elif c == ')':
+                    elif c == ")":
                         depth -= 1
-                    elif depth == 0 and content[i:i+3].upper() == 'AND' and content[i+3:i+4] in ('', ' ', '\t'):
-                        parts.append(content[last:i].strip().strip('()').strip())
+                    elif (
+                        depth == 0
+                        and content[i : i + 3].upper() == "AND"
+                        and content[i + 3 : i + 4] in ("", " ", "\t")
+                    ):
+                        parts.append(content[last:i].strip().strip("()").strip())
                         last = i + 3
-                        while last < len(content) and content[last] in ' \t':
+                        while last < len(content) and content[last] in " \t":
                             last += 1
                         i = last
                         continue
                     i += 1
-                parts.append(content[last:].strip().strip('()').strip())
+                parts.append(content[last:].strip().strip("()").strip())
 
                 # 步骤4：处理每个原子条件 "col1"="col2"
                 fixed_parts = []
                 for part in parts:
-                    if '=' not in part:
+                    if "=" not in part:
                         fixed_parts.append(part)
                         continue
 
@@ -1577,43 +2063,46 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     depth = 0
                     in_q = False
                     for idx, ch in enumerate(part):
-                        if ch == '"' and (idx == 0 or part[idx-1] != '\\'):
+                        if ch == '"' and (idx == 0 or part[idx - 1] != "\\"):
                             in_q = not in_q
                         if not in_q:
-                            if ch == '(':
+                            if ch == "(":
                                 depth += 1
-                            elif ch == ')':
+                            elif ch == ")":
                                 depth -= 1
-                            elif ch == '=' and eq_pos < 0:
+                            elif ch == "=" and eq_pos < 0:
                                 eq_pos = idx
                     if eq_pos < 0:
                         fixed_parts.append(part)
                         continue
 
                     left = part[:eq_pos].strip().strip('()"')
-                    right = part[eq_pos+1:].strip().strip('()"')
+                    right = part[eq_pos + 1 :].strip().strip('()"')
                     new_left = left
                     new_right = right
 
                     # 左操作数：如果是 alarm_record 的外键列，加前缀
-                    if left and left.lower() in AR_FK_COLUMNS and '.' not in left:
+                    if left and left.lower() in AR_FK_COLUMNS and "." not in left:
                         new_left = f'"alarm_record"."{left}"'
                     # 右操作数：如果是裸 "id"，加目标表前缀
-                    if right and '.' not in right:
+                    if right and "." not in right:
                         right_lower = right.lower()
-                        if right_lower == 'id':
+                        if right_lower == "id":
                             new_right = f'"{joined_table}"."id"'
-                        elif right_lower in AR_COLUMNS and left.lower() not in AR_FK_COLUMNS:
+                        elif (
+                            right_lower in AR_COLUMNS
+                            and left.lower() not in AR_FK_COLUMNS
+                        ):
                             # 右操作数是 alarm_record 列但左操作数不是外键 → 加 alarm_record 前缀
                             new_right = f'"alarm_record"."{right}"'
 
                     if new_left == left and new_right == right:
                         fixed_parts.append(part)
                     else:
-                        fixed_parts.append(f'{new_left}={new_right}')
+                        fixed_parts.append(f"{new_left}={new_right}")
 
                 # 步骤5：重建 ON 子句
-                result = 'ON ' + ' AND '.join(fixed_parts)
+                result = "ON " + " AND ".join(fixed_parts)
                 if result != on_clause_str:
                     logger.info(f"  ON 修复: {on_clause_str!r} → {result!r}")
                 return result
@@ -1626,13 +2115,23 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 table_name = table_name_raw.strip('".').lower()
 
                 # 找这个 JOIN 的完整 ON 条件（使用贪婪匹配以捕获多 AND 条件）
-                on_match = re.search(r'\bON\b\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)', full_match, re.IGNORECASE | re.DOTALL)
+                on_match = re.search(
+                    r"\bON\b\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)",
+                    full_match,
+                    re.IGNORECASE | re.DOTALL,
+                )
                 if not on_match:
                     return full_match
 
                 fixed_on = fix_single_on(on_match.group(0), table_name)
                 # 重建 JOIN 块：只替换 ON 部分
-                return re.sub(r'\bON\b\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)', fixed_on, full_match, count=1, flags=re.IGNORECASE | re.DOTALL)
+                return re.sub(
+                    r"\bON\b\s+(.+?)(?=\s+(?:LEFT|INNER|RIGHT)\s+JOIN|\s+WHERE|\s+ORDER\s+BY|\s+GROUP\s+BY|\s+$)",
+                    fixed_on,
+                    full_match,
+                    count=1,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
 
             # 匹配：JOIN 类型 + 表名（支持 FWBZ."table" 或 "table"）+ 可选的 AS 别名 + ON 条件
             # 用贪婪匹配 .+ 配合 lookahead 边界，确保捕获完整的多 AND ON 条件
@@ -1644,7 +2143,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     replace_join_block,
                     sql,
                     count=0,  # 全局替换
-                    flags=re.IGNORECASE | re.DOTALL
+                    flags=re.IGNORECASE | re.DOTALL,
                 )
 
             logger.info(f"ON 条件修复后 SQL: {sql[:300]}")
@@ -1676,25 +2175,31 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # 前置检查：只有 alarm_record 表在 FROM/JOIN 里时才处理歧义列名
             # 从完整 SQL 中提取所有表名（FROM 和 JOIN 子句）
             from_clause_match = re.search(
-                r'FROM\s+(.+?)(?=\s+WHERE|\s+GROUP|\s+ORDER|\s+HIMIT|\s+OFFSET|\s+UNION|,|\s*$)',
-                sql, re.IGNORECASE | re.DOTALL
+                r"FROM\s+(.+?)(?=\s+WHERE|\s+GROUP|\s+ORDER|\s+HIMIT|\s+OFFSET|\s+UNION|,|\s*$)",
+                sql,
+                re.IGNORECASE | re.DOTALL,
             )
-            from_clause = from_clause_match.group(1) if from_clause_match else ''
+            from_clause = from_clause_match.group(1) if from_clause_match else ""
             # 提取表名：支持 FWBZ."table" / "FWBZ"."table" / "table" / FWBZ.table
             defined_tables = set()
             for m in re.finditer(
                 r'FWBZ\."(\w+)"|FWBZ\.(\w+)|"FWBZ"\.?"(\w+)"|"(\w+)"',
-                from_clause, re.IGNORECASE
+                from_clause,
+                re.IGNORECASE,
             ):
-                t = (m.group(1) or m.group(2) or m.group(3) or m.group(4) or '').strip().lower()
+                t = (
+                    (m.group(1) or m.group(2) or m.group(3) or m.group(4) or "")
+                    .strip()
+                    .lower()
+                )
                 if t:
                     defined_tables.add(t)
-            if 'alarm_record' not in defined_tables:
+            if "alarm_record" not in defined_tables:
                 logger.info(f"歧义列名修复跳过：FROM 子句中无 alarm_record 表")
                 return sql
 
             # 歧义列名：多表共有，必须加 alarm_record. 前缀
-            AMBIGUOUS = frozenset({'id', 'create_time', 'update_time', 'sys_org_code'})
+            AMBIGUOUS = frozenset({"id", "create_time", "update_time", "sys_org_code"})
 
             # 步骤1：先把所有 "table"."xxx" 里的内层裸歧义列名替换成带前缀版本
             # 例如："device"."id" → "device"."alarm_record"."id"
@@ -1712,10 +2217,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     first_quote = full.index('"')
                     second_quote = full.index('"', first_quote + 1)
                     # 列名开头 = 跳过 second_q 后的点，再跳过列名内容找下一个引号
-                    col_start = full.index('"', second_quote + 2)  # 跳过 "." 后找到列名开头引号
-                    col_end = full.index('"', col_start + 1)        # 再找列名结尾引号
-                    table = full[first_quote+1:second_quote]
-                    col_val = full[col_start+1:col_end]
+                    col_start = full.index(
+                        '"', second_quote + 2
+                    )  # 跳过 "." 后找到列名开头引号
+                    col_end = full.index('"', col_start + 1)  # 再找列名结尾引号
+                    table = full[first_quote + 1 : second_quote]
+                    col_val = full[col_start + 1 : col_end]
                     return '"' + table + '"."alarm_record"."' + col_val + '"'
 
                 # 匹配 "xxx"."yyy" 格式（两个引号组，中间有点）
@@ -1730,6 +2237,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # 后面不是点/引号（确保不会跨 qualified 边界）
                 def replace_bare(m):
                     return '"alarm_record"."' + col + '"'
+
                 pattern = r'(?<![\w."])("' + re.escape(col) + r'")(?![\w."])'
                 sql, n = re.subn(pattern, replace_bare, sql, flags=re.IGNORECASE)
                 if n > 0:
@@ -1741,7 +2249,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 r'"([^"]+)"\."alarm_record"\."([^"]+)"',
                 r'"".""',
                 sql,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
             if n > 0:
                 logger.info(f"  步骤3: 修复三段式 {n} 处")
@@ -1782,7 +2290,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 return sql
 
             # 日期列候选：data_date / date / stat_date
-            DATE_COLS = ('data_date', 'date', 'stat_date')
+            DATE_COLS = ("data_date", "date", "stat_date")
 
             def _find_real_date_col(table_lower: str) -> Optional[str]:
                 """返回该表的真实日期列名（小写），没有则 None"""
@@ -1795,14 +2303,46 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # ========== 1. 解析 FROM/JOIN 的表+别名映射 ==========
             alias_to_table: dict[str, str] = {}
             sql_keywords_skip = {
-                "select", "from", "where", "group", "order", "having", "limit",
-                "offset", "union", "with", "on", "as", "join", "inner", "left",
-                "right", "outer", "full", "cross", "and", "or", "not", "in",
-                "is", "null", "like", "between", "exists", "case", "when",
-                "then", "else", "end", "set", "values", "into", "update",
+                "select",
+                "from",
+                "where",
+                "group",
+                "order",
+                "having",
+                "limit",
+                "offset",
+                "union",
+                "with",
+                "on",
+                "as",
+                "join",
+                "inner",
+                "left",
+                "right",
+                "outer",
+                "full",
+                "cross",
+                "and",
+                "or",
+                "not",
+                "in",
+                "is",
+                "null",
+                "like",
+                "between",
+                "exists",
+                "case",
+                "when",
+                "then",
+                "else",
+                "end",
+                "set",
+                "values",
+                "into",
+                "update",
             }
             from_table_pattern = re.compile(
-                r'\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+'
+                r"\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+"
                 r'(?:(?:"?FWBZ"?\s*\.\s*)?)?"?([A-Za-z_]\w*)"?'
                 r'(?:\s+(?:AS\s+)?"?([A-Za-z_]\w*)"?)?',
                 re.IGNORECASE,
@@ -1847,7 +2387,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # ========== 3. 处理 bare "data_date"/"stat_date" ==========
             # 只在查询涉及的所有表都没有 data_date 列时，才替换 bare 引用
             # （如果有 table_venue_flow_hour 等有 data_date 的表，bare 引用归属不明，保留交给列校验）
-            tables_have_data_date = {t for t in real_tables if 'data_date' in schema.get(t, set())}
+            tables_have_data_date = {
+                t for t in real_tables if "data_date" in schema.get(t, set())
+            }
             if not tables_have_data_date and real_tables:
                 # 所有表都没有 data_date 列，可以安全替换 bare 引用
                 # 但需要按表的真实日期列替换，若有多种日期列则无法全局替换
@@ -1856,8 +2398,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # 如果所有表的真实日期列名一致，按该列名替换
                 if len(real_date_cols) == 1:
                     target_col = real_date_cols.pop()
-                    sql = re.sub(r'"data_date"', f'"{target_col}"', sql, flags=re.IGNORECASE)
-                    sql = re.sub(r'"stat_date"', f'"{target_col}"', sql, flags=re.IGNORECASE)
+                    sql = re.sub(
+                        r'"data_date"', f'"{target_col}"', sql, flags=re.IGNORECASE
+                    )
+                    sql = re.sub(
+                        r'"stat_date"', f'"{target_col}"', sql, flags=re.IGNORECASE
+                    )
 
             return sql
         except Exception as e:
@@ -1868,52 +2414,110 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         """将英文列名格式化为中文标签"""
         mapping = {
             # 设备相关
-            "device_name": "设备名称", "device_code": "设备编码", "device_type": "设备类型",
-            "device_id": "设备ID", "run_state": "运行状态", "last_gather_time": "最后采集时间",
+            "device_name": "设备名称",
+            "device_code": "设备编码",
+            "device_type": "设备类型",
+            "device_id": "设备ID",
+            "run_state": "运行状态",
+            "last_gather_time": "最后采集时间",
             "create_time": "创建时间",
             # 告警相关
-            "alarm_content": "告警内容", "alarm_time": "告警时间", "alarm_category_name": "告警类别",
-            "alarm_level_name": "告警级别", "alarm_status": "告警状态", "alarm_count": "告警数量",
+            "alarm_content": "告警内容",
+            "alarm_time": "告警时间",
+            "alarm_category_name": "告警类别",
+            "alarm_level_name": "告警级别",
+            "alarm_status": "告警状态",
+            "alarm_count": "告警数量",
             "charge_person_name": "责任人",
             # 场馆相关
-            "venue_name": "场馆名称", "venue_id": "场馆ID", "floors": "楼层数", "orientation": "朝向",
-            "longitude": "经度", "latitude": "纬度",
+            "venue_name": "场馆名称",
+            "venue_id": "场馆ID",
+            "floors": "楼层数",
+            "orientation": "朝向",
+            "longitude": "经度",
+            "latitude": "纬度",
             # 空间相关
-            "space_name": "空间名称", "space_id": "空间ID", "full_name": "完整名称", "full_id": "完整编号",
+            "space_name": "空间名称",
+            "space_id": "空间ID",
+            "full_name": "完整名称",
+            "full_id": "完整编号",
             # 分类相关
-            "category_name": "类型名称", "category_id": "分类ID", "has_child": "是否有子级",
+            "category_name": "类型名称",
+            "category_id": "分类ID",
+            "has_child": "是否有子级",
             # 能耗/计量
-            "value": "数值", "total_energy": "总能耗", "carbon_emission": "碳排放",
-            "metering_unit": "计量单位", "type": "类型",
+            "value": "数值",
+            "total_energy": "总能耗",
+            "carbon_emission": "碳排放",
+            "metering_unit": "计量单位",
+            "type": "类型",
             # 客流/人员
-            "today_in_count": "今日入场", "current_in_count": "当前在场数", "max_count": "最大人数",
-            "average_duration": "平均时长", "today_entry_count": "今日入场数", "average_parking_duration": "平均停车时长",
-            "remaining_space_count": "剩余车位数", "recognition_record_count": "识别记录数",
+            "today_in_count": "今日入场",
+            "current_in_count": "当前在场数",
+            "max_count": "最大人数",
+            "average_duration": "平均时长",
+            "today_entry_count": "今日入场数",
+            "average_parking_duration": "平均停车时长",
+            "remaining_space_count": "剩余车位数",
+            "recognition_record_count": "识别记录数",
             "abnormal_warning_count": "异常告警数",
             # 照明相关
-            "area_name": "区域名称", "area_code": "区域编码", "circuit_name": "回路名称",
-            "all_duration": "总时长", "comstat": "通信状态",
+            "area_name": "区域名称",
+            "area_code": "区域编码",
+            "circuit_name": "回路名称",
+            "all_duration": "总时长",
+            "comstat": "通信状态",
             # 停车相关
-            "stat_date": "统计日期", "data_date": "日期", "date": "日期",
+            "stat_date": "统计日期",
+            "data_date": "日期",
+            "date": "日期",
             # 报告相关
-            "report_type": "报告类型", "title": "标题", "summary": "摘要", "content": "内容",
-            "target_name": "目标名称", "scope": "范围",
+            "report_type": "报告类型",
+            "title": "标题",
+            "summary": "摘要",
+            "content": "内容",
+            "target_name": "目标名称",
+            "scope": "范围",
             # 统计相关
-            "total_count": "总数", "online_count": "在线数", "offline_count": "离线数",
-            "total_value": "总数值", "avg_value": "平均值", "max_value": "最大值", "min_value": "最小值",
-            "count": "数量", "percentage": "占比",
+            "total_count": "总数",
+            "online_count": "在线数",
+            "offline_count": "离线数",
+            "total_value": "总数值",
+            "avg_value": "平均值",
+            "max_value": "最大值",
+            "min_value": "最小值",
+            "count": "数量",
+            "percentage": "占比",
             # 通用
-            "location": "位置", "area": "面积", "status": "状态",
-            "node_name": "节点名称", "node_code": "节点编码",
-            "time_range": "时间范围", "created_at": "创建时间",
-            "id": "ID", "pid": "父级ID",
+            "location": "位置",
+            "area": "面积",
+            "status": "状态",
+            "node_name": "节点名称",
+            "node_code": "节点编码",
+            "time_range": "时间范围",
+            "created_at": "创建时间",
+            "id": "ID",
+            "pid": "父级ID",
             # 照明/其他
-            "ceiling_h": "层高", "lighting": "照明", "basic_facility": "基本设施", "buildable": "可建面积",
+            "ceiling_h": "层高",
+            "lighting": "照明",
+            "basic_facility": "基本设施",
+            "buildable": "可建面积",
             # 序号/分页
-            "rn": "序号", "rownum": "序号", "rowno": "序号", "no": "序号", "num": "序号",
+            "rn": "序号",
+            "rownum": "序号",
+            "rowno": "序号",
+            "no": "序号",
+            "num": "序号",
             # 特殊列名（大小写不敏感）
-            "date": "日期", "time": "时间", "name": "名称", "code": "编码",
-            "entry": "入场", "exit": "出场", "in": "在场", "out": "离场",
+            "date": "日期",
+            "time": "时间",
+            "name": "名称",
+            "code": "编码",
+            "entry": "入场",
+            "exit": "出场",
+            "in": "在场",
+            "out": "离场",
         }
         # 优先精确匹配
         if col_name in mapping:
@@ -1922,8 +2526,97 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         result = col_name.replace("_", " ")
         return result.title()
 
-    def _build_echarts(self, data: List[dict], question: str) -> dict:
-        """根据查询结果构建 ECharts 配置"""
+    _STAT_DIM_PRIORITY = (
+        "run_state",
+        "status",
+        "device_type",
+        "category_name",
+        "meter_type",
+        "alarm_level_name",
+        "alarm_category_name",
+        "venue_name",
+        "space_name",
+        "area_name",
+        "online",
+        "energy_type",
+    )
+    _HIGH_CARD_CHART_KEYS = frozenset({
+        "device_name",
+        "name",
+        "device_code",
+        "node_code",
+        "title",
+        "full_name",
+        "alarm_content",
+        "content",
+        "remark",
+        "description",
+        "create_by",
+        "id",
+    })
+
+    @staticmethod
+    def _collapse_chart_items(
+        items: List[tuple],
+        *,
+        max_slices: int = 20,
+    ) -> List[tuple]:
+        """类别过多时保留头部，其余打进「其他」，保证合计等于全量。"""
+        items = [(str(n), float(v)) for n, v in items if n is not None]
+        if len(items) <= max_slices:
+            return items
+        head = items[: max_slices - 1]
+        other = sum(v for _, v in items[max_slices - 1 :])
+        return head + [("其他", other)]
+
+    def _repick_stat_category(
+        self,
+        data: List[dict],
+        keys: List[str],
+        key_to_column: dict,
+        cat_key: Optional[str],
+        cat_key_raw: Optional[str],
+    ) -> tuple:
+        """查看全部时优先用状态/类型等低基数列，避免按设备名画 20 根无意义的柱。"""
+        if not data:
+            return cat_key, cat_key_raw
+
+        def unique_ratio(raw_key: str) -> float:
+            vals = [str(row.get(raw_key, "")) for row in data]
+            return len(set(vals)) / max(len(vals), 1)
+
+        def find_raw(col: str) -> Optional[str]:
+            if col in keys:
+                return col
+            for k in keys:
+                if str(k).lower() == col.lower():
+                    return k
+            for raw, name in key_to_column.items():
+                if str(name).lower() == col.lower():
+                    return raw
+            return None
+
+        if cat_key and cat_key.lower() not in self._HIGH_CARD_CHART_KEYS:
+            raw = cat_key_raw or find_raw(cat_key)
+            if raw and unique_ratio(raw) <= 0.4:
+                return cat_key, raw
+
+        for dim in self._STAT_DIM_PRIORITY:
+            raw = find_raw(dim)
+            if not raw:
+                continue
+            sample = data[0].get(raw)
+            if not isinstance(sample, (str, datetime, date, int, float, Decimal)):
+                continue
+            if unique_ratio(raw) > 0.4:
+                continue
+            return dim, raw
+        return cat_key, cat_key_raw
+
+    def _build_echarts(
+        self, data: List[dict], question: str, *, full_stats: bool = False
+    ) -> dict:
+        """根据查询结果构建 ECharts 配置。full_stats=True 时按全量聚合。"""
         if not data:
             return {}
 
@@ -1934,7 +2627,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         def _extract_column_name(expr: str) -> str:
             """从复杂表达式中提取列名"""
             # NVL("xxx", 0) -> xxx
-            m = re.search(r'NVL\s*\(\s*"?([^",\)]+)"?\s*,\s*[^)]+\)', expr, re.IGNORECASE)
+            m = re.search(
+                r'NVL\s*\(\s*"?([^",\)]+)"?\s*,\s*[^)]+\)', expr, re.IGNORECASE
+            )
             if m:
                 return m.group(1).strip()
             # 兼容旧格式 NVL("xxx", '默认值')
@@ -1946,9 +2641,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             if m:
                 return m.group(1).strip()
             # 尝试直接取最后一部分
-            parts = expr.split('.')
+            parts = expr.split(".")
             if len(parts) > 1:
-                last = parts[-1].strip('" \'')
+                last = parts[-1].strip("\" '")
                 return last
             return expr
 
@@ -1961,16 +2656,38 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         # 优先选择人类可读的分类列（按优先级排序）
         readable_priority = [
             # 场馆/空间名称（最可读）
-            'venue_name', 'space_name', 'area_name', 'location', 'position',
+            "venue_name",
+            "space_name",
+            "area_name",
+            "location",
+            "position",
             # 设备/对象名称
-            'device_name', 'name', 'node_name', 'title', 'full_name',
+            "device_name",
+            "name",
+            "node_name",
+            "title",
+            "full_name",
             # 告警/状态相关名称
-            'alarm_category_name', 'alarm_level_name', 'category_name', 'status',
+            "alarm_category_name",
+            "alarm_level_name",
+            "category_name",
+            "status",
             # 描述性内容
-            'alarm_content', 'content', 'remark', 'description',
+            "alarm_content",
+            "content",
+            "remark",
+            "description",
             # 最后才用编码类（最不可读）
-            'device_code', 'device_type', 'node_code', 'area_code', 'circuit_code',
-            'space_id', 'venue_id', 'device_id', 'id', 'bigint'
+            "device_code",
+            "device_type",
+            "node_code",
+            "area_code",
+            "circuit_code",
+            "space_id",
+            "venue_id",
+            "device_id",
+            "id",
+            "bigint",
         ]
 
         # 找分类列：优先选择人类可读的名称列
@@ -1984,7 +2701,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 v = sample.get(priority_key)
                 if isinstance(v, (str, datetime, date)):
                     cat_key_raw = priority_key
-                    clean_k = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', priority_key, flags=re.IGNORECASE)
+                    clean_k = re.sub(
+                        r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$',
+                        r"\2",
+                        priority_key,
+                        flags=re.IGNORECASE,
+                    )
                     cat_key = clean_k
                     break
             # 再检查复杂表达式解析后的列名
@@ -2003,16 +2725,32 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             for k in keys:
                 v = sample.get(k)
                 col_name = key_to_column.get(k, k)
-                if col_name.lower() not in ['id', 'bigint'] and isinstance(v, (str, datetime, date)):
+                if col_name.lower() not in ["id", "bigint"] and isinstance(
+                    v, (str, datetime, date)
+                ):
                     cat_key_raw = k
                     cat_key = col_name
                     break
 
+        if full_stats:
+            cat_key, cat_key_raw = self._repick_stat_category(
+                data, keys, key_to_column, cat_key, cat_key_raw
+            )
+            logger.info(
+                "查看全部图表维度: cat_key=%s raw=%s rows=%s",
+                cat_key,
+                cat_key_raw,
+                len(data),
+            )
+
         # 找数值列（包含聚合函数列）
-        num_candidates = [k for k in keys if isinstance(sample.get(k), (int, float, Decimal))]
+        num_candidates = [
+            k for k in keys if isinstance(sample.get(k), (int, float, Decimal))
+        ]
         numeric_keys = [
-            k for k in num_candidates
-            if not re.match(r'^(id|bigint)$', k, re.IGNORECASE)
+            k
+            for k in num_candidates
+            if not re.match(r"^(id|bigint)$", k, re.IGNORECASE)
         ]
 
         # 如果没有数值列但有分类列，说明是明细数据，每行计数=1
@@ -2030,12 +2768,18 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 category_counts[display_val] += 1
 
             # 转换为图表数据
-            chart_data = [
-                {"name": name, "value": count}
-                for name, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:20]
-            ]
+            items = sorted(
+                category_counts.items(), key=lambda x: x[1], reverse=True
+            )
+            if full_stats:
+                items = self._collapse_chart_items(items)
+            else:
+                items = items[:20]
+            chart_data = [{"name": name, "value": count} for name, count in items]
 
             chart_title = self._gen_chart_title(question, "记录数量")
+            if full_stats:
+                chart_title = f"{chart_title}（全量）"
             chart_id = f"chart_{datetime.now().strftime('%H%M%S%f')}"
 
             if len(chart_data) <= 6:
@@ -2046,73 +2790,119 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         "title": {"text": chart_title, "left": "center"},
                         "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"},
                         "legend": {"bottom": 10, "left": "center"},
-                        "series": [{
-                            "type": "pie",
-                            "radius": ["35%", "60%"],
-                            "avoidLabelOverlap": False,
-                            "itemStyle": {"borderRadius": 6, "borderColor": "#fff", "borderWidth": 2},
-                            "label": {"show": True, "formatter": "{b}\n{c} ({d}%)"},
-                            "data": chart_data
-                        }]
-                    }
+                        "series": [
+                            {
+                                "type": "pie",
+                                "radius": ["35%", "60%"],
+                                "avoidLabelOverlap": False,
+                                "itemStyle": {
+                                    "borderRadius": 6,
+                                    "borderColor": "#fff",
+                                    "borderWidth": 2,
+                                },
+                                "label": {"show": True, "formatter": "{b}\n{c} ({d}%)"},
+                                "data": chart_data,
+                            }
+                        ],
+                    },
                 }
             else:
                 # 柱状图：按分类聚合后的数据
-                sorted_data = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:20]
-                x_axis_data = [str(name) for name, _ in sorted_data]
-                series_data = [float(count) for _, count in sorted_data]
+                x_axis_data = [str(name) for name, _ in items]
+                series_data = [float(count) for _, count in items]
 
                 return {
                     "chartType": "bar",
                     "chartId": chart_id,
                     "option": {
                         "title": {"text": chart_title, "left": "center"},
-                        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                        "grid": {"left": "3%", "right": "4%", "bottom": "12%", "containLabel": True},
-                        "xAxis": {"type": "category", "data": x_axis_data, "axisLabel": {"rotate": 30, "interval": 0}},
+                        "tooltip": {
+                            "trigger": "axis",
+                            "axisPointer": {"type": "shadow"},
+                        },
+                        "grid": {
+                            "left": "3%",
+                            "right": "4%",
+                            "bottom": "12%",
+                            "containLabel": True,
+                        },
+                        "xAxis": {
+                            "type": "category",
+                            "data": x_axis_data,
+                            "axisLabel": {"rotate": 30, "interval": 0},
+                        },
                         "yAxis": {"type": "value", "name": "记录数量"},
-                        "series": [{
-                            "type": "bar",
-                            "data": series_data,
-                            "itemStyle": {
-                                "color": {
-                                    "type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1,
-                                    "colorStops": [
-                                        {"offset": 0, "color": "#5470C6"},
-                                        {"offset": 1, "color": "#91CC75"}
-                                    ]
+                        "series": [
+                            {
+                                "type": "bar",
+                                "data": series_data,
+                                "itemStyle": {
+                                    "color": {
+                                        "type": "linear",
+                                        "x": 0,
+                                        "y": 0,
+                                        "x2": 0,
+                                        "y2": 1,
+                                        "colorStops": [
+                                            {"offset": 0, "color": "#5470C6"},
+                                            {"offset": 1, "color": "#91CC75"},
+                                        ],
+                                    },
+                                    "borderRadius": [4, 4, 0, 0],
                                 },
-                                "borderRadius": [4, 4, 0, 0]
-                            },
-                            "label": {"show": True, "position": "top", "formatter": "{c}"}
-                        }]
-                    }
+                                "label": {
+                                    "show": True,
+                                    "position": "top",
+                                    "formatter": "{c}",
+                                },
+                            }
+                        ],
+                    },
                 }
 
         if not cat_key or not numeric_keys:
             return {}
 
         first_num_key = numeric_keys[0]
-        clean_num_key = re.sub(r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$', r'\2', first_num_key, flags=re.IGNORECASE)
+        clean_num_key = re.sub(
+            r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$',
+            r"\2",
+            first_num_key,
+            flags=re.IGNORECASE,
+        )
         label = self._format_column_label(clean_num_key)
 
         # 生成人类可读的分类标签
-        x_axis_data = []
-        for row in data[:20]:
-            raw_value = str(row.get(cat_key_raw, ""))
-            # 如果是编码类列，尝试进行格式化
-            display_value = self._format_category_label(cat_key, raw_value, row)
-            x_axis_data.append(display_value)
-
-        series_data = [float(row.get(first_num_key, 0) or 0) for row in data[:20]]
+        if full_stats:
+            agg: dict[str, float] = {}
+            for row in data:
+                raw_value = str(row.get(cat_key_raw, ""))
+                display_value = self._format_category_label(cat_key, raw_value, row)
+                agg[display_value] = agg.get(display_value, 0.0) + float(
+                    row.get(first_num_key, 0) or 0
+                )
+            items = self._collapse_chart_items(
+                sorted(agg.items(), key=lambda x: x[1], reverse=True)
+            )
+            x_axis_data = [name for name, _ in items]
+            series_data = [value for _, value in items]
+        else:
+            x_axis_data = []
+            for row in data[:20]:
+                raw_value = str(row.get(cat_key_raw, ""))
+                display_value = self._format_category_label(cat_key, raw_value, row)
+                x_axis_data.append(display_value)
+            series_data = [float(row.get(first_num_key, 0) or 0) for row in data[:20]]
 
         chart_title = self._gen_chart_title(question, label)
+        if full_stats:
+            chart_title = f"{chart_title}（全量）"
         chart_id = f"chart_{datetime.now().strftime('%H%M%S%f')}"
 
-        if len(data) <= 6:
+        if len(x_axis_data) <= 6:
             pie_data = [
-                {"name": x_axis_data[i], "value": float(row.get(first_num_key, 0) or 0)}
-                for i, row in enumerate(data[:20])
+                {"name": x_axis_data[i], "value": series_data[i]}
+                for i in range(len(x_axis_data))
             ]
             return {
                 "chartType": "pie",
@@ -2121,15 +2911,21 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     "title": {"text": chart_title, "left": "center"},
                     "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"},
                     "legend": {"bottom": 10, "left": "center"},
-                    "series": [{
-                        "type": "pie",
-                        "radius": ["35%", "60%"],
-                        "avoidLabelOverlap": False,
-                        "itemStyle": {"borderRadius": 6, "borderColor": "#fff", "borderWidth": 2},
-                        "label": {"show": True, "formatter": "{b}\n{c} ({d}%)"},
-                        "data": pie_data
-                    }]
-                }
+                    "series": [
+                        {
+                            "type": "pie",
+                            "radius": ["35%", "60%"],
+                            "avoidLabelOverlap": False,
+                            "itemStyle": {
+                                "borderRadius": 6,
+                                "borderColor": "#fff",
+                                "borderWidth": 2,
+                            },
+                            "label": {"show": True, "formatter": "{b}\n{c} ({d}%)"},
+                            "data": pie_data,
+                        }
+                    ],
+                },
             }
         else:
             return {
@@ -2138,40 +2934,71 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 "option": {
                     "title": {"text": chart_title, "left": "center"},
                     "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                    "grid": {"left": "3%", "right": "4%", "bottom": "12%", "containLabel": True},
-                    "xAxis": {"type": "category", "data": x_axis_data, "axisLabel": {"rotate": 30, "interval": 0}},
+                    "grid": {
+                        "left": "3%",
+                        "right": "4%",
+                        "bottom": "12%",
+                        "containLabel": True,
+                    },
+                    "xAxis": {
+                        "type": "category",
+                        "data": x_axis_data,
+                        "axisLabel": {"rotate": 30, "interval": 0},
+                    },
                     "yAxis": {"type": "value", "name": label},
-                    "series": [{
-                        "type": "bar",
-                        "data": series_data,
-                        "itemStyle": {
-                            "color": {
-                                "type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1,
-                                "colorStops": [
-                                    {"offset": 0, "color": "#5470C6"},
-                                    {"offset": 1, "color": "#91CC75"}
-                                ]
+                    "series": [
+                        {
+                            "type": "bar",
+                            "data": series_data,
+                            "itemStyle": {
+                                "color": {
+                                    "type": "linear",
+                                    "x": 0,
+                                    "y": 0,
+                                    "x2": 0,
+                                    "y2": 1,
+                                    "colorStops": [
+                                        {"offset": 0, "color": "#5470C6"},
+                                        {"offset": 1, "color": "#91CC75"},
+                                    ],
+                                },
+                                "borderRadius": [4, 4, 0, 0],
                             },
-                            "borderRadius": [4, 4, 0, 0]
-                        },
-                        "label": {"show": True, "position": "top", "formatter": "{c}"}
-                    }]
-                }
+                            "label": {
+                                "show": True,
+                                "position": "top",
+                                "formatter": "{c}",
+                            },
+                        }
+                    ],
+                },
             }
 
     def _format_category_label(self, col_key: str, raw_value: str, row: dict) -> str:
         """格式化分类标签，使人类更易读"""
-        if not raw_value or raw_value in ['None', 'null', '-']:
+        if not raw_value or raw_value in ["None", "null", "-"]:
             return "未知"
+
+        if col_key.lower() in {"run_state", "status", "online"}:
+            mapped = {
+                "0": "离线",
+                "1": "在线",
+                "2": "故障",
+                "offline": "离线",
+                "online": "在线",
+                "false": "离线",
+                "true": "在线",
+            }
+            return mapped.get(raw_value.strip().lower(), raw_value)
 
         # 编码类列的格式化规则
         code_format_rules = {
-            'device_code': lambda v: self._format_device_code(v, row),
-            'device_type': lambda v: self._format_device_type(v),
-            'node_code': lambda v: self._format_node_code(v, row),
-            'space_name': lambda v: v if v else "未知空间",
-            'area_name': lambda v: v if v else "未知区域",
-            'venue_name': lambda v: v if v else "未知场馆",
+            "device_code": lambda v: self._format_device_code(v, row),
+            "device_type": lambda v: self._format_device_type(v),
+            "node_code": lambda v: self._format_node_code(v, row),
+            "space_name": lambda v: v if v else "未知空间",
+            "area_name": lambda v: v if v else "未知区域",
+            "venue_name": lambda v: v if v else "未知场馆",
         }
 
         # 如果是编码类列，进行格式化
@@ -2186,8 +3013,8 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
     def _format_device_code(self, code: str, row: dict) -> str:
         """格式化设备编码为人类可读名称"""
         # 如果有 device_name，优先使用
-        if row.get('device_name') and row.get('device_name') not in [None, 'None', '']:
-            return str(row['device_name'])
+        if row.get("device_name") and row.get("device_name") not in [None, "None", ""]:
+            return str(row["device_name"])
 
         # 设备编码解析规则
         if not code:
@@ -2195,17 +3022,17 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         # 尝试从编码推断类型
         code_upper = code.upper()
-        if 'KT' in code_upper:
+        if "KT" in code_upper:
             return f"空调-{code}"
-        elif 'XF' in code_upper:
+        elif "XF" in code_upper:
             return f"新风-{code}"
-        elif 'CH' in code_upper:
+        elif "CH" in code_upper:
             return f"冷机-{code}"
-        elif 'PV' in code_upper:
+        elif "PV" in code_upper:
             return f"光伏-{code}"
-        elif 'PD' in code_upper or 'DP' in code_upper:
+        elif "PD" in code_upper or "DP" in code_upper:
             return f"配电-{code}"
-        elif 'ZT' in code_upper:
+        elif "ZT" in code_upper:
             return f"照明-{code}"
 
         # 通用：直接返回编码（截断过长的）
@@ -2216,19 +3043,24 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
     def _format_device_type(self, device_type: str) -> str:
         """格式化设备类型为中文"""
         type_mapping = {
-            '1': '仪表', '2': '设备',
-            'meter': '仪表', 'device': '设备',
-            'ac': '空调', 'air_condition': '空调机组',
-            'fresh_air': '新风机组', 'power': '配电',
-            'light': '照明', 'pv': '光伏'
+            "1": "仪表",
+            "2": "设备",
+            "meter": "仪表",
+            "device": "设备",
+            "ac": "空调",
+            "air_condition": "空调机组",
+            "fresh_air": "新风机组",
+            "power": "配电",
+            "light": "照明",
+            "pv": "光伏",
         }
         return type_mapping.get(str(device_type).lower(), str(device_type))
 
     def _format_node_code(self, code: str, row: dict) -> str:
         """格式化节点编码为人类可读名称"""
         # 如果有 node_name，优先使用
-        if row.get('node_name') and row.get('node_name') not in [None, 'None', '']:
-            return str(row['node_name'])
+        if row.get("node_name") and row.get("node_name") not in [None, "None", ""]:
+            return str(row["node_name"])
 
         if not code:
             return "未知节点"
@@ -2238,12 +3070,20 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
     def _gen_chart_title(self, question: str, label: str) -> str:
         """根据问题生成图表标题"""
-        q_short = re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9]', '', question)[:20]
+        q_short = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9]", "", question)[:20]
         return f"{q_short} {label}分布" if q_short else f"{label}分布"
 
     _DETAIL_CAP = 500
     _AGGREGATE_CAP = 200
-    _COUNT_QUESTION_KWS = ("有多少", "多少个", "多少台", "共几", "总共多少", "总数", "共多少")
+    _COUNT_QUESTION_KWS = (
+        "有多少",
+        "多少个",
+        "多少台",
+        "共几",
+        "总共多少",
+        "总数",
+        "共多少",
+    )
     _VIEW_ALL_HINT = "回复「查看全部」则进行全部信息查看。"
 
     def _sql_has_group_by(self, sql: str) -> bool:
@@ -2267,7 +3107,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
     def _strip_result_limit(self, sql: str) -> str:
         s = (sql or "").strip().rstrip(";").strip()
         s = re.sub(r"\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*$", "", s, flags=re.IGNORECASE)
-        s = re.sub(r"\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\s*$", "", s, flags=re.IGNORECASE)
+        s = re.sub(
+            r"\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\s*$", "", s, flags=re.IGNORECASE
+        )
         return s.strip()
 
     def _is_truncated_preview(self, sql: str, row_count: int) -> bool:
@@ -2288,6 +3130,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         count_sql = f'SELECT COUNT(*) AS "total_count" FROM ({inner}) "_cnt"'
         try:
             from app.core.sql_guard import validate as guard_validate
+
             guard = guard_validate(count_sql)
             if not guard.ok:
                 logger.warning("全量 COUNT 被安全门拒绝: %s", guard.reason)
@@ -2303,7 +3146,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             logger.warning("全量 COUNT 失败: %s", exc)
             return None
 
-    def _resolve_result_cardinality(self, sql: str, data: List[dict]) -> tuple[int, Optional[int], bool]:
+    def _resolve_result_cardinality(
+        self, sql: str, data: List[dict]
+    ) -> tuple[int, Optional[int], bool]:
         """返回 (preview_count, total_count, truncated)。"""
         preview = len(data or [])
         truncated = self._is_truncated_preview(sql, preview)
@@ -2349,7 +3194,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             "ts": time.time(),
         }
 
-    def _load_truncated_query(self, client_ip: Optional[str]) -> Optional[dict[str, Any]]:
+    def _load_truncated_query(
+        self, client_ip: Optional[str]
+    ) -> Optional[dict[str, Any]]:
         key = self._query_store_key(client_ip)
         ctx = _LAST_TRUNCATED_QUERY.get(key)
         if not ctx:
@@ -2368,8 +3215,15 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
     def _is_exact_view_all(self, question: str) -> bool:
         compact = self._normalize_view_all_text(question)
         if compact in {
-            "查看全部", "看全部", "显示全部", "全部数据", "全部信息",
-            "导出全部", "查看全部数据", "查看全部信息", "请查看全部",
+            "查看全部",
+            "看全部",
+            "显示全部",
+            "全部数据",
+            "全部信息",
+            "导出全部",
+            "查看全部数据",
+            "查看全部信息",
+            "请查看全部",
         }:
             return True
         return compact.endswith("查看全部") and len(compact) <= 8
@@ -2382,7 +3236,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         try:
             _VIEW_ALL_PROMPT = path.read_text(encoding="utf-8")
         except OSError:
-            _VIEW_ALL_PROMPT = "判断用户是否要查看上一轮截断查询的全部数据。只输出 JSON {\"action\":\"export_all\"} 或 {\"action\":\"unrelated\"}。"
+            _VIEW_ALL_PROMPT = '判断用户是否要查看上一轮截断查询的全部数据。只输出 JSON {"action":"export_all"} 或 {"action":"unrelated"}。'
         return _VIEW_ALL_PROMPT
 
     def _classify_view_all_intent(
@@ -2413,7 +3267,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             text = (raw or "").strip()
             start, end = text.find("{"), text.rfind("}")
             if start >= 0 and end > start:
-                payload = json.loads(text[start:end + 1])
+                payload = json.loads(text[start : end + 1])
                 return str(payload.get("action") or "").strip() == "export_all"
         except Exception as exc:
             logger.warning("查看全部意图判别失败: %s", exc)
@@ -2478,7 +3332,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
         await asyncio.sleep(0)
 
-        echarts = self._build_echarts(data, orig_question)
+        echarts = self._build_echarts(data, orig_question, full_stats=True)
         if echarts:
             stream_summary["chart"] = {
                 "chartType": echarts.get("chartType"),
@@ -2541,7 +3395,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             truncated=truncated,
         )
         if truncated:
-            total_text = f"{total_count} 条" if total_count is not None else "未知（已截断，不少于预览条数）"
+            total_text = (
+                f"{total_count} 条"
+                if total_count is not None
+                else "未知（已截断，不少于预览条数）"
+            )
             count_rule = (
                 f"必须写「共 {total_count} 条，下表为前 {preview} 条预览」。"
                 if total_count is not None
@@ -2580,9 +3438,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 5. 只概括预览里能看见的分布，并点明这是预览（若已截断）。
 直接输出总结内容，不要解释，不要用引号包裹。"""
         try:
-            response = self.ollama.call_llm([
-                {"role": "user", "content": prompt}
-            ], temperature=0.3)
+            response = self.ollama.call_llm(
+                [{"role": "user", "content": prompt}], temperature=0.3
+            )
             return self._append_view_all_hint(response.strip()[:200], truncated)
         except Exception as e:
             logger.warning(f"总结生成失败: {e}")
@@ -2625,16 +3483,18 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
     def _safe_json_dumps(self, obj: Any) -> str:
         """安全的 JSON 序列化（处理 Decimal、datetime、date 等类型）"""
+
         def default(o):
             if isinstance(o, Decimal):
                 return float(o)
             if isinstance(o, datetime):
                 return o.strftime("%Y-%m-%d %H:%M:%S")
-            if hasattr(o, 'strftime') and callable(o.strftime):  # date 对象
+            if hasattr(o, "strftime") and callable(o.strftime):  # date 对象
                 return o.strftime("%Y-%m-%d")
-            if hasattr(o, '__dict__'):
+            if hasattr(o, "__dict__"):
                 return o.__dict__
             return str(o)
+
         return json.dumps(obj, ensure_ascii=False, default=default)
 
     async def _handle_energy_query(
@@ -2683,7 +3543,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 'SELECT "id", "node_name", "type", "true_formula" '
                 'FROM "FWBZ"."metering_point" '
                 'WHERE "true_formula" IS NOT NULL AND "true_formula" <> \'\' '
-                'LIMIT 500 OFFSET 0'
+                "LIMIT 500 OFFSET 0"
             )
             metering_points = execute_query(mp_sql)
 
@@ -2733,13 +3593,15 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             code_to_id = {}  # device_code (str) -> device.id (int)
             code_list = list(all_device_codes)
             for i in range(0, len(code_list), 1000):
-                chunk = code_list[i:i + 1000]
-                codes_sql = ",".join(f"'{c.replace(chr(39), chr(39)*2)}'" for c in chunk)
+                chunk = code_list[i : i + 1000]
+                codes_sql = ",".join(
+                    f"'{c.replace(chr(39), chr(39)*2)}'" for c in chunk
+                )
                 device_sql = (
                     f'SELECT "id", "device_code" '
                     f'FROM "FWBZ"."device" '
                     f'WHERE "device_code" IN ({codes_sql}) '
-                    f'LIMIT 5000 OFFSET 0'
+                    f"LIMIT 5000 OFFSET 0"
                 )
                 try:
                     rows = execute_query(device_sql)
@@ -2772,7 +3634,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             end_plus_1 = (end_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
             for i in range(0, len(device_id_list), 1000):
-                chunk = device_id_list[i:i + 1000]
+                chunk = device_id_list[i : i + 1000]
                 id_list_str = ",".join(str(d) for d in chunk)
                 data_sql = (
                     f'SELECT "device_id", SUM("value") AS "total_value" '
@@ -2827,10 +3689,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             energy_rows = []
             for type_code, total in medium_totals.items():
                 readable = medium_name_map.get(type_code) or type_code or "未知"
-                energy_rows.append({
-                    "energy_medium": readable,
-                    "total_value": round(Decimal(str(total)), 4),
-                })
+                energy_rows.append(
+                    {
+                        "energy_medium": readable,
+                        "total_value": round(Decimal(str(total)), 4),
+                    }
+                )
             # 按能耗降序
             energy_rows.sort(key=lambda r: float(r["total_value"]), reverse=True)
 
@@ -2841,7 +3705,10 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     {"key": "total_value", "label": "累计能耗"},
                 ],
                 "rows": [
-                    {"energy_medium": r["energy_medium"], "total_value": str(r["total_value"])}
+                    {
+                        "energy_medium": r["energy_medium"],
+                        "total_value": str(r["total_value"]),
+                    }
                     for r in energy_rows
                 ],
                 "total": len(energy_rows),
@@ -2863,25 +3730,48 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 "chartType": "bar",
                 "chartId": chart_id,
                 "option": {
-                    "title": {"text": self._gen_chart_title(question, "能耗"), "left": "center"},
+                    "title": {
+                        "text": self._gen_chart_title(question, "能耗"),
+                        "left": "center",
+                    },
                     "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-                    "grid": {"left": "3%", "right": "4%", "bottom": "12%", "containLabel": True},
-                    "xAxis": {"type": "category", "data": x_axis, "axisLabel": {"rotate": 30, "interval": 0}},
+                    "grid": {
+                        "left": "3%",
+                        "right": "4%",
+                        "bottom": "12%",
+                        "containLabel": True,
+                    },
+                    "xAxis": {
+                        "type": "category",
+                        "data": x_axis,
+                        "axisLabel": {"rotate": 30, "interval": 0},
+                    },
                     "yAxis": {"type": "value", "name": "累计能耗"},
-                    "series": [{
-                        "type": "bar",
-                        "data": series_data,
-                        "itemStyle": {
-                            "color": {"type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1,
-                                "colorStops": [
-                                    {"offset": 0, "color": "#5470C6"},
-                                    {"offset": 1, "color": "#91CC75"},
-                                ],
+                    "series": [
+                        {
+                            "type": "bar",
+                            "data": series_data,
+                            "itemStyle": {
+                                "color": {
+                                    "type": "linear",
+                                    "x": 0,
+                                    "y": 0,
+                                    "x2": 0,
+                                    "y2": 1,
+                                    "colorStops": [
+                                        {"offset": 0, "color": "#5470C6"},
+                                        {"offset": 1, "color": "#91CC75"},
+                                    ],
+                                },
+                                "borderRadius": [4, 4, 0, 0],
                             },
-                            "borderRadius": [4, 4, 0, 0],
-                        },
-                        "label": {"show": True, "position": "top", "formatter": "{c}"},
-                    }],
+                            "label": {
+                                "show": True,
+                                "position": "top",
+                                "formatter": "{c}",
+                            },
+                        }
+                    ],
                 },
             }
             stream_summary["chart"] = {"chartType": "bar", "chartId": chart_id}
@@ -2891,7 +3781,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             # ========== 步骤 8: emit summary ==========
             yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
             summary = self._generate_summary(question, energy_rows, vue_table)
-            summary = summary.replace('\n', ' ').replace('\r', '').strip()
+            summary = summary.replace("\n", " ").replace("\r", "").strip()
             stream_summary["summary"] = summary
             yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
             await asyncio.sleep(0)
@@ -3000,10 +3890,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             #   - match_result.matched 用 confidence >= 0.6, 适合 LLM 时代
             #   - 现在用 TF-IDF (score 通常 0.05~0.5), 改用 best_qid 非空判定
             #   - TF-IDF 内部已有阈值过滤 (tfidf_threshold=0.15), 到这里 best_qid 非空 = 已过滤掉低质量候选
-            matched = (
-                match_result is not None
-                and bool(match_result.best_qid)
-            )
+            matched = match_result is not None and bool(match_result.best_qid)
 
             if matched:
                 qid = match_result.best_qid
@@ -3015,7 +3902,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # 拿该 Q-ID 的 SQL 范式
                 sql_template = template_loader.get(qid) or ""
                 if not sql_template:
-                    logger.warning(f"Q{qid} 在问答手册中无 SQL 范式, 仍走 DB 模式但无范式参考")
+                    logger.warning(
+                        f"Q{qid} 在问答手册中无 SQL 范式, 仍走 DB 模式但无范式参考"
+                    )
 
                 mode = "db"
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': f'匹配到标准问题 Q{qid} (置信度 {confidence:.0%}), 正在生成查询...'})}\n\n"
@@ -3059,8 +3948,10 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         await on_summary(stream_summary)
                     return
 
-                preview_count, total_count, truncated = self._resolve_result_cardinality(
-                    stream_summary.get("sql") or sql, data
+                preview_count, total_count, truncated = (
+                    self._resolve_result_cardinality(
+                        stream_summary.get("sql") or sql, data
+                    )
                 )
                 stream_summary["row_count"] = preview_count
                 stream_summary["preview_count"] = preview_count
@@ -3091,7 +3982,10 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # ========== 阶段5：构建 ECharts ==========
                 echarts = self._build_echarts(data, question)
                 if echarts:
-                    stream_summary["chart"] = {"chartType": echarts.get("chartType"), "chartId": echarts.get("chartId")}
+                    stream_summary["chart"] = {
+                        "chartType": echarts.get("chartType"),
+                        "chartId": echarts.get("chartId"),
+                    }
                     yield f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n"
                     await asyncio.sleep(0)
 
@@ -3121,7 +4015,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 stream_summary["mode"] = "llm"
                 if match_result is not None:
                     if match_result.error:
-                        stream_summary["fallback_reason"] = f"匹配异常: {match_result.error}"
+                        stream_summary["fallback_reason"] = (
+                            f"匹配异常: {match_result.error}"
+                        )
                     elif not match_result.best_qid:
                         stream_summary["fallback_reason"] = "问题清单无匹配"
                     else:

@@ -18,3 +18,5 @@ __pycache__/
 config/local.yaml
 config/local_*.yaml
 config/secrets.yaml
+
+logs/
