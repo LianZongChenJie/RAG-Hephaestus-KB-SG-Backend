@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.core.sql_guard import validate
+from app.common.sql_guard import validate
 
 
 def assert_eq(actual, expected, msg=""):

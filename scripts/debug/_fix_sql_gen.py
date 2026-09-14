@@ -5,10 +5,10 @@ with open(path, 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Add imports
-if 'from app.middlewares.access_log import inject_response' not in content:
+if 'from app.common.middlewares.access_log import inject_response' not in content:
     content = re.sub(
         r'from fastapi import APIRouter, HTTPException',
-        r'from fastapi import APIRouter, HTTPException, Request\nfrom app.middlewares.access_log import inject_response',
+        r'from fastapi import APIRouter, HTTPException, Request\nfrom app.common.middlewares.access_log import inject_response',
         content
     )
 

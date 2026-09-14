@@ -4,9 +4,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.config import get_settings
-from app.core.ollama import OllamaClient
-from app.schemas.chat import ChatMessage
+from app.common.config import get_settings
+from app.common.ollama import OllamaClient
+from app.chat.schemas import ChatMessage
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -142,8 +142,8 @@ class SQLService:
         return SYSTEM_PROMPT, user_prompt
 
     def _extract_schema_info(self) -> str:
-        """从 FWBZ_strut.sql 解析真实表结构，生成供 LLM 参考的文本。实际解析逻辑收敛在 app.core.sql_schema_parser。"""
-        from app.core.sql_schema_parser import build_schema_text
+        """从 FWBZ_strut.sql 解析真实表结构，生成供 LLM 参考的文本。实际解析逻辑收敛在 app.common.sql_schema_parser。"""
+        from app.common.sql_schema_parser import build_schema_text
         try:
             text = build_schema_text()
             return text or "表结构解析失败（FWBZ_strut.sql 为空或文件不存在）"

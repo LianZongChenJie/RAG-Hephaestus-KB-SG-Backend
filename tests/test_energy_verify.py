@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.chat_service import ChatService
+from app.chat.chat_service import ChatService
 
 svc = ChatService()
 

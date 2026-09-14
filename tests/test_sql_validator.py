@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.core.dameng import validate_sql_columns
+from app.common.dameng import validate_sql_columns
 
 
 def test_pass(name: str, sql: str) -> None:

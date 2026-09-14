@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.core.dameng import execute_query
+from app.common.dameng import execute_query
 
 key_tables = [
     'device', 'alarm_record', 'data_day', 'data_hour',

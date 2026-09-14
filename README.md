@@ -1,26 +1,27 @@
 # Hephaestus RAG 后端
 
-首钢会展小镇智慧园区问答服务。FastAPI 对外提供接口，业务数据在达梦 `FWBZ`，大模型本机走云上 Qwen、105 走 Ollama。
+首钢会展小镇智慧园区后端。FastAPI 对外提供接口，业务数据在达梦 `FWBZ`，大模型本机走云上 Qwen、105 走 Ollama。
 
-产品上有两条互不替代的入口：
+本服务同时给 **两套前端** 用。网关常见地址 `http://10.168.56.101:7004`，回源本服务（105 上为 `:8000`）。
 
-| 入口 | 接口 | 实现 | 用途 |
-|---|---|---|---|
-| 聊天窗口 | `POST /api/chat-stream` | `app/services/chat_service.py` | SSE 对话：问题清单匹配 → SQL → 表/图/总结，或闲聊 |
-| 界面接口 | `/api/generate-sql` 等 | `app/services/sql_service.py` | 页面直接生成/执行 SQL、出报告，不走问题清单 |
+| 前端 | 仓库 | 本服务提供的接口 |
+|---|---|---|
+| 聊天窗口（RAG 一体机） | `RAG一体机/codeFrontend` | `POST /api/chat-stream` |
+| 小镇服务保障平台 | `会展小镇服务保障平台/SGAI_FWBZ_Frontend` | `/api/ai-report/*` |
 
-后续问答逻辑调整默认只动聊天窗口这一条。
+共用：`GET /api/health`（服务与模型探测，检查工程是否可用）。
+
+问答逻辑只动聊天窗口这一条。报告页只动 `ai-report`。`/api/generate-sql` 等仍挂着，但现网保障平台前端未走这条。
 
 ## 项目结构
 
 ```
-├── main.py                 # 启动入口
+├── main.py                 # 启动入口（同一进程挂两套路由）
 ├── app/
-│   ├── api/                # 路由：chat / sql_gen / ai_report / health
-│   ├── core/               # 配置、达梦、LLM、访问日志、SQL 安全门
-│   ├── services/           # 业务：聊天、SQL 生成、AI 报告、问题匹配
-│   ├── schemas/            # 请求/响应模型
-│   └── middlewares/        # 访问日志中间件
+│   ├── common/             # 共用：配置、达梦、Ollama、日志、健康检查、中间件
+│   ├── chat/               # 聊天窗口：/api/chat-stream
+│   ├── report/             # 小镇服务保障平台：/api/ai-report/*
+│   └── legacy/             # 遗留 SQL 生成接口（现网保障平台未用）
 ├── config/
 │   ├── config.yaml         # 105 生产配置（入库）
 │   ├── local.yaml.example  # 本机覆盖模板（复制为 local.yaml）
@@ -40,11 +41,11 @@
 └── requirements.txt
 ```
 
-macOS 无 `dmpython` wheel，达梦走 JDBC（`app/core/dameng_jdbc.py` + `drivers/DmJdbcDriver18.jar`）。Linux/Windows 用 `dmpython`。
+macOS 无 `dmpython` wheel，达梦走 JDBC（`app/common/dameng_jdbc.py` + `drivers/DmJdbcDriver18.jar`）。Linux/Windows 用 `dmpython`。
 
 ## 聊天窗口在做什么
 
-路由：`app/api/chat.py` → `ChatService.stream_chat`（`app/services/chat_service.py`）。  
+路由：`app/chat/api.py` → `ChatService.stream_chat`（`app/chat/chat_service.py`）。  
 请求体是对话 `messages`，取最后一条用户问题。响应为 SSE，前端按 `type` 渲染。
 
 没有向量检索。`hephaestus_meta_nl_*` 已在达梦建表灌数，**本链路尚未读取**。
@@ -78,7 +79,7 @@ macOS 无 `dmpython` wheel，达梦走 JDBC（`app/core/dameng_jdbc.py` + `drive
 3. Prompt 还塞入启动时解析的整份 `config/FWBZ_strut.sql`（100+ 张表），并按关键词猜「可能相关表」  
 4. 最多生成 3 次；失败把校验错误回灌 prompt  
 5. 生成后再做引号、ORDER/WHERE、假列、GROUP BY 等字符串修补  
-6. `app/core/sql_guard.py`：只允许 SELECT，禁止多语句，没有分页则补 `LIMIT 500/200`  
+6. `app/common/sql_guard.py`：只允许 SELECT，禁止多语句，没有分页则补 `LIMIT 500/200`  
 7. `validate_sql_columns` 对照 strut 拦臆造列，然后达梦执行  
 
 查到数据后依次推 SSE：`mode=db` → `sql` → `table` → `chart`（能画才发）→ `summary`。  
@@ -144,17 +145,55 @@ python3.10 scripts/seed_meta_nl.py
 
 ## 接口一览
 
-| 模块 | 方法 | 路径 | 说明 |
-|---|---|---|---|
-| 健康 | GET | `/api/health` | 服务与模型探测 |
-| 聊天窗口 | POST | `/api/chat-stream` | SSE 对话 |
-| 界面 | POST | `/api/generate-sql` | 自然语言生成 SQL |
-| 界面 | POST | `/api/device/sql` | 按设备生成 SQL |
-| 界面 | POST | `/api/generate-report-sql` | 报告用 SQL |
-| 界面 | POST | `/api/generate-suggestions` | 建议问法 |
-| 界面 | POST | `/api/execute-sql` | 执行 SELECT |
-| 界面 | POST | `/api/report/full` | 完整报告 |
-| 报告 | * | `/api/ai-report/*` | 运行/能耗/故障/碳排报告与历史 |
+### 共用
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/health` | 服务与模型探测 |
+
+### 第一部分：聊天窗口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/chat-stream` | SSE 对话（问题清单 → SQL → 表/图/总结，或闲聊） |
+
+### 第二部分：小镇服务保障平台（`/api/ai-report`）
+
+前端按页面拆成「先查数 / 再分析」或「历史回看」。实现在 `app/report/`。
+
+**运行报告**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/ai-report/stats` | 报告数量统计 |
+| GET | `/api/ai-report/history` | 历史列表（`report_type=run`） |
+| GET | `/api/ai-report/history/{id}` | 报告详情 |
+| POST | `/api/ai-report/run` | 现生成运行报告（页面有入口，抓包可能未出现） |
+
+**节能报告**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/ai-report/venues` | 会展/场馆筛选 |
+| GET | `/api/ai-report/history` | 历史列表（`report_type=energy`，可带 `time_range`） |
+| GET | `/api/ai-report/history/{id}` | 报告详情 |
+| POST | `/api/ai-report/energy` | 现生成节能报告 |
+
+**预警分析**（前端目录名 predict，实际打故障接口）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/ai-report/fault/query` | 只查故障数据（&lt;1s，不调 LLM） |
+| POST | `/api/ai-report/fault/analyze` | 用上一接口数据做 LLM 分析（约 20–30s） |
+
+**能效分析报告**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/ai-report/energy-analysis/query` | 只查能源系统数据 |
+| POST | `/api/ai-report/energy-analysis/analyze` | 用上一接口数据做 LLM 分析 |
+
+预警分析、能效分析共用「先 query 出表、再 analyze」：query 失败不要当模型问题；analyze 才走 Ollama。
 
 更细的字段见 `docs/API接口文档.md`。
 

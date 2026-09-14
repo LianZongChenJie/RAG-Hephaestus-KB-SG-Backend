@@ -96,7 +96,7 @@ Schema：`FWBZ`
 | user_agent | User-Agent |
 | created_at | 记录写入时间 |
 
-现网 `/api/chat-stream` 结束后由 `app/core/database.py` 写入本表。
+现网 `/api/chat-stream` 结束后由 `app/common/database.py` 写入本表。
 
 ---
 

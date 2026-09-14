@@ -3,7 +3,7 @@ from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
-from app.core.config import get_settings
+from app.common.config import get_settings
 
 settings = get_settings()
 

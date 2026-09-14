@@ -5,8 +5,8 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
-from app.middlewares.access_log import inject_response
-from app.schemas.ai_report import (
+from app.common.middlewares.access_log import inject_response
+from app.report.schemas import (
     AIRunReportRequest,
     AIRunReportResponse,
     AIPredictReportRequest,
@@ -25,7 +25,7 @@ from app.schemas.ai_report import (
     EnergyAnalysisQueryResponse,
     EnergyAnalysisAnalyzeRequest,
 )
-from app.services.ai_report_service import AIReportService
+from app.report.service import AIReportService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai-report", tags=["AI报告"])
@@ -433,12 +433,12 @@ async def list_venues(request: Request) -> VenueListResponse:
 
 # ==================== 报告历史查询接口 ====================
 
-from app.schemas.ai_report_history import (
+from app.report.history_schemas import (
     AIReportHistoryListResponse,
     AIReportHistoryResponse,
     AIReportStatsResponse,
 )
-from app.services.ai_report_history_service import AIReportHistoryService
+from app.report.history_service import AIReportHistoryService
 from fastapi import Query
 
 

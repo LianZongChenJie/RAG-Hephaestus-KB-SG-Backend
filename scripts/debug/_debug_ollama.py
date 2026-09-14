@@ -28,7 +28,7 @@ print("  total_duration (ns):", data.get("total_duration"))
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from app.services.qa_matcher import get_qa_matcher
+from app.chat.qa_matcher import get_qa_matcher
 m = get_qa_matcher()
 big_prompt = m._build_prompt()
 big_prompt += "\n\n## 用户问题\n今日总能耗多少?"

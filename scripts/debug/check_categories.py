@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.core.dameng import get_dameng_connection
+from app.common.dameng import get_dameng_connection
 
 conn = get_dameng_connection()
 cursor = conn.cursor()

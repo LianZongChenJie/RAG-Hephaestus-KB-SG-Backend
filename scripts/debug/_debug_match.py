@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.services.qa_matcher import get_qa_matcher
+from app.chat.qa_matcher import get_qa_matcher
 
 m = get_qa_matcher()
 print(f"[匹配器] 共 {len(m.items)} 条 Q-ID, valid_qids={len(m.valid_qids)}")

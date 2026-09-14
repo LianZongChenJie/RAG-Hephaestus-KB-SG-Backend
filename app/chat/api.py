@@ -7,9 +7,9 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from app.schemas.chat import ChatMessage, ChatStreamRequest
-from app.services.chat_service import ChatService
-from app.core.logger import get_logger
+from app.chat.schemas import ChatMessage, ChatStreamRequest
+from app.chat.chat_service import ChatService
+from app.common.logger import get_logger
 
 router = APIRouter(prefix="/api", tags=["聊天"])
 log = get_logger("access")

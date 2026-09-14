@@ -10,8 +10,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-from app.core.config import PROJECT_ROOT
-from app.core.logger import get_logger
+from app.common.config import PROJECT_ROOT
+from app.common.logger import get_logger
 
 logger = get_logger("dameng_jdbc")
 

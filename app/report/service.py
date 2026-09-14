@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from app.core.dameng import execute_query, execute_query_async
-from app.core.ollama import OllamaClient
-from app.services.ai_report_history_service import AIReportHistoryService
+from app.common.dameng import execute_query, execute_query_async
+from app.common.ollama import OllamaClient
+from app.report.history_service import AIReportHistoryService
 
 logger = logging.getLogger(__name__)
 

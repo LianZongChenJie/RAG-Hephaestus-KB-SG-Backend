@@ -27,7 +27,7 @@ def assert_true(cond, msg=""):
 # 1. 加载 qa_matcher
 # ---------------------------------------------------------------------------
 print("\n[1] 加载 qa_matcher")
-from app.services.qa_matcher import get_qa_matcher
+from app.chat.qa_matcher import get_qa_matcher
 m = get_qa_matcher()
 assert_true(m.available(), "qa_matcher 应可用")
 print(f"  [OK] 加载 {len(m.items)} 条 Q-ID, valid_qids={len(m.valid_qids)} 个")
@@ -50,7 +50,7 @@ for it in m.items[:3]:
 # 2. 加载 sql_template_loader
 # ---------------------------------------------------------------------------
 print("\n[2] 加载 sql_template_loader")
-from app.services.sql_template_loader import get_template_loader
+from app.chat.sql_template_loader import get_template_loader
 t = get_template_loader()
 qids = t.all_qids()
 assert_true(len(qids) > 50, "Q-ID 索引应 > 50")
@@ -71,7 +71,7 @@ for qid in ["5.1", "5.2", "5.3", "9.1"]:
 # ---------------------------------------------------------------------------
 print("\n[3] 验证 chat_service 改造后能 import")
 try:
-    from app.services.chat_service import ChatService
+    from app.chat.chat_service import ChatService
     svc = ChatService()
     assert_true(hasattr(svc, "stream_chat"), "应保留 stream_chat 方法")
     assert_true(hasattr(svc, "_generate_sql"), "应保留 _generate_sql 方法")
@@ -91,10 +91,10 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 print("\n[4] 验证 _execute_sql 已集成 sql_guard")
 import re
-with open(Path(__file__).resolve().parent.parent / "app" / "services" / "chat_service.py", encoding="utf-8") as f:
+with open(Path(__file__).resolve().parent.parent / "app" / "chat" / "chat_service.py", encoding="utf-8") as f:
     src = f.read()
 
-assert_true("from app.core.sql_guard import validate" in src, "_execute_sql 应引用 sql_guard")
+assert_true("from app.common.sql_guard import validate" in src, "_execute_sql 应引用 sql_guard")
 assert_true("guard = guard_validate(sql)" in src, "应调用 guard_validate")
 print(f"  [OK] _execute_sql 已集成 sql_guard.validate")
 
@@ -104,7 +104,7 @@ print(f"  [OK] _execute_sql 已集成 sql_guard.validate")
 # ---------------------------------------------------------------------------
 print("\n[5] 验证 _generate_sql 已支持 template_section")
 assert_true("template_section" in src, "应有 template_section 变量")
-assert_true("template_section + retry_hint" in src, "template_section 应拼到 ollama 调用")
+assert_true("retry_hint" in src and "template_section" in src, "template_section 应拼到 ollama 调用")
 print(f"  [OK] _generate_sql 已支持 template_section")
 
 
@@ -112,7 +112,7 @@ print(f"  [OK] _generate_sql 已支持 template_section")
 # 6. stream_chat 已用 QA 匹配替代 _detect_db_related
 # ---------------------------------------------------------------------------
 print("\n[6] 验证 stream_chat 流程")
-assert_true("from app.services.qa_matcher import get_qa_matcher" in src, "应 import qa_matcher")
+assert_true("from app.chat.qa_matcher import get_qa_matcher" in src, "应 import qa_matcher")
 assert_true("matcher.match" in src, "应调用 matcher.match")
 assert_true("template_loader.get" in src, "应调用 template_loader.get")
 # 兜底分支

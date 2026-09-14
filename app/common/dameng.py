@@ -12,9 +12,9 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 # 强制 UTF-8 避免 dmPython 在中文 Windows 上用 GBK 编码导致特殊字符报错
 os.environ["NLS_LANG"] = ".UTF8"
 
-from app.core.config import get_settings
-from app.core.logger import get_logger
-from app.core.sql_schema_parser import parse_schema_from_file
+from app.common.config import get_settings
+from app.common.logger import get_logger
+from app.common.sql_schema_parser import parse_schema_from_file
 
 settings = get_settings()
 logger = get_logger("dameng")
@@ -23,7 +23,7 @@ logger = get_logger("dameng")
 _dm_conn = None
 
 # Schema 缓存：table_name (lower) -> set of column_names (lower)
-# 解析逻辑收敛在 app.core.sql_schema_parser，这里只做进程内单次缓存
+# 解析逻辑收敛在 app.common.sql_schema_parser，这里只做进程内单次缓存
 _schema_cache: Dict[str, Set[str]] = {}
 _schema_loaded = False
 
@@ -96,7 +96,7 @@ def get_dameng_connection():
 
     # macOS 等平台没有 dmpython wheel，回退到 DBeaver 同款 JDBC
     try:
-        from app.core.dameng_jdbc import connect as jdbc_connect
+        from app.common.dameng_jdbc import connect as jdbc_connect
 
         _dm_conn = jdbc_connect(
             host=settings.dameng.host,

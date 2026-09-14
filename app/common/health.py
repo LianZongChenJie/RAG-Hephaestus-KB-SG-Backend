@@ -3,9 +3,9 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from app.core.config import get_settings
-from app.core.ollama import OllamaClient
-from app.middlewares.access_log import inject_response
+from app.common.config import get_settings
+from app.common.ollama import OllamaClient
+from app.common.middlewares.access_log import inject_response
 
 router = APIRouter(tags=["健康检查"])
 settings = get_settings()

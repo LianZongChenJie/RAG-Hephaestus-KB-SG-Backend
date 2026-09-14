@@ -2,8 +2,8 @@
 SQL schema 解析器：从 config/FWBZ_strut.sql 提取表结构供程序使用。
 
 这是项目中所有"读取 FWBZ_strut.sql"的统一入口。早期代码在
-`app/core/dameng.py`、`app/services/chat_service.py`、
-`app/services/sql_service.py` 三处各自维护一份相同的解析逻辑，
+`app/common/dameng.py`、`app/chat/chat_service.py`、
+`app/legacy/sql_service.py` 三处各自维护一份相同的解析逻辑，
 统一收敛到本模块。
 
 ## 缓存策略说明
@@ -30,7 +30,7 @@ from typing import Dict, List, Set, Tuple
 logger = logging.getLogger(__name__)
 
 # 项目根目录的 config/FWBZ_strut.sql
-# __file__ = app/core/sql_schema_parser.py → 向上 3 级到项目根
+# __file__ = app/common/sql_schema_parser.py → 向上 3 级到项目根
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 SCHEMA_FILE: Path = PROJECT_ROOT / "config" / "FWBZ_strut.sql"
 

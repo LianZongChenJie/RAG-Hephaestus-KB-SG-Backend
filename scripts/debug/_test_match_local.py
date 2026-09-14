@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.services.qa_matcher import get_qa_matcher
+from app.chat.qa_matcher import get_qa_matcher
 
 m = get_qa_matcher()
 print(f"items={len(m.items)}, valid_qids={len(m.valid_qids)}, "

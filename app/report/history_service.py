@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.dameng import execute_query, execute_update, get_dameng_connection
+from app.common.dameng import execute_query, execute_update, get_dameng_connection
 
 logger = logging.getLogger(__name__)
 

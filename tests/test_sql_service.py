@@ -1,7 +1,7 @@
 """SQL 生成服务测试"""
 import pytest
-from app.schemas.chat import ChatMessage
-from app.services.sql_service import SQLService
+from app.chat.schemas import ChatMessage
+from app.legacy.sql_service import SQLService
 
 
 class TestSQLService:

@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("COPYFILE_DISABLE", "1")
 
-from app.core.dameng import close_dameng, execute_query, get_dameng_connection
-from app.core.logger import get_logger
+from app.common.dameng import close_dameng, execute_query, get_dameng_connection
+from app.common.logger import get_logger
 
 logger = get_logger("create_hephaestus_tables")
 

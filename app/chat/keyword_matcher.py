@@ -180,7 +180,7 @@ def get_keyword_matcher() -> Optional[KeywordMatcher]:
     global _singleton
     if _singleton is not None:
         return _singleton
-    from app.services.qa_matcher import get_qa_matcher
+    from app.chat.qa_matcher import get_qa_matcher
     m = get_qa_matcher()
     if not m.items:
         return None

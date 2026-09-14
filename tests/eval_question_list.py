@@ -37,9 +37,9 @@ for name in ("chat", "dameng", "sql_schema_parser", "rag", "eval"):
 log = logging.getLogger("eval")
 log.setLevel(logging.INFO)
 
-from app.core.dameng import execute_query
-from app.services.chat_service import ChatService
-from app.services.sql_guard import validate
+from app.common.dameng import execute_query
+from app.chat.chat_service import ChatService
+from app.common.sql_guard import validate
 
 # 跑通库内的 16 张核心表名(用于 SQL 合法性的轻校验)
 KNOWN_TABLES = {

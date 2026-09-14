@@ -143,7 +143,7 @@ def get_template_loader() -> QATemplateLoader:
     with _singleton_lock:
         if _singleton is not None:
             return _singleton
-        # 项目根 = app/core/sql_template_loader.py 往上 3 级
+        # 项目根 = app/chat/sql_template_loader.py 往上 3 级
         root = Path(__file__).resolve().parent.parent.parent
         qa_path = root / "config" / "FWBZ问答手册.md"
         _singleton = QATemplateLoader(qa_path)

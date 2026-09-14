@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.services.chat_service import ChatService
+from app.chat.chat_service import ChatService
 svc = ChatService()
 
 # 测试有问题的 SQL
@@ -12,7 +12,7 @@ print("原始:", bad_sql)
 fixed = svc._fix_group_by(bad_sql)
 print("修复后:", fixed)
 
-from app.core.dameng import execute_query
+from app.common.dameng import execute_query
 try:
     result = execute_query(fixed)
     print("查询结果:", len(result), "条 ✓")

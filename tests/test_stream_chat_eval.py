@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # ===========================================================================
 def build_a_cases() -> list[dict]:
     """A 类 - 原题, 从 qa_matcher 自动生成"""
-    from app.services.qa_matcher import get_qa_matcher
+    from app.chat.qa_matcher import get_qa_matcher
     m = get_qa_matcher()
     cases = []
     for it in m.items:

@@ -1,7 +1,10 @@
 """
-FastAPI 后端入口
-代理 Ollama Chat API，提供 SSE 流式对话与 SQL 生成功能。
-访问记录写入达梦 hephaestus_chat_access_logs。
+FastAPI 后端入口。
+
+同一进程挂两套前端：
+- 聊天窗口：POST /api/chat-stream
+- 小镇服务保障平台：/api/ai-report/*
+共用 GET /api/health。访问记录写入达梦 hephaestus_chat_access_logs。
 """
 from __future__ import annotations
 
@@ -12,11 +15,14 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import ai_report_router, chat_router, health_router, sql_gen_router
-from app.core import close_db, init_db
-from app.core.config import get_settings
-from app.core.logger import init_logging
-from app.middlewares.access_log import AccessLogMiddleware
+from app.chat.api import router as chat_router
+from app.common import close_db, init_db
+from app.common.config import get_settings
+from app.common.health import router as health_router
+from app.common.logger import init_logging
+from app.common.middlewares.access_log import AccessLogMiddleware
+from app.legacy.api import router as sql_gen_router
+from app.report.api import router as ai_report_router
 
 settings = get_settings()
 
@@ -57,11 +63,11 @@ app.add_middleware(
 # 访问日志中间件
 app.add_middleware(AccessLogMiddleware)
 
-# 注册路由
+# 注册路由（URL 不变）
 app.include_router(health_router)
 app.include_router(chat_router)
-app.include_router(sql_gen_router)
 app.include_router(ai_report_router)
+app.include_router(sql_gen_router)
 
 
 @app.get("/")

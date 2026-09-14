@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from app.core.dameng import execute_update, get_dameng_connection
+from app.common.dameng import execute_update, get_dameng_connection
 
 logger = logging.getLogger(__name__)
 

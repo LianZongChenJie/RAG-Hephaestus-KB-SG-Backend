@@ -30,8 +30,8 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.core.dameng import execute_query
-from app.services.sql_template_loader import get_template_loader
+from app.common.dameng import execute_query
+from app.chat.sql_template_loader import get_template_loader
 from tests.data_realness_cases import CASES
 
 

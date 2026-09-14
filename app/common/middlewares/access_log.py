@@ -13,7 +13,7 @@ from typing import Callable
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.logger import get_logger
+from app.common.logger import get_logger
 
 logger = get_logger("access")
 

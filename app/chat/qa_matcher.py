@@ -33,7 +33,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Optional
 
-from app.core.config import get_settings
+from app.common.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +274,7 @@ class QAMatcher:
 
             # 2. 同步 SQL 范式索引 (拿 valid_qids)
             try:
-                from app.services.sql_template_loader import get_template_loader
+                from app.chat.sql_template_loader import get_template_loader
                 tpl = get_template_loader()
                 self.valid_qids = set(tpl.all_qids())
                 logger.info(f"Q-ID 索引同步: {len(self.valid_qids)} 个有 SQL 范式")
@@ -312,7 +312,7 @@ class QAMatcher:
             # 4. 初始化 TF-IDF 召回器 (纯 Python, 零依赖, < 100ms)
             if self.items:
                 try:
-                    from app.services.keyword_matcher import KeywordMatcher
+                    from app.chat.keyword_matcher import KeywordMatcher
                     items_dict = [
                         {"q_id": it.q_id, "text": it.text, "domain": it.domain}
                         for it in self.items
@@ -498,7 +498,7 @@ class QAMatcher:
             - 强制 JSON 格式
             - 短超时 (6s, 超时直接 fallback)
         """
-        from app.core.ollama import OllamaClient
+        from app.common.ollama import OllamaClient
 
         client = OllamaClient()
         return client.call_llm(

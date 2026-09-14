@@ -7,8 +7,8 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.core.config import get_settings
-from app.services.qa_matcher import get_qa_matcher
+from app.common.config import get_settings
+from app.chat.qa_matcher import get_qa_matcher
 
 m = get_qa_matcher()
 prompt = m._build_prompt()

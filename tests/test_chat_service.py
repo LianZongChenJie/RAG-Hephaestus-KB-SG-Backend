@@ -1,7 +1,7 @@
 """聊天服务测试"""
 import pytest
-from app.schemas.chat import ChatMessage, ChatStreamRequest
-from app.services.chat_service import ChatService
+from app.chat.schemas import ChatMessage, ChatStreamRequest
+from app.chat.chat_service import ChatService
 
 
 class TestChatService:

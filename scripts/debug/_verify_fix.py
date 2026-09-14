@@ -5,7 +5,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.core.dameng import execute_query
+from app.common.dameng import execute_query
 
 # 验证修复后的SQL: 在线/离线
 sql = """

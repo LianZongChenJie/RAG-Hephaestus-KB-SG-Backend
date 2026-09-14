@@ -3,8 +3,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from app.services.qa_matcher import get_qa_matcher
-from app.services.keyword_matcher import KeywordMatcher
+from app.chat.qa_matcher import get_qa_matcher
+from app.chat.keyword_matcher import KeywordMatcher
 
 m = get_qa_matcher()
 print(f"[QA] items={len(m.items)}")

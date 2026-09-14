@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("COPYFILE_DISABLE", "1")
 
-from app.core.dameng import close_dameng, execute_query, get_dameng_connection
-from app.core.logger import get_logger
+from app.common.dameng import close_dameng, execute_query, get_dameng_connection
+from app.common.logger import get_logger
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from create_hephaestus_tables import CREATE_SQLS, INDEX_SQLS, TABLE_NAMES
