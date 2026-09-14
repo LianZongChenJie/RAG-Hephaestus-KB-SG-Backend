@@ -17,6 +17,7 @@ from app.common.database import save_access_log
 from app.common.dameng import execute_query
 from app.common.logger import get_logger
 from app.common.ollama import OllamaClient
+from app.chat.meta_nl import ChartPlan, DimJoin, plan_stat_chart
 from app.chat.schemas import ChatMessage, ChatStreamRequest
 
 settings = get_settings()
@@ -2569,6 +2570,115 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         other = sum(v for _, v in items[max_slices - 1 :])
         return head + [("其他", other)]
 
+    @staticmethod
+    def _quote_sql_ident(name: Optional[str]) -> str:
+        raw = str(name or "").strip().strip('"')
+        if not raw:
+            return '"col"'
+        return '"' + raw.replace('"', '""') + '"'
+
+    def _compose_chart_sql(
+        self,
+        source_sql: Optional[str],
+        *,
+        cat_key: Optional[str],
+        num_key: Optional[str] = None,
+        count_mode: bool = False,
+        full_stats: bool = False,
+        dim_join: Optional[DimJoin] = None,
+        already_aggregated: bool = False,
+    ) -> str:
+        """图表取数 SQL：明细按维 COUNT/SUM，外键 JOIN 名称列。"""
+        inner = self._strip_result_limit(source_sql or "").strip().rstrip(";")
+        if not inner:
+            return ""
+        if not cat_key:
+            return inner
+        cat = self._quote_sql_ident(cat_key)
+        name_expr = f"chart_src.{cat}"
+        join_sql = ""
+        if dim_join and dim_join.to_table and dim_join.name_column:
+            dim_table = self._quote_sql_ident(dim_join.to_table)
+            dim_pk = self._quote_sql_ident(dim_join.to_column or "id")
+            dim_name = self._quote_sql_ident(dim_join.name_column)
+            jt = (dim_join.join_type or "LEFT").upper()
+            if jt not in {"LEFT", "INNER"}:
+                jt = "LEFT"
+            name_expr = f"NVL(chart_dim.{dim_name}, '未知')"
+            join_sql = (
+                f"\n{jt} JOIN \"FWBZ\".{dim_table} chart_dim"
+                f"\n  ON chart_src.{cat} = chart_dim.{dim_pk}"
+            )
+        if count_mode:
+            sql = (
+                f"SELECT {name_expr} AS name, COUNT(*) AS value\n"
+                f"FROM (\n{inner}\n) chart_src{join_sql}\n"
+                f"GROUP BY {name_expr}\n"
+                f"ORDER BY value DESC"
+            )
+        elif already_aggregated:
+            num = (
+                f"chart_src.{self._quote_sql_ident(num_key)}" if num_key else "1"
+            )
+            sql = (
+                f"SELECT {name_expr} AS name, {num} AS value\n"
+                f"FROM (\n{inner}\n) chart_src{join_sql}"
+            )
+        else:
+            num = (
+                f"chart_src.{self._quote_sql_ident(num_key)}" if num_key else "1"
+            )
+            sql = (
+                f"SELECT {name_expr} AS name, SUM({num}) AS value\n"
+                f"FROM (\n{inner}\n) chart_src{join_sql}\n"
+                f"GROUP BY {name_expr}\n"
+                f"ORDER BY value DESC"
+            )
+        if not full_stats:
+            sql += "\nLIMIT 20"
+        return sql
+
+    def _fetch_chart_items(self, chart_sql: Optional[str]) -> Optional[List[tuple]]:
+        """执行图表 SQL，得到 (name, value)。失败返回 None，由调用方回退内存聚合。"""
+        sql = (chart_sql or "").strip()
+        if not sql:
+            return None
+        try:
+            from app.common.sql_guard import validate as guard_validate
+
+            guard = guard_validate(sql)
+            if not guard.ok:
+                logger.warning("图表 SQL 被安全门拒绝: %s", guard.reason)
+                return None
+            rows = execute_query(guard.sql)
+            items: List[tuple] = []
+            for row in rows or []:
+                if "name" in row or "NAME" in row:
+                    name = row.get("name", row.get("NAME"))
+                    value = row.get("value", row.get("VALUE"))
+                else:
+                    vals = list(row.values())
+                    if len(vals) < 2:
+                        continue
+                    name, value = vals[0], vals[1]
+                if name is None or value is None:
+                    continue
+                items.append((str(name), float(value)))
+            return items
+        except Exception as exc:
+            logger.warning("图表 SQL 执行失败，回退结果集聚合: %s", exc)
+            return None
+
+    def _sse_chart_packets(self, echarts: dict) -> List[str]:
+        """chart 前先发 type=sql，供前端核对图表取数。"""
+        if not echarts:
+            return []
+        chart_sql = echarts.pop("sql", "") or ""
+        return [
+            f"data: {self._safe_json_dumps({'type': 'sql', 'sql': chart_sql})}\n\n",
+            f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n",
+        ]
+
     def _repick_stat_category(
         self,
         data: List[dict],
@@ -2614,7 +2724,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         return cat_key, cat_key_raw
 
     def _build_echarts(
-        self, data: List[dict], question: str, *, full_stats: bool = False
+        self,
+        data: List[dict],
+        question: str,
+        *,
+        full_stats: bool = False,
+        source_sql: Optional[str] = None,
     ) -> dict:
         """根据查询结果构建 ECharts 配置。full_stats=True 时按全量聚合。"""
         if not data:
@@ -2653,137 +2768,149 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             col_name = _extract_column_name(k)
             key_to_column[k] = col_name
 
-        # 优先选择人类可读的分类列（按优先级排序）
-        readable_priority = [
-            # 场馆/空间名称（最可读）
-            "venue_name",
-            "space_name",
-            "area_name",
-            "location",
-            "position",
-            # 设备/对象名称
-            "device_name",
-            "name",
-            "node_name",
-            "title",
-            "full_name",
-            # 告警/状态相关名称
-            "alarm_category_name",
-            "alarm_level_name",
-            "category_name",
-            "status",
-            # 描述性内容
-            "alarm_content",
-            "content",
-            "remark",
-            "description",
-            # 最后才用编码类（最不可读）
-            "device_code",
-            "device_type",
-            "node_code",
-            "area_code",
-            "circuit_code",
-            "space_id",
-            "venue_id",
-            "device_id",
-            "id",
-            "bigint",
-        ]
+        plan: Optional[ChartPlan] = plan_stat_chart(
+            source_sql=source_sql,
+            keys=keys,
+            question=question,
+            data=data,
+        )
+        dim_join: Optional[DimJoin] = plan.join if plan else None
+        already_aggregated = bool(plan.already_aggregated) if plan else False
+        chart_axis_label = "记录数量"
 
-        # 找分类列：优先选择人类可读的名称列
         cat_key = None
         cat_key_raw = None
+        numeric_keys: List[str] = []
 
-        # 先按优先级找可读列（同时检查原始key和解析后的列名）
-        for priority_key in readable_priority:
-            # 先检查是否是干净的列名
-            if priority_key in keys:
-                v = sample.get(priority_key)
-                if isinstance(v, (str, datetime, date)):
-                    cat_key_raw = priority_key
-                    clean_k = re.sub(
-                        r'^(SUM|AVG|COUNT|MAX|MIN)\s*\(\s*"([^"]+)"\s*\)$',
-                        r"\2",
-                        priority_key,
-                        flags=re.IGNORECASE,
-                    )
-                    cat_key = clean_k
+        if plan:
+            cat_key_raw = plan.cat_key
+            cat_key = key_to_column.get(plan.cat_key, plan.cat_key)
+            chart_axis_label = plan.cat_label or plan.metric_label or chart_axis_label
+            if plan.mode == "metric" and plan.metric_key:
+                numeric_keys = [plan.metric_key]
+            logger.info(
+                "图表元数据: mode=%s dim=%s metric=%s join=%s label=%s",
+                plan.mode,
+                plan.cat_key,
+                plan.metric_key,
+                f"{dim_join.to_table}.{dim_join.name_column}" if dim_join else None,
+                chart_axis_label,
+            )
+        else:
+            readable_priority = [
+                "venue_name",
+                "space_name",
+                "area_name",
+                "location",
+                "position",
+                "category_name",
+                "alarm_category_name",
+                "alarm_level_name",
+                "status",
+                "device_type",
+                "run_state",
+                "device_code",
+                "node_code",
+                "area_code",
+                "circuit_code",
+                "space_id",
+                "venue_id",
+                "device_id",
+            ]
+            for priority_key in readable_priority:
+                if priority_key in keys:
+                    v = sample.get(priority_key)
+                    if isinstance(v, (str, datetime, date, int, float, Decimal)):
+                        cat_key_raw = priority_key
+                        cat_key = priority_key
+                        break
+                for raw_key, col_name in key_to_column.items():
+                    if col_name.lower() == priority_key.lower():
+                        v = sample.get(raw_key)
+                        if isinstance(v, (str, datetime, date, int, float, Decimal)):
+                            cat_key_raw = raw_key
+                            cat_key = col_name
+                            break
+                if cat_key:
                     break
-            # 再检查复杂表达式解析后的列名
-            for raw_key, col_name in key_to_column.items():
-                if col_name.lower() == priority_key.lower():
-                    v = sample.get(raw_key)
-                    if isinstance(v, (str, datetime, date)):
-                        cat_key_raw = raw_key
+            if not cat_key:
+                for k in keys:
+                    v = sample.get(k)
+                    col_name = key_to_column.get(k, k)
+                    if col_name.lower() not in ["id", "bigint"] and isinstance(
+                        v, (str, datetime, date)
+                    ):
+                        cat_key_raw = k
                         cat_key = col_name
                         break
-            if cat_key:
-                break
+            if full_stats:
+                cat_key, cat_key_raw = self._repick_stat_category(
+                    data, keys, key_to_column, cat_key, cat_key_raw
+                )
+            num_candidates = [
+                k for k in keys if isinstance(sample.get(k), (int, float, Decimal))
+            ]
+            numeric_keys = [
+                k
+                for k in num_candidates
+                if not re.match(r"^(id|bigint|.+_id)$", str(k), re.IGNORECASE)
+            ]
 
-        # 如果没找到可读列，用第一个字符串列
-        if not cat_key:
-            for k in keys:
-                v = sample.get(k)
-                col_name = key_to_column.get(k, k)
-                if col_name.lower() not in ["id", "bigint"] and isinstance(
-                    v, (str, datetime, date)
-                ):
-                    cat_key_raw = k
-                    cat_key = col_name
-                    break
-
-        if full_stats:
-            cat_key, cat_key_raw = self._repick_stat_category(
-                data, keys, key_to_column, cat_key, cat_key_raw
+        def _with_chart_sql(
+            payload: dict, *, count_mode: bool, num_key: Optional[str] = None
+        ) -> dict:
+            payload["sql"] = self._compose_chart_sql(
+                source_sql,
+                cat_key=cat_key_raw or cat_key,
+                num_key=num_key,
+                count_mode=count_mode,
+                full_stats=full_stats,
+                dim_join=dim_join,
+                already_aggregated=already_aggregated,
             )
-            logger.info(
-                "查看全部图表维度: cat_key=%s raw=%s rows=%s",
-                cat_key,
-                cat_key_raw,
-                len(data),
-            )
+            return payload
 
-        # 找数值列（包含聚合函数列）
-        num_candidates = [
-            k for k in keys if isinstance(sample.get(k), (int, float, Decimal))
-        ]
-        numeric_keys = [
-            k
-            for k in num_candidates
-            if not re.match(r"^(id|bigint)$", k, re.IGNORECASE)
-        ]
-
-        # 如果没有数值列但有分类列，说明是明细数据，每行计数=1
+        # 明细无真实指标：按维 COUNT（外键 JOIN 名称），不要把 category_id 当 Y 轴
         if not numeric_keys and cat_key:
-            # 生成假数值列：每行计数为1
-            chart_data = []
-            # 按分类列聚合计数
-            category_counts = {}
-            for row in data:
-                key_val = str(row.get(cat_key_raw, "未知"))
-                # 格式化标签
-                display_val = self._format_category_label(cat_key, key_val, row)
-                if display_val not in category_counts:
-                    category_counts[display_val] = 0
-                category_counts[display_val] += 1
-
-            # 转换为图表数据
-            items = sorted(
-                category_counts.items(), key=lambda x: x[1], reverse=True
+            chart_sql = self._compose_chart_sql(
+                source_sql,
+                cat_key=cat_key_raw or cat_key,
+                count_mode=True,
+                full_stats=full_stats,
+                dim_join=dim_join,
+                already_aggregated=False,
             )
+            items = self._fetch_chart_items(chart_sql)
+            if items and not dim_join:
+                items = [
+                    (self._format_category_label(cat_key, str(name), {}), val)
+                    for name, val in items
+                ]
+            if not items:
+                category_counts = {}
+                for row in data:
+                    key_val = str(row.get(cat_key_raw, "未知"))
+                    display_val = self._format_category_label(cat_key, key_val, row)
+                    category_counts[display_val] = (
+                        category_counts.get(display_val, 0) + 1
+                    )
+                items = sorted(
+                    category_counts.items(), key=lambda x: x[1], reverse=True
+                )
             if full_stats:
                 items = self._collapse_chart_items(items)
             else:
                 items = items[:20]
             chart_data = [{"name": name, "value": count} for name, count in items]
 
-            chart_title = self._gen_chart_title(question, "记录数量")
+            chart_title = self._gen_chart_title(question, chart_axis_label)
             if full_stats:
                 chart_title = f"{chart_title}（全量）"
             chart_id = f"chart_{datetime.now().strftime('%H%M%S%f')}"
 
             if len(chart_data) <= 6:
-                return {
+                return _with_chart_sql(
+                    {
                     "chartType": "pie",
                     "chartId": chart_id,
                     "option": {
@@ -2805,13 +2932,16 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             }
                         ],
                     },
-                }
+                    },
+                    count_mode=True,
+                )
             else:
                 # 柱状图：按分类聚合后的数据
                 x_axis_data = [str(name) for name, _ in items]
                 series_data = [float(count) for _, count in items]
 
-                return {
+                return _with_chart_sql(
+                    {
                     "chartType": "bar",
                     "chartId": chart_id,
                     "option": {
@@ -2831,7 +2961,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             "data": x_axis_data,
                             "axisLabel": {"rotate": 30, "interval": 0},
                         },
-                        "yAxis": {"type": "value", "name": "记录数量"},
+                        "yAxis": {"type": "value", "name": "数量"},
                         "series": [
                             {
                                 "type": "bar",
@@ -2858,7 +2988,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             }
                         ],
                     },
-                }
+                    },
+                    count_mode=True,
+                )
 
         if not cat_key or not numeric_keys:
             return {}
@@ -2870,10 +3002,24 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             first_num_key,
             flags=re.IGNORECASE,
         )
-        label = self._format_column_label(clean_num_key)
+        label = (
+            (plan.cat_label if plan and plan.cat_label else None)
+            or self._format_column_label(clean_num_key)
+        )
 
-        # 生成人类可读的分类标签
-        if full_stats:
+        chart_sql = self._compose_chart_sql(
+            source_sql,
+            cat_key=cat_key_raw or cat_key,
+            num_key=first_num_key,
+            count_mode=False,
+            full_stats=full_stats,
+            dim_join=dim_join,
+            already_aggregated=already_aggregated,
+        )
+        fetched = self._fetch_chart_items(chart_sql)
+        if fetched:
+            items = self._collapse_chart_items(fetched) if full_stats else fetched[:20]
+        elif full_stats:
             agg: dict[str, float] = {}
             for row in data:
                 raw_value = str(row.get(cat_key_raw, ""))
@@ -2884,15 +3030,17 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             items = self._collapse_chart_items(
                 sorted(agg.items(), key=lambda x: x[1], reverse=True)
             )
-            x_axis_data = [name for name, _ in items]
-            series_data = [value for _, value in items]
         else:
-            x_axis_data = []
-            for row in data[:20]:
+            agg = {}
+            for row in data:
                 raw_value = str(row.get(cat_key_raw, ""))
                 display_value = self._format_category_label(cat_key, raw_value, row)
-                x_axis_data.append(display_value)
-            series_data = [float(row.get(first_num_key, 0) or 0) for row in data[:20]]
+                agg[display_value] = agg.get(display_value, 0.0) + float(
+                    row.get(first_num_key, 0) or 0
+                )
+            items = sorted(agg.items(), key=lambda x: x[1], reverse=True)[:20]
+        x_axis_data = [name for name, _ in items]
+        series_data = [value for _, value in items]
 
         chart_title = self._gen_chart_title(question, label)
         if full_stats:
@@ -2904,7 +3052,8 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 {"name": x_axis_data[i], "value": series_data[i]}
                 for i in range(len(x_axis_data))
             ]
-            return {
+            return _with_chart_sql(
+                {
                 "chartType": "pie",
                 "chartId": chart_id,
                 "option": {
@@ -2926,9 +3075,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         }
                     ],
                 },
-            }
+                },
+                count_mode=False,
+                num_key=first_num_key,
+            )
         else:
-            return {
+            return _with_chart_sql(
+                {
                 "chartType": "bar",
                 "chartId": chart_id,
                 "option": {
@@ -2972,7 +3125,10 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         }
                     ],
                 },
-            }
+                },
+                count_mode=False,
+                num_key=first_num_key,
+            )
 
     def _format_category_label(self, col_key: str, raw_value: str, row: dict) -> str:
         """格式化分类标签，使人类更易读"""
@@ -3329,16 +3485,23 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         vue_table = self._build_vue_table(data, max_rows=None)
         stream_summary["table"] = vue_table
-        yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
+        yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': self._strip_result_limit(sql), **vue_table})}\n\n"
         await asyncio.sleep(0)
 
-        echarts = self._build_echarts(data, orig_question, full_stats=True)
+        echarts = self._build_echarts(
+            data,
+            orig_question,
+            full_stats=True,
+            source_sql=self._strip_result_limit(sql),
+        )
         if echarts:
             stream_summary["chart"] = {
                 "chartType": echarts.get("chartType"),
                 "chartId": echarts.get("chartId"),
             }
-            yield f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n"
+            stream_summary["chart_sql"] = echarts.get("sql") or ""
+            for packet in self._sse_chart_packets(echarts):
+                yield packet
             await asyncio.sleep(0)
 
         yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
@@ -3719,7 +3882,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             pseudo_sql = f"-- 能耗公式计算: 读 metering_point.true_formula, 按 type 分组汇总 (时间: {start_str} ~ {end_date.strftime('%Y-%m-%d')})"
             stream_summary["sql"] = pseudo_sql
             yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': pseudo_sql})}\n\n"
-            yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
+            yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': pseudo_sql, **vue_table})}\n\n"
             await asyncio.sleep(0)
 
             # ========== 步骤 7: emit chart (bar) ==========
@@ -3774,8 +3937,29 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     ],
                 },
             }
+            union_parts = []
+            for r in energy_rows:
+                medium = str(r["energy_medium"]).replace("'", "''")
+                union_parts.append(
+                    f'SELECT \'{medium}\' AS "energy_medium", '
+                    f'{float(r["total_value"])} AS "total_value" FROM DUAL'
+                )
+            energy_chart_src = (
+                "\nUNION ALL\n".join(union_parts)
+                if union_parts
+                else 'SELECT NULL AS "energy_medium", 0 AS "total_value" FROM DUAL'
+            )
+            chart["sql"] = self._compose_chart_sql(
+                energy_chart_src,
+                cat_key="energy_medium",
+                num_key="total_value",
+                count_mode=False,
+                full_stats=True,
+            )
             stream_summary["chart"] = {"chartType": "bar", "chartId": chart_id}
-            yield f"data: {self._safe_json_dumps({'type': 'chart', **chart})}\n\n"
+            stream_summary["chart_sql"] = chart.get("sql") or ""
+            for packet in self._sse_chart_packets(chart):
+                yield packet
             await asyncio.sleep(0)
 
             # ========== 步骤 8: emit summary ==========
@@ -3976,17 +4160,23 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # ========== 阶段4：构建 Vue 表格 ==========
                 vue_table = self._build_vue_table(data)
                 stream_summary["table"] = vue_table
-                yield f"data: {self._safe_json_dumps({'type': 'table', **vue_table})}\n\n"
+                yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': stream_summary.get('sql') or sql, **vue_table})}\n\n"
                 await asyncio.sleep(0)
 
                 # ========== 阶段5：构建 ECharts ==========
-                echarts = self._build_echarts(data, question)
+                echarts = self._build_echarts(
+                    data,
+                    question,
+                    source_sql=stream_summary.get("sql") or sql,
+                )
                 if echarts:
                     stream_summary["chart"] = {
                         "chartType": echarts.get("chartType"),
                         "chartId": echarts.get("chartId"),
                     }
-                    yield f"data: {self._safe_json_dumps({'type': 'chart', **echarts})}\n\n"
+                    stream_summary["chart_sql"] = echarts.get("sql") or ""
+                    for packet in self._sse_chart_packets(echarts):
+                        yield packet
                     await asyncio.sleep(0)
 
                 # ========== 阶段6：生成总结 ==========
