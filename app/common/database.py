@@ -6,16 +6,23 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.common.dameng import execute_update, get_dameng_connection
+from app.common.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("access")
 
 _LOG_TABLE = 'FWBZ."hephaestus_chat_access_logs"'
 _logs_ready = False
+# 达梦 TIMESTAMP 无时区，access_time 按北京时间墙钟写入
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+def beijing_now() -> datetime:
+    return datetime.now(BEIJING_TZ)
+
 
 _INSERT_SQL = """
 INSERT INTO FWBZ."hephaestus_chat_access_logs" (
@@ -33,8 +40,9 @@ def _clip(value: Optional[str], n: int) -> Optional[str]:
 
 
 def _fmt_time(value: datetime) -> str:
+    """格式化为北京时间。带时区则换算；naive 视为已经是北京墙钟。"""
     if value.tzinfo is not None:
-        value = value.replace(tzinfo=None)
+        value = value.astimezone(BEIJING_TZ)
     return value.strftime("%Y-%m-%d %H:%M:%S")
 
 

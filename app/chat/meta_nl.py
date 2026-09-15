@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -68,18 +69,34 @@ _FALLBACK_JOINS: Dict[Tuple[str, str], Tuple[str, str, str, str]] = {
 }
 
 _QUESTION_DIM_HINTS: Tuple[Tuple[Tuple[str, ...], Tuple[str, ...]], ...] = (
-    (("类别", "分类", "类型"), ("category_id", "device_category_id", "device_type", "category_name")),
     (("状态", "在线", "离线", "运行"), ("run_state", "status", "online")),
+    (("类别", "分类", "类型"), ("category_id", "device_category_id", "device_type", "category_name")),
     (("场馆", "会展"), ("venue_id", "venue_name")),
-    (("空间", "位置"), ("space_id", "space_name")),
+    (("空间", "位置"), ("space_id", "space_name", "region_name")),
     (("模型",), ("model_id", "model_name")),
 )
+
+_STATUS_DIMS = frozenset({"run_state", "status", "online"})
+_PLACE_DIMS = frozenset(
+    {
+        "venue_id",
+        "venue_name",
+        "space_id",
+        "space_name",
+        "region_name",
+        "model_id",
+        "model_name",
+    }
+)
+_TYPE_FK_MARKERS = ("category", "类型", "类别", "分类")
 
 _DEFAULT_DIM_ORDER = (
     "category_id",
     "device_category_id",
-    "device_type",
+    "online",
     "run_state",
+    "device_type",
+    "region_name",
     "status",
     "venue_id",
     "space_id",
@@ -204,9 +221,59 @@ def _is_true_metric(col: ColMeta, result_key: str) -> bool:
     return bool(_METRIC_NAME_RE.search(key)) and col.role not in {"time", "name", "status"}
 
 
+_UNINFORMATIVE_DIM_VALUES = frozenset(
+    {"未知", "未知型号", "none", "null", "n/a", "na", "-"}
+)
+
+
+def _cell_dim_label(raw: object) -> str:
+    if raw in (None, "", "None", "null"):
+        return "未知"
+    text = str(raw).strip()
+    return text or "未知"
+
+
 def _unique_ratio(data: Sequence[dict], key: str) -> float:
-    vals = [str(row.get(key, "")) for row in data]
+    vals = [_cell_dim_label(row.get(key)) for row in data]
     return len(set(vals)) / max(len(vals), 1)
+
+
+def _nunique(data: Sequence[dict], key: str) -> int:
+    return len({_cell_dim_label(row.get(key)) for row in data})
+
+
+def _top_value_share(data: Sequence[dict], key: str) -> float:
+    vals = [_cell_dim_label(row.get(key)) for row in data]
+    if not vals:
+        return 1.0
+    return Counter(vals).most_common(1)[0][1] / len(vals)
+
+
+def _dim_is_uninformative(
+    data: Sequence[dict],
+    key: str,
+    *,
+    max_unique_ratio: float,
+    skip_single: bool = False,
+    already_aggregated: bool = False,
+) -> bool:
+    """绝大部分是「未知」、切片后只剩一个值、或明细取值过于分散时，不宜按该列出图。"""
+    if not data:
+        return True
+    if skip_single and _nunique(data, key) <= 1:
+        return True
+    if not already_aggregated and _unique_ratio(data, key) > max_unique_ratio:
+        return True
+    share = _top_value_share(data, key)
+    if share < 0.88:
+        return False
+    top = Counter(_cell_dim_label(row.get(key)) for row in data).most_common(1)[0][0]
+    return top.lower() in _UNINFORMATIVE_DIM_VALUES or top == "未知"
+
+
+def _is_cn_category_label(key: str) -> bool:
+    text = str(key or "")
+    return any(mark in text for mark in ("类型名称", "类别名称", "分类名称", "分类名"))
 
 
 def _find_result_key(keys: Sequence[str], col: str) -> Optional[str]:
@@ -214,7 +281,34 @@ def _find_result_key(keys: Sequence[str], col: str) -> Optional[str]:
     for k in keys:
         if _norm(k) == want:
             return k
+    if want == "category_name":
+        for k in keys:
+            if _is_cn_category_label(k) or _norm(k) in {"group_name", "device_kind"}:
+                return k
+    if want in {"category_id", "device_category_id"}:
+        for k in keys:
+            if "类型id" in _norm(k) or "类别id" in _norm(k):
+                return k
     return None
+
+
+def _tables_from_sql(
+    cat: MetaCatalog, sql: Optional[str], keys: Sequence[str]
+) -> List[str]:
+    sql_tables = extract_sql_tables(sql)
+    rel_from = {ft for ft, _ in cat.relations}
+    tables: List[str] = []
+    seen = set()
+    for t in sql_tables:
+        tn = _norm(t)
+        if tn in seen:
+            continue
+        if tn in cat.tables or tn in rel_from or tn == "device":
+            seen.add(tn)
+            tables.append(tn)
+    if tables:
+        return tables
+    return _guess_tables_from_keys(cat, keys) or ["device"]
 
 
 def extract_sql_tables(sql: Optional[str]) -> List[str]:
@@ -247,6 +341,8 @@ def _guess_tables_from_keys(cat: MetaCatalog, keys: Sequence[str]) -> List[str]:
 def _apply_fallback_joins(cat: MetaCatalog) -> None:
     for (ft, fc), (tt, tp, nc, label) in _FALLBACK_JOINS.items():
         key = (_norm(ft), _norm(fc))
+        cat.tables.setdefault(_norm(ft), ft)
+        cat.tables.setdefault(_norm(tt), label)
         if key not in cat.relations:
             cat.relations[key] = DimJoin(
                 to_table=tt,
@@ -485,9 +581,16 @@ def _pick_dim_key(
     question: str,
     already_aggregated: bool = False,
     prefer_dims: Optional[Sequence[str]] = None,
+    force_prefer: bool = False,
 ) -> Optional[str]:
+    if force_prefer and prefer_dims:
+        for col in prefer_dims:
+            raw = _find_result_key(keys, col)
+            if raw and _norm(raw) not in _HIGH_CARD_NAMES:
+                return raw
     preferred = list(prefer_dims or ())
-    preferred += _question_dim_hints(question) + _synonym_hits(cat, question, tables)
+    if not force_prefer:
+        preferred += _question_dim_hints(question) + _synonym_hits(cat, question, tables)
     seen_pref = set()
     ordered_pref = []
     for c in preferred:
@@ -498,20 +601,54 @@ def _pick_dim_key(
     candidates = ordered_pref + [
         c for c in _DEFAULT_DIM_ORDER if _norm(c) not in seen_pref
     ]
+    # LLM 常把 category_name 起成中文别名，结果列里没有 category_name
+    for k in keys:
+        if _is_cn_category_label(k) and _norm(k) not in seen_pref:
+            candidates.insert(0, k)
+            seen_pref.add(_norm(k))
     # 结果里已有可读维表名，优先于外键
-    for readable in (
+    readable_names = (
         "category_name",
+        "group_name",
+        "device_kind",
         "venue_name",
         "space_name",
+        "region_name",
         "alarm_category_name",
         "alarm_level_name",
-    ):
+    )
+    for readable in readable_names:
+        # 调用方指定 prefer_dims（如下钻）时，不要把分类名插到最前盖住在线/位置/类型
+        if prefer_dims:
+            break
         if _find_result_key(keys, readable) and readable not in candidates:
             candidates.insert(0, readable)
 
+    has_readable_type = any(_find_result_key(keys, r) for r in readable_names) or any(
+        _is_cn_category_label(k) for k in keys
+    )
+    if not already_aggregated and not prefer_dims:
+        type_fk = listing_type_fk(cat, tables)
+        has_other = any(_norm(c) in _STATUS_DIMS | _PLACE_DIMS for c in ordered_pref)
+        # 明细未点名状态/场馆/空间时，用 relation 里的类型外键出图
+        if type_fk and not has_other and not has_readable_type:
+            seen_pref.add(_norm(type_fk))
+            candidates = [type_fk] + [
+                c for c in candidates if _norm(c) != _norm(type_fk)
+            ]
+
     for col in candidates:
         raw = _find_result_key(keys, col)
+        forced = _norm(col) in seen_pref
         if not raw:
+            # 明细常漏选外键；元数据 relation 仍可作为出图维
+            if (
+                forced
+                and not force_prefer
+                and not has_readable_type
+                and _join_for(cat, tables, col)
+            ):
+                return col
             continue
         if _norm(col) in _HIGH_CARD_NAMES:
             continue
@@ -520,8 +657,11 @@ def _pick_dim_key(
             continue
         if meta and meta.role == "name" and _norm(col) not in {
             "category_name",
+            "group_name",
+            "device_kind",
             "venue_name",
             "space_name",
+            "region_name",
             "alarm_category_name",
             "alarm_level_name",
         }:
@@ -529,6 +669,14 @@ def _pick_dim_key(
         join = _join_for(cat, tables, raw)
         forced = _norm(col) in seen_pref
         max_ratio = 0.85 if join or (meta and (meta.is_fk or meta.role == "fk")) else 0.45
+        if data and _dim_is_uninformative(
+            data,
+            raw,
+            max_unique_ratio=max_ratio,
+            skip_single=bool(prefer_dims),
+            already_aggregated=already_aggregated,
+        ):
+            continue
         if (
             not already_aggregated
             and not forced
@@ -548,6 +696,14 @@ def _pick_dim_key(
             continue
         join = _join_for(cat, tables, raw)
         max_ratio = 0.85 if join or (meta and (meta.is_fk or meta.role == "fk")) else 0.45
+        if data and _dim_is_uninformative(
+            data,
+            raw,
+            max_unique_ratio=max_ratio,
+            skip_single=bool(prefer_dims),
+            already_aggregated=already_aggregated,
+        ):
+            continue
         if (
             not already_aggregated
             and data
@@ -555,6 +711,24 @@ def _pick_dim_key(
         ):
             continue
         return raw
+    return None
+
+
+def listing_type_fk(cat: MetaCatalog, tables: Sequence[str]) -> Optional[str]:
+    """明细查询默认类型维：来自 hephaestus_meta_nl_relation（及 fallback JOIN）。"""
+    for t in tables:
+        tn = _norm(t)
+        ranked: List[Tuple[int, str]] = []
+        for (ft, col), join in cat.relations.items():
+            if ft != tn:
+                continue
+            blob = f"{col} {join.to_table} {join.name_column} {join.label_cn}".lower()
+            if not any(m in blob for m in _TYPE_FK_MARKERS):
+                continue
+            ranked.append((0 if "category" in col else 1, col))
+        if ranked:
+            ranked.sort()
+            return ranked[0][1]
     return None
 
 
@@ -578,17 +752,24 @@ def plan_stat_chart(
     data: Sequence[dict],
     catalog: Optional[MetaCatalog] = None,
     prefer_dims: Optional[Sequence[str]] = None,
+    force_prefer: bool = False,
 ) -> Optional[ChartPlan]:
     """根据元数据决定图表：明细走维度 COUNT；外键 JOIN 名称列。"""
     if not keys:
         return None
     cat = catalog or get_catalog()
-    sql_tables = extract_sql_tables(source_sql)
-    tables = [t for t in sql_tables if t in cat.tables or t == "device"]
-    if not tables:
-        tables = _guess_tables_from_keys(cat, keys) or ["device"]
+    tables = _tables_from_sql(cat, source_sql, keys)
 
     already = bool(source_sql and _GROUP_BY_RE.search(source_sql))
+    if not already and source_sql and re.search(r"\bUNION\b", source_sql, re.IGNORECASE):
+        has_cat = any(
+            _norm(k) in {"category_name", "group_name", "device_kind"}
+            or _is_cn_category_label(k)
+            for k in keys
+        )
+        has_cnt = any(_norm(k) in {"cnt", "count", "value"} for k in keys)
+        if has_cat and has_cnt and 0 < len(data) <= 50:
+            already = True
     sample = data[0] if data else {}
     metric_keys: List[str] = []
     for k in keys:
@@ -613,6 +794,7 @@ def plan_stat_chart(
         question=question,
         already_aggregated=already,
         prefer_dims=prefer_dims,
+        force_prefer=force_prefer,
     )
     if not dim_raw:
         return None
@@ -628,6 +810,18 @@ def plan_stat_chart(
         label = (join.label_cn if join else label.replace("ID", "").replace("id", "")) or label
     if _norm(dim_raw) in {"run_state", "online", "status"}:
         label = "在线情况"
+    if _norm(dim_raw) in {"category_name", "group_name", "device_kind"}:
+        label = "分类名"
+    if _norm(dim_raw) in {"device_type", "spec", "dev_type_desc", "camera_type"}:
+        label = "设备类型"
+    if _norm(dim_raw) in {
+        "region_name",
+        "space_name",
+        "venue_name",
+        "install_location",
+        "area_name",
+    }:
+        label = "空间位置" if _norm(dim_raw) != "area_name" else "区域名称"
 
     fact = tables[0] if tables else None
     if metric_keys and already:

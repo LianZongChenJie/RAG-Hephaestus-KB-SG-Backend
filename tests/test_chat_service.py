@@ -39,3 +39,23 @@ class TestChatService:
         assert payload["stream"] is True
         assert payload["options"]["temperature"] == 0.7
         assert payload["options"]["num_ctx"] == 2048
+
+    def test_phantom_fix_keeps_table_alias(self):
+        sql = (
+            'SELECT "d"."id", "d"."category_id" FROM "FWBZ"."device" "d" '
+            'ORDER BY "d"."device_name" LIMIT 500 OFFSET 0'
+        )
+        assert self.service._fix_phantom_table_in_join(sql) == sql
+
+    def test_phantom_fix_keeps_join_aliases(self):
+        sql = (
+            'SELECT "d"."device_name", "ec"."category_name" '
+            'FROM "FWBZ"."device" "d" '
+            'INNER JOIN "FWBZ"."equipment_category" "ec" '
+            'ON "ec"."id" = "d"."category_id" '
+            "LIMIT 500 OFFSET 0"
+        )
+        out = self.service._fix_phantom_table_in_join(sql)
+        assert "equipment_category" in out
+        assert '"d"."device_name"' in out
+        assert '"ec"."category_name"' in out

@@ -1,12 +1,57 @@
 """LLM 客户端：默认 Ollama，本机可用 OpenAI 兼容公有云（阿里云 Token Plan 等）。"""
 import json
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import httpx
 
 from app.common.config import get_settings
 
 settings = get_settings()
+
+
+def _as_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
+def _first_int(*values: Any) -> Optional[int]:
+    for value in values:
+        n = _as_int(value)
+        if n is not None:
+            return n
+    return None
+
+
+def parse_llm_usage(data: Optional[Dict[str, Any]]) -> Tuple[Optional[int], Optional[int]]:
+    """从 Ollama / OpenAI 兼容响应里取出 prompt、completion token。"""
+    if not isinstance(data, dict):
+        return None, None
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    prompt = _first_int(
+        usage.get("prompt_tokens"),
+        usage.get("input_tokens"),
+        data.get("prompt_eval_count"),
+        data.get("prompt_tokens"),
+    )
+    completion = _first_int(
+        usage.get("completion_tokens"),
+        usage.get("output_tokens"),
+        data.get("eval_count"),
+        data.get("completion_tokens"),
+    )
+    total = _first_int(usage.get("total_tokens"), data.get("total_tokens"))
+    if prompt is None and completion is None and total is not None:
+        return total, 0
+    if prompt is not None and completion is None and total is not None:
+        completion = max(total - prompt, 0)
+    elif completion is not None and prompt is None and total is not None:
+        prompt = max(total - completion, 0)
+    return prompt, completion
 
 
 class OllamaClient:
@@ -24,6 +69,37 @@ class OllamaClient:
         self.provider = getattr(cfg, "provider", "ollama") or "ollama"
         self.api_key = getattr(cfg, "api_key", "") or ""
         self.base_url = (getattr(cfg, "base_url", "") or "").rstrip("/")
+        self.reset_usage()
+
+    def reset_usage(self) -> None:
+        self._usage_prompt = 0
+        self._usage_completion = 0
+
+    def add_usage(
+        self,
+        prompt: Optional[int] = None,
+        completion: Optional[int] = None,
+        *,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if data:
+            parsed_prompt, parsed_completion = parse_llm_usage(data)
+            if prompt is None:
+                prompt = parsed_prompt
+            if completion is None:
+                completion = parsed_completion
+        if prompt:
+            self._usage_prompt += int(prompt)
+        if completion:
+            self._usage_completion += int(completion)
+
+    def usage_snapshot(
+        self,
+    ) -> Tuple[Optional[int], Optional[int], Optional[int]]:
+        prompt = self._usage_prompt or None
+        completion = self._usage_completion or None
+        total = (self._usage_prompt + self._usage_completion) or None
+        return prompt, completion, total
 
     def _use_openai(self) -> bool:
         return self.provider in ("openai", "openai_compat", "cloud", "dashscope", "token_plan")
@@ -57,6 +133,9 @@ class OllamaClient:
             body["max_tokens"] = max_tokens
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        if stream:
+            # 否则 OpenAI 兼容流式（含阿里云 Token Plan）最后一包才带 usage
+            body["stream_options"] = {"include_usage": True}
         return body
 
     def _messages_from_payload(self, payload: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -162,6 +241,8 @@ class OllamaClient:
                         continue
                     try:
                         chunk = json.loads(line)
+                        if chunk.get("done"):
+                            self.add_usage(data=chunk)
                         yield chunk
                     except json.JSONDecodeError:
                         continue
@@ -183,6 +264,7 @@ class OllamaClient:
                     yield {"error": f"公有云 LLM 返回 {response.status_code}: {text.decode('utf-8', errors='replace')}"}
                     yield {"done": True}
                     return
+                usage_data: Dict[str, Any] = {}
                 async for line in response.aiter_lines():
                     if not line:
                         continue
@@ -190,12 +272,21 @@ class OllamaClient:
                         line = line[5:].strip()
                     if not line or line == "[DONE]":
                         if line == "[DONE]":
-                            yield {"done": True}
+                            p, c = parse_llm_usage({"usage": usage_data})
+                            self.add_usage(prompt=p, completion=c)
+                            yield {
+                                "done": True,
+                                "prompt_eval_count": p,
+                                "eval_count": c,
+                            }
+                            return
                         continue
                     try:
                         data = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if data.get("usage"):
+                        usage_data = data["usage"]
                     choices = data.get("choices") or []
                     if not choices:
                         continue
@@ -204,15 +295,16 @@ class OllamaClient:
                     finish = choices[0].get("finish_reason")
                     if content:
                         yield {"message": {"content": content}, "done": False}
-                    if finish:
-                        usage = data.get("usage") or {}
-                        yield {
-                            "done": True,
-                            "prompt_eval_count": usage.get("prompt_tokens"),
-                            "eval_count": usage.get("completion_tokens"),
-                        }
-                        return
-                yield {"done": True}
+                    if finish and data.get("usage"):
+                        # 部分网关把 usage 和 finish 放在同一包
+                        usage_data = data["usage"]
+                p, c = parse_llm_usage({"usage": usage_data})
+                self.add_usage(prompt=p, completion=c)
+                yield {
+                    "done": True,
+                    "prompt_eval_count": p,
+                    "eval_count": c,
+                }
 
     async def chat(self, payload: Dict[str, Any]) -> str:
         if self._use_openai():
@@ -226,6 +318,7 @@ class OllamaClient:
                     response=response,
                 )
             result = response.json()
+            self.add_usage(data=result)
             return result.get("message", {}).get("content", "")
 
     async def _chat_openai(self, payload: Dict[str, Any]) -> str:
@@ -246,14 +339,16 @@ class OllamaClient:
                     request=response.request,
                     response=response,
                 )
-            return self._content_from_openai(response.json())
+            data = response.json()
+            self.add_usage(data=data)
+            return self._content_from_openai(data)
 
     async def chat_for_report(self, payload: Dict[str, Any]) -> str:
         import logging
         logger = logging.getLogger("app.common.ollama")
         if self._use_openai():
             content = await self._chat_openai(payload)
-            logger.warning(f"chat_for_report content 长度: {len(content)}")
+            logger.info("chat_for_report content 长度: %s", len(content))
             return content
         with httpx.Client(timeout=self.timeout) as client:
             response = client.post(self.chat_url, json=payload)
@@ -264,10 +359,11 @@ class OllamaClient:
                     response=response,
                 )
             body_bytes = response.read()
-            logger.warning(f"chat_for_report 读取原始字节长度: {len(body_bytes)}")
+            logger.info("chat_for_report 原始字节: %s", len(body_bytes))
             result = json.loads(body_bytes)
+            self.add_usage(data=result)
             content = result.get("message", {}).get("content", "")
-            logger.warning(f"chat_for_report content 长度: {len(content)}")
+            logger.info("chat_for_report content 长度: %s", len(content))
             return content
 
     def call_llm(
@@ -296,7 +392,9 @@ class OllamaClient:
                         request=response.request,
                         response=response,
                     )
-                return self._content_from_openai(response.json())
+                data = response.json()
+                self.add_usage(data=data)
+                return self._content_from_openai(data)
 
         payload = {
             "model": self.model,
@@ -322,6 +420,7 @@ class OllamaClient:
                     response=response,
                 )
             result = response.json()
+            self.add_usage(data=result)
             return result.get("message", {}).get("content", "")
 
     async def check_health(self) -> tuple[bool, Optional[str], bool]:

@@ -3,7 +3,7 @@
 =========================================
 
 职责:
-    1. 启动时一次性加载 config/FWBZ问题清单.md, 解析为结构化清单
+    1. 启动时一次性加载 config/FWBZ保障平台问题清单.md, 解析为结构化清单
     2. 提供 match(question) -> MatchResult:
          - 阶段 1: TF-IDF 召回 top-3 候选 (毫秒级, 纯 Python)
          - 阶段 2: LLM 在 top-3 候选里选 best 1 (带超时, fallback)
@@ -600,7 +600,7 @@ def get_qa_matcher() -> QAMatcher:
         if _singleton is not None:
             return _singleton
         root = Path(__file__).resolve().parent.parent.parent
-        qlist_path = root / "config" / "FWBZ问题清单.md"
+        qlist_path = root / "config" / "FWBZ保障平台问题清单.md"
         _singleton = QAMatcher(qlist_path)
         _singleton.load()
         return _singleton

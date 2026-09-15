@@ -17,11 +17,24 @@ from app.common.database import save_access_log
 from app.common.dameng import execute_query
 from app.common.logger import get_logger
 from app.common.ollama import OllamaClient
-from app.chat.meta_nl import ChartPlan, DimJoin, plan_stat_chart
+from app.chat.meta_nl import (
+    ChartPlan,
+    DimJoin,
+    extract_sql_tables,
+    get_catalog,
+    listing_type_fk,
+    plan_stat_chart,
+)
 from app.chat.schemas import ChatMessage, ChatStreamRequest
+from app.chat.sql_template_loader import extract_sql_from_chunk
 
 settings = get_settings()
 logger = get_logger("chat")
+
+
+def _one_line(text: Optional[str], n: int = 240) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    return compact if len(compact) <= n else compact[: n - 3] + "..."
 
 
 def _build_schema_text() -> str:
@@ -49,6 +62,37 @@ _LAST_TRUNCATED_QUERY: dict[str, dict[str, Any]] = {}
 _VIEW_ALL_PROMPT: Optional[str] = None
 # 上一张可下钻统计图（无过期；仅当新问题画出新统计图时替换）
 _LAST_CHART_FOLLOWUP: dict[str, dict[str, Any]] = {}
+# 上一轮已执行查询（供「按照 xxx 列统计」重绘，含无图的表格结果）
+_LAST_RESULT_QUERY: dict[str, dict[str, Any]] = {}
+
+_CHART_REGROUP_RE = re.compile(
+    r"(?:请)?(?:换[成成]?|改[成成]?|重新)?"
+    r"(?:按照|按|用)\s*"
+    r"[「『\"“']?([^」』\"”'\n]{1,24}?)[」』\"”']?\s*"
+    r"(?:这一列|这一栏|列|字段|维度)?"
+    r"\s*(?:来|进行)?"
+    r"(?:分组统计|分组|统计|出图|画图)"
+)
+
+# 用户口语 → 结果列（按优先级）
+_CHART_DIM_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("在线情况", ("online", "run_state", "status")),
+    ("是否在线", ("online", "run_state", "status")),
+    ("运行状态", ("run_state", "status", "online")),
+    ("在线", ("online", "run_state", "status")),
+    ("空间位置", ("region_name", "space_name", "area_name", "venue_name", "install_location")),
+    ("安装位置", ("install_location", "region_name", "space_name")),
+    ("区域名称", ("area_name", "region_name", "space_name")),
+    ("区域", ("area_name", "region_name", "space_name")),
+    ("位置", ("region_name", "space_name", "area_name", "venue_name")),
+    ("场馆", ("venue_name", "venue_id")),
+    ("设备类型", ("device_type", "dev_type_desc", "spec", "category_name")),
+    ("分类名", ("category_name", "group_name", "device_kind")),
+    ("分类", ("category_name", "group_name", "device_kind", "category_id")),
+    ("告警类别", ("alarm_category_name",)),
+    ("告警级别", ("alarm_level_name",)),
+    ("状态", ("status", "run_state", "online")),
+)
 
 
 # 达梦数据库 Schema 上下文（供 LLM 生成 SQL 使用）
@@ -59,27 +103,23 @@ DAMENG_SCHEMA_CONTEXT = """
 - 标识符引号：达梦大小写敏感，**所有表名和字段名必须用双引号包裹**，如 `"device"."device_name"`、`"alarm_time"`。
 - 自增列：使用序列 FWBZ.SEQ_xxx，不支持 AUTO_INCREMENT
 
-## 【最高优先级】表结构白名单约束（绝对禁止违反）
+## 表结构白名单
 
-**这是铁律，没有例外。**
-你使用的每一个表名、每一个字段名，**必须出现在上方「数据库真实表结构」的列表中**。
-如果表结构里没有这个表，或某个表里没有这个字段，**绝对不能使用**。
+每个表名、列名必须出现在上方「数据库真实表结构」中。不确定就回查列表，禁止凭记忆编造。
+禁止臆造列；该带的外键不要漏。问设备信息/介绍设备时，`device` 必须选出 `"category_id"`，不要只选 `"device_name"` 和 `"run_state"`。
 
-**正确做法：**
-- 如果用户问的字段不存在于表结构中，**直接省略这个字段**，不要臆造
-- 如果不确定某个表有哪些列，**必须回查上方表结构**，不要凭记忆瞎猜
-- 宁可少选列（只选确定存在的），也不要选一个不存在的列名
-- JOIN 条件中引用的列也必须存在于对应表中
+**按表选用外键（同一列名在不同表含义不同，不要做成全局禁用）：**
 
-**常见 LLM 臆造陷阱（真实发生过的错误，禁止再犯）：**
-- ❌ `lighting_area` 表：外键是 `space` 和 `space_name`，**没有 `space_id`、`create_time`、`area_id` 字段**（LLM 高频臆造 `space_id`，必须用 `space` 或 `space_name`）
-- ❌ `alarm_record` 表：**没有 `category_id`、`area_id` 字段**（有的是 `device_category_id`、`space_id`）
-- ❌ `alarm_record` 表：**没有 `alarm_rule_point` 表**（正确关联是 `alarm_rules`）
-- ❌ `device` 表：**没有 `area_id` 字段**（外键是 `space_id`、`venue_id`）
-- ❌ `table_parking_count` 表：**没有 `data_date` 字段**（正确字段是 `date`）
-- ❌ 设备类型关联：字段名是 `device_category_id`，**不是 `category_id`**
-- ❌ space 关联：字段名是 `space_id`，**不是 `area_id`**
-- ❌ **客流查询一律用 `table_venue_flow_hour`，在馆人数列是 `today_now_count`**（**不是 `now_count`**，那是 `table_visitor_flow` 的列；LLM 高频混淆，禁止使用 `now_count`）
+| 表 | 设备类型 | 空间 | 场馆 | 不要用 |
+|---|---|---|---|---|
+| device | category_id | space_id | venue_id | device_category_id、area_id |
+| alarm_record | device_category_id | space_id | venue_id | category_id、area_id |
+| lighting_area | （无） | space / space_name（文本） | （无） | space_id、create_time、area_id |
+| table_parking_count | （无） | （无） | （无） | data_date（日期列是 date） |
+
+- 告警关联规则表是 `alarm_rules`，没有 `alarm_rule_point` 表
+- 客流用 `table_venue_flow_hour`，在馆人数列是 `today_now_count`（不要用 `now_count`）
+- 明细列不要起中文别名，前端会映射；聚合可用 `AS cnt` / `AS value`
 
 ## ⚠️ 语法限制（严格遵守，禁止使用 MySQL, PostgreSQL, Oracle, SqlServer 语法）
 
@@ -119,11 +159,7 @@ DAMENG_SCHEMA_CONTEXT = """
 
 5. **禁止在函数调用外层包裹双引号**：`DATEDIFF(MINUTE, "alarm_time", "event_completion_time")` 本身是正确的（参数列名有双引号）；但禁止把整个函数调用用双引号包裹，如 `"DATEDIFF(MINUTE, "alarm_time", "event_completion_time")"` 是错误的。ORDER BY 等子句中引用函数时同样禁止在最外层加双引号。
 
-6. **列别名规则**：
-   - 推荐裸写：`DATEDIFF(...) AS 处理时长分钟数`（无任何引号）
-   - 如果别名包含空格、中文或特殊字符，可以加双引号：`AS "处理时长分钟数"`
-   - 禁止使用单引号：`AS '处理时长分钟数'` 是错误的（单引号表示字符串常量）
-   - 函数调用本身不要加外层双引号
+6. **列别名**：明细查询不要给真实列起中文别名。聚合可用 `AS cnt`。禁止 `AS '中文'`（单引号是字符串）。
 
 7. **GROUP BY 规则**：SELECT 中所有非聚合列必须出现在 GROUP BY 中（标准SQL要求），否则会报错。
 
@@ -182,16 +218,12 @@ ORDER BY 处理时长分钟数 ASC
 CAST(DATEDIFF(MINUTE, "alarm_time", "event_completion_time") AS VARCHAR)
 ```
 
-## 重要关联关系（必须严格遵守）
-- 设备通过 `venue_id` 关联会展场馆（`table_venue_info.id`）
-- 设备通过 `space_id` 关联空间（`space.id`）
-- 设备通过 **`device_category_id`** 关联设备类型（`equipment_category.id`），**字段名是 device_category_id，不是 category_id**
-- 告警通过 `device_id` 关联设备（`device.id`）
-- 计量点通过 `space_id` 关联空间（`space.id`）
-- 计量点日数据通过 `metering_point_id` 关联计量点（`metering_point.id`）
-- 照明回路通过 `area_id` 关联照明区域（`lighting_area.id`）
-- **照明区域（`lighting_area`）没有 `space_id` 外键**，其 `space` 字段是 VARCHAR 代码（如"金安桥"），`space_name` 是空间名称；若需关联空间，用 `space_name` 或直接用 `space` 字段过滤
-- `table_parking_count` 的日期字段是 **`date`**（不是 `data_date`、`stat_date`）
+## 重要关联关系
+- device.category_id → equipment_category.id（设备类型）
+- device.space_id → space.id；device.venue_id → table_venue_info.id
+- alarm_record.device_id → device.id；alarm_record.device_category_id → equipment_category.id
+- metering_point.space_id → space.id；日数据.metering_point_id → metering_point.id
+- lighting_circuit.area_id → lighting_area.id（lighting_area 没有 space_id，用 space / space_name 文本）
 
 所有时间字段用单引号包裹，如 `alarm_time >= '2026-01-01'`
 """
@@ -212,13 +244,6 @@ class ChatService:
 
     def build_payload(self, body: ChatStreamRequest) -> dict[str, Any]:
         """构建 Ollama 请求 payload"""
-        logger.info(
-            "chat-stream model=%s num_gpu=%s num_ctx=%s think=%s",
-            self.ollama.model,
-            self.ollama.num_gpu,
-            body.num_ctx,
-            self.ollama.think,
-        )
         return self.ollama.build_chat_payload(
             messages=[m.model_dump() for m in body.messages],
             temperature=body.temperature,
@@ -526,6 +551,22 @@ class ChatService:
             logger.warning(f"公式求值失败: {true_formula} -> {e}")
             return None
 
+    def _finalize_template_sql(
+        self, sql: str, *, qid: Optional[str] = None
+    ) -> Optional[str]:
+        """手册范式已是达梦 SELECT 时直接采用，避免再走 LLM 改写和标识符清洗。"""
+        sql = (sql or "").rstrip(";").strip()
+        if not sql.upper().startswith("SELECT") or "FROM" not in sql.upper():
+            return None
+        from app.common.dameng import validate_sql_columns
+
+        ok, err, _invalid = validate_sql_columns(sql)
+        if not ok:
+            logger.warning("手册范式 SQL 校验失败 qid=%s err=%s", qid, err)
+            return None
+        logger.info("使用手册范式 SQL qid=%s sql=%s", qid, _one_line(sql, 300))
+        return sql
+
     def _generate_sql(
         self,
         question: str,
@@ -540,6 +581,13 @@ class ChatService:
             sql_template: 问答手册中该问题对应的 SQL 范式 (可选, 由 qa_matcher 提供)
             qid: 匹配到的问题编号 (如 "5.1"), 用于 prompt 标注
         """
+        canned_sql = extract_sql_from_chunk(sql_template)
+        if canned_sql:
+            ready = self._finalize_template_sql(canned_sql, qid=qid)
+            if ready:
+                logger.info("生成SQL q=%s", _one_line(question, 80))
+                return ready
+            logger.warning("手册范式不可直接执行 qid=%s，改走模型生成", qid)
 
         # 根据问题关键词，推测可能涉及的表（列名信息全部来自上方动态 schema，不在此处重复列举）
         q = question.lower()
@@ -577,8 +625,8 @@ class ChatService:
             )
         if any(k in q for k in ["报告", "ai报告", "报表"]):
             table_hints.append("ai_report_history（AI报告历史）")
-        if any(k in q for k in ["设备类型", "category", "分类"]):
-            table_hints.append("equipment_category（设备类型）")
+        if any(k in q for k in ["设备类型", "设备信息", "介绍设备", "category", "分类"]):
+            table_hints.append("equipment_category（设备类型，device.category_id 关联）")
 
         hint_text = ""
         if table_hints:
@@ -606,8 +654,8 @@ class ChatService:
 - 字段名务必从上方「数据库真实表结构」选, 严禁臆造
 - 达梦方言规则遵守上方的硬性约束
 
-**【P3 范式白名单】本范式里已用到的列名 (改造时只能从这列表选或替换, 不要新增范式外的列):**
-{col_whitelist}
+范式中出现过的列：{col_whitelist}
+改造时可保留这些列，也可从上方表结构为同一张表增补真实列（如 device 增补 category_id）。禁止使用表结构里没有的列。
 
 ```sql
 {sql_template}
@@ -616,125 +664,21 @@ class ChatService:
 
         base_prompt_header = f"""{DAMENG_SCHEMA_CONTEXT}{_SCHEMA_TEXT}{hint_text}
 
-================================================================
-【🚨 最高警告 🚨】只使用上方「数据库真实表结构」中存在的表名和字段名！
-禁止臆造任何不存在的表名/字段名, 违者 SQL 直接拒绝执行! 你必须**逐个核对**表名和字段名都来自上方列表。
-================================================================
-
 ## 任务
-根据用户问题生成一条达梦数据库 SQL 查询语句。
+根据用户问题生成一条达梦 SELECT。只使用上方表结构里的表名和列名。
 
 用户问题：{question}
 
-## 📋 输出前自检清单 (4 条全部满足才输出)
-1. ☐ 输出的每个表名, 都能在上方「数据库真实表结构」列表里找到?
-2. ☐ 输出的每个列名 (包括 JOIN 条件), 都能在该表的列列表里找到?
-3. ☐ 没有用 `time` / `category` / `area_id` 等高频臆造列名?
-4. ☐ 达梦方言 (双引号, SYSDATE, NVL, LIMIT n OFFSET 0) 都正确?
-**任意一条不满足, 修正后再输出!**
+## 生成要求（与上文规则一致，供 qwen3.5:9b 与云端调试共用）
+1. 表名、列名必须能在「数据库真实表结构」里找到；外键按表选用，不要全局禁用某个列名。
+2. 问设备信息/介绍设备：FROM device 时 SELECT 必须含 `"category_id"`，不要只选 `"device_name"`、`"run_state"`。
+3. 分页只用 `LIMIT n OFFSET 0`（明细最多 500，聚合最多 200）。不要 ROWNUM。
+4. 明细列不要起中文别名。只输出 SQL，不要解释，不要 markdown。
 
-## 【最高优先级】表结构白名单约束
-
-- **只使用上方「数据库真实表结构」中明确列出的表名和字段名**
-- 如果用户问的字段不存在于表结构中，**直接省略**，不要脉造
-- 如果不确定某个表有哪些列，必须回查上方表结构，**不要凭身世躕猜**
-- 宁可少选列，也绝不要选一个不存在的列名
-- JOIN 条件中的列也必须存在于对应表中
-
-**已知 LLM 脉造高频陷阱（绝对禁止再犯）：**
-- `lighting_area`：**没有 `space_id`、`create_time`、`area_id`**（正确外键是 `space` 和 `space_name`；LLM 反复臆造 `space_id`，严格禁止）
-- `alarm_record`：**没有 `category_id`、`area_id`**（正确字段是 `device_category_id`、`space_id`）
-- `alarm_record`：**没有 `alarm_rule_point` 表**（正确关联是 `alarm_rules`）
-- `device`：**没有 `area_id`**（外键是 `space_id`、`venue_id`）
-- `table_parking_count`：**没有 `data_date`**（正确字段是 `date`）
-- 设备类型关联字段是 **`device_category_id`**，不是 `category_id`
-- **客流查询统一用 `table_venue_flow_hour`，在馆人数列是 `today_now_count`**（**禁止用 `now_count`**，那是 `table_visitor_flow` 的列，LLM 极易混淆）
-
-## ⚠️ 严格遵守达梦 8.0 语法规范（禁止使用 MySQL/PostgreSQL 语法）
-
-### 标识符引号
-- 表名和字段名：必须用双引号包裹，如 "device"."device_name"
-- 禁止裸列名：如 device_name ❌ → "device_name" ✅
-
-### 日期时间函数（❌ MySQL  ❌ PostgreSQL ✅ 达梦）
-| 错误写法 | 正确写法 |
-|---------|---------|
-| DATE(col) | CAST(col AS DATE) 或 TRUNC(col) |
-| DATE_FORMAT(col, 'YYYY-MM-DD') | TO_CHAR(col, 'YYYY-MM-DD') |
-| NOW() | SYSDATE |
-| CURDATE() | TRUNC(SYSDATE) |
-| YEAR(col) | EXTRACT(YEAR FROM col) 或 TO_CHAR(col, 'YYYY') |
-| MONTH(col) | EXTRACT(MONTH FROM col) 或 TO_CHAR(col, 'MM') |
-| DAY(col) | EXTRACT(DAY FROM col) 或 TO_CHAR(col, 'DD') |
-| WEEK(col) | TO_CHAR(col, 'IW') |
-
-### NULL 处理
-| 错误写法 | 正确写法 |
-|---------|---------|
-| IFNULL(a, b) | NVL(a, b) |
-| COALESCE(a, b, c) | NVL(a, NVL(b, c)) |
-| IF(cond, a, b) | CASE WHEN cond THEN a ELSE b END |
-
-### 日期计算
-| 错误写法 | 正确写法 |
-|---------|---------|
-| DATE_SUB(col, INTERVAL 1 DAY) | col - 1 |
-| DATE_ADD(col, INTERVAL 7 DAY) | col + 7 |
-| DATEDIFF(a, b) | (a - b) |
-| TIMESTAMPDIFF(MINUTE, a, b) | (b - a) * 1440 |
-
-### 分页查询
-❌ 错误：LIMIT 10, 20
-❌ 错误：LIMIT 20 OFFSET 10
-❌ 错误：FETCH FIRST 100 ROWS ONLY（达梦不支持！）
-✅ 正确（达梦 8.0）：
-```sql
-SELECT * FROM (
-    SELECT t.*, ROWNUM AS rn FROM (
-        SELECT "id", "name" FROM FWBZ."device" ORDER BY "create_time" DESC
-    ) t WHERE ROWNUM <= 20
-) WHERE rn > 10
-```
-
-### 字符串函数
-| 错误写法 | 正确写法 |
-|---------|---------|
-| CONCAT(a, b, sep) | a || sep || b |
-| CONCAT_WS(sep, a, b) | a \|\| sep \|\| b |
-| GROUP_CONCAT(col) | LISTAGG(col, ',') WITHIN GROUP (ORDER BY col) |
-| SUBSTRING(col, 1, 10) | SUBSTR(col, 1, 10) |
-| UPPER/Lower | UPPER/LOWER（相同） |
-
-### 数值函数
-| 错误写法 | 正确写法 |
-|---------|---------|
-| FLOOR(col) | TRUNC(col) 或 CAST(col AS INT) |
-| ROUND(col, 2) | ROUND(col, 2)（相同） |
-
-### 聚合函数
-✅ COUNT / SUM / AVG / MAX / MIN / LISTAGG
-
-## 强制要求
-1. **禁止臆造字段**：只使用表结构中明确列出的字段，绝不能使用表结构中没有的字段名
-2. 只生成 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP/TRUNCATE 等任何修改操作
-3. 表名格式：FWBZ."table_name"（Schema + 双引号表名）
-4. 字段名格式：双引号包裹，如 "device_name"
-5. **不要加任何别名**，前端会自动把英文列名映射成中文
-6. 日期常量用单引号，如 '2026-08-01'（不是 #2026-08-01#）
-7. LIMIT 限制：明细查询（无 GROUP BY）最多500条，聚合查询（有 GROUP BY）最多200条，用 ROWNUM 实现分页
-8. 必须可以实际执行，不要生成假设性数据
-
-## 输出格式
-直接输出 SQL 语句，不要任何解释，不要用 markdown 代码块包裹。
-
-## 示例
-```sql
-SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_time" AS "创建时间" FROM FWBZ."device"
-```
+示例：
+SELECT "device_name", "category_id", "run_state", "create_time" FROM "FWBZ"."device" ORDER BY "create_time" DESC LIMIT 500 OFFSET 0
 """
-        logger.info(">>> 开始生成SQL >>>")
-        logger.info("用户问题: %s", question)
-        logger.info("-" * 60)
+        logger.info("生成SQL q=%s", _one_line(question, 80))
 
         for attempt in range(3):
             try:
@@ -756,7 +700,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # 清理末尾分号和空白
                 sql = sql.rstrip(";").strip()
 
-                logger.info("LLM原始输出: %s", sql[:1000] if len(sql) > 1000 else sql)
+                logger.info("LLM原始输出: %s", _one_line(sql, 500))
 
                 # 基础验证：必须包含 SELECT 和 FROM
                 if sql.upper().startswith("SELECT") and "FROM" in sql.upper():
@@ -823,9 +767,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         flags=re.IGNORECASE,
                     )
 
-                    logger.info(
-                        "修复WHERE/ORDER后: %s", sql[:500] if len(sql) > 500 else sql
-                    )
+                    logger.info("修复WHERE/ORDER后: %s", _one_line(sql, 500))
 
                     # ========== 达梦 SQL 语法修复 ==========
 
@@ -1178,7 +1120,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         return "".join(result)
 
                     sql = _add_quotes_to_identifiers(sql)
-                    logger.info("双引号修复后: %s", sql)
+                    logger.info("双引号修复后: %s", _one_line(sql))
 
                     # 3. 修复 LLM 常见的列名混淆（按真实表结构判断）
                     # 不同表的日期列名不同：
@@ -1187,7 +1129,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     #   table_personnel_statistics               → "stat_date"
                     # 必须按每个 "data_date"/"stat_date" 引用所属的真实表判断，不能全局替换
                     sql = self._fix_date_column_by_schema(sql)
-                    logger.info("日期列修复后: %s", sql)
+                    logger.info("日期列修复后: %s", _one_line(sql))
 
                     # 4. 修复单引号别名 → 去掉引号（达梦里别名不加引号）
                     sql = re.sub(
@@ -1231,9 +1173,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
                     # 11. 如果有 GROUP BY，移除未分组的非聚合列（如 "id"）
                     if "GROUP BY" in sql.upper():
-                        logger.info(">>> 进入 GROUP BY 修复，原始 SQL: %s", sql)
+                        logger.info("GROUP BY 修复前: %s", _one_line(sql))
                         sql = self._fix_group_by(sql)
-                        logger.info(">>> GROUP BY 修复完成: %s", sql)
+                        logger.info("GROUP BY 修复后: %s", _one_line(sql))
 
                     # 12. 修复幽灵表引用：ON 条件里引用了某表（如 "device"."xxx"），
                     #     但该表未出现在 FROM/JOIN 子句中（如 LLM 漏写了 device JOIN）。
@@ -1251,9 +1193,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     #     修复：给这些裸列名加上 alarm_record. 前缀
                     sql = self._fix_ambiguous_bare_columns(sql)
 
-                    logger.info(">>> SQL生成成功 >>>")
-                    logger.info("最终SQL: %s", sql)
-                    logger.info("=" * 60)
+                    logger.info(
+                        "生成SQL成功 attempt=%s sql=%s",
+                        attempt + 1,
+                        _one_line(sql),
+                    )
 
                     # 生成后验证：发现臆造列名则触发重试
                     from app.common.dameng import validate_sql_columns
@@ -1316,19 +1260,21 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             sql = re.sub(
                                 r"SELECT\s+,", "SELECT ", sql, flags=re.IGNORECASE
                             )
-                            logger.info("清理后SQL: %s", sql)
-                            return sql
+                            logger.info("清理后SQL: %s", _one_line(sql))
+                            return self._ensure_listing_type_fk(sql)
 
-                    return sql
+                    return self._ensure_listing_type_fk(sql)
                 else:
                     logger.warning(
-                        "SQL 生成结果无效（attempt %d）: %s", attempt + 1, sql[:200]
+                        "SQL 生成结果无效 attempt=%s sql=%s",
+                        attempt + 1,
+                        _one_line(sql, 200),
                     )
 
             except Exception as e:
                 logger.error("SQL 生成失败（attempt %d）: %s", attempt + 1, str(e))
 
-        logger.warning(">>> SQL生成失败，已达到最大重试次数 <<<")
+        logger.warning("生成SQL失败，已达最大重试次数")
         return None
 
     def _execute_sql(
@@ -1338,10 +1284,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         result_cap: Optional[int] = None,
     ) -> tuple[Optional[List[dict]], Optional[str]]:
         """执行 SQL 并返回结果。result_cap 用于「查看全部」：先去掉原 LIMIT，再按该上限兜底。"""
-        logger.info("=" * 80)
-        logger.info(">>> SQL执行开始 >>>")
-        logger.info("SQL语句: %s", sql)
-        logger.info("-" * 80)
+        logger.info("执行SQL sql=%s", _one_line(sql))
 
         # 严格安全门: 仅 SELECT / 拦截多语句 / 强制 LIMIT (明细 500 / 聚合 200)
         from app.common.sql_guard import validate as guard_validate
@@ -1428,19 +1371,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             results = execute_query(sql)
 
             if results:
-                logger.info(">>> SQL执行成功，返回 %d 条记录 <<<", len(results))
-                if results:
-                    logger.info(
-                        "示例数据(第一条): %s", dict(list(results[0].items())[:5])
-                    )
+                logger.info("执行SQL成功 rows=%s", len(results))
             else:
-                logger.warning(">>> SQL执行成功，但返回 0 条记录 <<<")
-            logger.info("=" * 80)
+                logger.warning("执行SQL成功但无数据")
 
             return results, None
         except Exception as e:
-            logger.error(">>> SQL执行异常: %s <<<", str(e))
-            logger.error("=" * 80)
+            logger.error("执行SQL异常: %s", str(e))
             return None, str(e)
 
     def _build_vue_table(
@@ -1634,8 +1571,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     col_pos = alias_map[alias_lower]
                     fixed_parts.append(f"{col_pos} {direction}".strip())
                     logger.info(
-                        f"ORDER BY 别名 '{raw_alias}' → 列位置 {col_pos} "
-                        f"(SELECT 第 {col_pos} 项)"
+                        "ORDER BY 别名 '%s' → 列位置 %s",
+                        raw_alias,
+                        col_pos,
                     )
                 else:
                     # 不在别名中，保留原样（可能是 GROUP BY 列名，带双引号）
@@ -1650,7 +1588,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 + new_order
                 + sql[order_match.start() + len(order_text) :]
             )
-            logger.info(f"ORDER BY 别名替换完成: {sql}")
+            logger.info("ORDER BY 别名替换完成: %s", _one_line(sql))
 
         except Exception as e:
             logger.warning(f"ORDER BY 别名替换失败: {e}")
@@ -1793,9 +1731,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         + new_order
                         + sql[order_match.start() + len(order_text) :]
                     )
-                    logger.info(f"ORDER BY 修复: {sql}")
+                    logger.info("ORDER BY 修复: %s", _one_line(sql))
 
-            logger.info(f"GROUP BY 修复: {sql}")
+            logger.info("GROUP BY 修复: %s", _one_line(sql))
         except Exception as e:
             logger.warning(f"GROUP BY 修复失败: {e}")
 
@@ -1819,21 +1757,47 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
              - 其他情况 → 移除对该幽灵表的引用（不完整的 JOIN 无法自动修复）。
         """
         try:
-            # 提取所有 FROM/JOIN 中的表名（忽略 AS 别名，保留原始表名）
-            # 匹配 FWBZ."table_name"（捕获 table_name）或 "table_name"（直接捕获）
+            # FROM/JOIN 的物理表 + 别名都算已定义。
+            # 加引号后常见形态：FROM "FWBZ"."device" "d"
             from_tables = set()
-            for m in re.finditer(
-                r'(?:FROM|JOIN)\s+(?:FWBZ\."([^"]+)"|"([^"]+)")', sql, re.IGNORECASE
-            ):
-                # group(1) = FWBZ."table" 情况下的表名，group(2) = 直接 "table" 情况
-                captured = m.group(1) or m.group(2)
-                from_tables.add(captured.lower())
+            skip = {
+                "on",
+                "where",
+                "order",
+                "group",
+                "having",
+                "limit",
+                "offset",
+                "left",
+                "right",
+                "inner",
+                "full",
+                "cross",
+                "join",
+                "union",
+                "select",
+                "as",
+            }
+            from_table_pattern = re.compile(
+                r"\b(?:FROM|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN|JOIN)\s+"
+                r'(?:(?:"?FWBZ"?\s*\.\s*)?)?"?([A-Za-z_]\w*)"?'
+                r'(?:\s+(?:AS\s+)?"?([A-Za-z_]\w*)"?)?',
+                re.IGNORECASE,
+            )
+            for m in from_table_pattern.finditer(sql):
+                table = (m.group(1) or "").lower()
+                alias = (m.group(2) or "").lower()
+                if table and table not in skip and table != "fwbz":
+                    from_tables.add(table)
+                if alias and alias not in skip:
+                    from_tables.add(alias)
 
-            # 提取所有在 ON 条件中出现的表引用（"xxx"."yyy" 形式）
-            # 但排除已被双引号包裹后已处理的（因为此时双引号已加好）
+            # 提取 qualified 引用（"xxx"."yyy"）；schema 名 FWBZ 不是表。
             on_table_refs = set()
             for m in re.finditer(r'"(\w+)"\."(\w+)"', sql):
-                on_table_refs.add(m.group(1).lower())
+                name = m.group(1).lower()
+                if name != "fwbz":
+                    on_table_refs.add(name)
 
             # 找出幽灵表（在 ON 中出现但不在 FROM/JOIN 中）
             phantom_tables = on_table_refs - from_tables
@@ -1841,7 +1805,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             if not phantom_tables:
                 return sql
 
-            logger.warning(f">>> 发现幽灵表引用: {phantom_tables}，尝试自动修复")
+            logger.warning("发现幽灵表引用 %s，尝试自动修复", phantom_tables)
 
             for phantom in phantom_tables:
                 if phantom == "device":
@@ -1897,12 +1861,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                         continue
 
                     device_col = first_device_ref.group(1)
-                    logger.info(f"幽灵表 device 被引用列: {device_col}，尝试注入 JOIN")
+                    logger.info("幽灵表 device 被引用列: %s，尝试注入 JOIN", device_col)
 
                     # 插入 LEFT JOIN device，在第一个 JOIN 之前
                     device_join = ' LEFT JOIN FWBZ."device" ON "alarm_record"."device_id"="device"."id"'
                     new_sql = sql[:insert_pos] + device_join + sql[insert_pos:]
-                    logger.info(f"注入 device JOIN 后的 SQL: {new_sql[:300]}")
+                    logger.info("注入 device JOIN 后: %s", _one_line(new_sql))
                     sql = new_sql
                 else:
                     # 其他幽灵表：无法安全推断 JOIN 路径，直接移除整个 JOIN 块
@@ -1926,7 +1890,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     # 清理可能遗留的连续空格
                     sql = re.sub(r"\s{2,}", " ", sql)
 
-            logger.info(f"幽灵表修复后 SQL: {sql}")
+            logger.info("幽灵表修复后: %s", _one_line(sql))
         except Exception as e:
             logger.warning(f"幽灵表引用修复失败: {e}")
 
@@ -2107,7 +2071,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # 步骤5：重建 ON 子句
                 result = "ON " + " AND ".join(fixed_parts)
                 if result != on_clause_str:
-                    logger.info(f"  ON 修复: {on_clause_str!r} → {result!r}")
+                    logger.info("ON 修复: %r → %r", on_clause_str, result)
                 return result
 
             # 遍历所有 JOIN 块，修复对应的 ON 条件
@@ -2149,7 +2113,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     flags=re.IGNORECASE | re.DOTALL,
                 )
 
-            logger.info(f"ON 条件修复后 SQL: {sql[:300]}")
+            logger.info("ON 条件修复后: %s", _one_line(sql))
 
         except Exception as e:
             logger.warning(f"ON 条件修复失败: {e}")
@@ -2198,7 +2162,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 if t:
                     defined_tables.add(t)
             if "alarm_record" not in defined_tables:
-                logger.info(f"歧义列名修复跳过：FROM 子句中无 alarm_record 表")
+                logger.info("歧义列名修复跳过：FROM 中无 alarm_record")
                 return sql
 
             # 歧义列名：多表共有，必须加 alarm_record. 前缀
@@ -2232,7 +2196,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 pattern = r'"[^"]+"\.[^"]*"' + re.escape(col) + r'"'
                 sql, n = re.subn(pattern, expand_qualified, sql, flags=re.IGNORECASE)
                 if n > 0:
-                    logger.info(f"  步骤1: {col} 在 qualified 格式中被替换 {n} 处")
+                    logger.info("歧义列 qualified 替换 %s 处: %s", n, col)
 
             # 步骤2：裸歧义列名加前缀（仅当前面没有表前缀时）
             for col in AMBIGUOUS:
@@ -2244,7 +2208,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 pattern = r'(?<![\w."])("' + re.escape(col) + r'")(?![\w."])'
                 sql, n = re.subn(pattern, replace_bare, sql, flags=re.IGNORECASE)
                 if n > 0:
-                    logger.info(f"  步骤2: 裸 {col} 被替换 {n} 处")
+                    logger.info("歧义列裸名替换 %s 处: %s", n, col)
 
             # 步骤3：兜底——修复步骤1产生的三段式 "table"."alarm_record"."col"
             # 例如："device"."alarm_record"."id" → "device"."id"
@@ -2255,9 +2219,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 flags=re.IGNORECASE,
             )
             if n > 0:
-                logger.info(f"  步骤3: 修复三段式 {n} 处")
+                logger.info("歧义列三段式修复 %s 处", n)
 
-            logger.info(f"歧义列名修复后 SQL: {sql[:300]}")
+            logger.info("歧义列名修复后: %s", _one_line(sql))
         except Exception as e:
             logger.warning(f"歧义列名修复失败: {e}")
 
@@ -2445,7 +2409,9 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             "full_name": "完整名称",
             "full_id": "完整编号",
             # 分类相关
-            "category_name": "类型名称",
+            "category_name": "分类名",
+            "group_name": "分类名",
+            "device_kind": "分类名",
             "category_id": "分类ID",
             "has_child": "是否有子级",
             # 能耗/计量
@@ -2453,7 +2419,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             "total_energy": "总能耗",
             "carbon_emission": "碳排放",
             "metering_unit": "计量单位",
-            "type": "类型",
+            "online": "在线情况",
+            "region_name": "空间位置",
+            "device_type": "设备类型",
+            "spec": "规格",
+            "cnt": "数量",
             # 客流/人员
             "today_in_count": "今日入场",
             "current_in_count": "当前在场数",
@@ -2530,17 +2500,20 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         return result.title()
 
     _STAT_DIM_PRIORITY = (
+        "online",
         "run_state",
-        "status",
         "device_type",
+        "region_name",
+        "status",
         "category_name",
+        "group_name",
+        "device_kind",
         "meter_type",
         "alarm_level_name",
         "alarm_category_name",
         "venue_name",
         "space_name",
         "area_name",
-        "online",
         "energy_type",
     )
     _HIGH_CARD_CHART_KEYS = frozenset({
@@ -2579,6 +2552,35 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             return '"col"'
         return '"' + raw.replace('"', '""') + '"'
 
+    @staticmethod
+    def _sql_has_ident(sql: str, name: str) -> bool:
+        ident = re.escape(name)
+        return bool(
+            re.search(rf'"{ident}"', sql or "", re.IGNORECASE)
+            or re.search(rf"\.{ident}\b", sql or "", re.IGNORECASE)
+        )
+
+    def _ensure_listing_type_fk(self, sql: str, catalog=None) -> str:
+        """明细漏选类型外键时，按 hephaestus_meta_nl_relation 补列，供按类型出图。"""
+        if not sql or re.search(r"\bGROUP\s+BY\b", sql, re.IGNORECASE):
+            return sql
+        tables = extract_sql_tables(sql)
+        if not tables:
+            return sql
+        cat = catalog or get_catalog()
+        col = listing_type_fk(cat, tables)
+        if not col or self._sql_has_ident(sql, col):
+            return sql
+        patched = re.sub(
+            r"(?i)\bSELECT\s+",
+            f"SELECT {self._quote_sql_ident(col)}, ",
+            sql,
+            count=1,
+        )
+        if patched != sql:
+            logger.info("明细已补选类型外键 %s.%s", tables[0], col)
+        return patched
+
     def _compose_chart_sql(
         self,
         source_sql: Optional[str],
@@ -2589,6 +2591,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         full_stats: bool = False,
         dim_join: Optional[DimJoin] = None,
         already_aggregated: bool = False,
+        fact_table: Optional[str] = None,
     ) -> str:
         """图表取数 SQL：明细按维 COUNT/SUM，外键 JOIN 名称列。"""
         inner = self._strip_result_limit(source_sql or "").strip().rstrip(";")
@@ -2596,6 +2599,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             return ""
         if not cat_key:
             return inner
+        if not self._sql_has_ident(inner, cat_key):
+            table = fact_table or next(iter(extract_sql_tables(inner)), None)
+            if table:
+                inner = (
+                    f"SELECT {self._quote_sql_ident(cat_key)}\n"
+                    f'FROM "FWBZ".{self._quote_sql_ident(table)}'
+                )
         cat = self._quote_sql_ident(cat_key)
         name_expr = f"chart_src.{cat}"
         join_sql = ""
@@ -2734,6 +2744,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         full_stats: bool = False,
         source_sql: Optional[str] = None,
         prefer_dims: Optional[List[str]] = None,
+        force_prefer: bool = False,
     ) -> dict:
         """根据查询结果构建 ECharts 配置。full_stats=True 时按全量聚合。"""
         if not data:
@@ -2778,9 +2789,11 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             question=question,
             data=data,
             prefer_dims=prefer_dims,
+            force_prefer=force_prefer,
         )
         dim_join: Optional[DimJoin] = plan.join if plan else None
         already_aggregated = bool(plan.already_aggregated) if plan else False
+        fact_table = plan.fact_table if plan else None
         chart_axis_label = "记录数量"
 
         cat_key = None
@@ -2803,17 +2816,21 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             )
         else:
             readable_priority = [
+                "category_name",
+                "group_name",
+                "device_kind",
+                "online",
+                "run_state",
+                "device_type",
+                "region_name",
                 "venue_name",
                 "space_name",
                 "area_name",
                 "location",
                 "position",
-                "category_name",
                 "alarm_category_name",
                 "alarm_level_name",
                 "status",
-                "device_type",
-                "run_state",
                 "device_code",
                 "node_code",
                 "area_code",
@@ -2872,6 +2889,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 full_stats=full_stats,
                 dim_join=dim_join,
                 already_aggregated=already_aggregated,
+                fact_table=fact_table,
             )
             payload["_followup"] = {
                 "cat_key": cat_key_raw or cat_key,
@@ -2898,6 +2916,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 full_stats=full_stats,
                 dim_join=dim_join,
                 already_aggregated=False,
+                fact_table=fact_table,
             )
             items = self._fetch_chart_items(chart_sql)
             if items and not dim_join:
@@ -3034,6 +3053,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             full_stats=full_stats,
             dim_join=dim_join,
             already_aggregated=already_aggregated,
+            fact_table=fact_table,
         )
         fetched = self._fetch_chart_items(chart_sql)
         if fetched:
@@ -3411,8 +3431,14 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         return out
 
     def _is_chart_slice_sql(self, sql: str) -> bool:
-        """下钻 SQL 带 slice_dim，不能当成下一轮匹配用的父图。"""
-        return "slice_dim" in (sql or "")
+        """下钻 SQL 不能当成下一轮匹配用的父图。"""
+        text = sql or ""
+        if "slice_dim" in text:
+            return True
+        # UNION 等无维表 JOIN 的切片：FROM (父SQL) src WHERE CAST(src."分类" ...
+        return bool(
+            re.search(r"\)\s+src\s+WHERE\s+CAST\s*\(\s*src\.", text, re.IGNORECASE)
+        )
 
     def _remember_chart_followup(
         self,
@@ -3422,6 +3448,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         question: str,
         qid: Optional[str],
         echarts: Optional[dict],
+        replace: bool = False,
     ) -> None:
         slices = self._chart_slice_names(echarts)
         follow = (echarts or {}).get("_followup") or {}
@@ -3429,7 +3456,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             return
         key = self._query_store_key(client_ip)
         # 某一类设备的明细/在线情况图：不覆盖父图切片，便于接着看其它类
-        if self._is_chart_slice_sql(sql):
+        if not replace and self._is_chart_slice_sql(sql):
             return
         _LAST_CHART_FOLLOWUP[key] = {
             "sql": self._strip_result_limit(sql),
@@ -3451,6 +3478,95 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         self, client_ip: Optional[str]
     ) -> Optional[dict[str, Any]]:
         return _LAST_CHART_FOLLOWUP.get(self._query_store_key(client_ip))
+
+    def _remember_last_result(
+        self,
+        client_ip: Optional[str],
+        *,
+        sql: str,
+        keys: List[str],
+        question: str,
+        qid: Optional[str],
+    ) -> None:
+        if not sql or not keys:
+            return
+        _LAST_RESULT_QUERY[self._query_store_key(client_ip)] = {
+            "sql": self._strip_result_limit(sql),
+            "keys": list(keys),
+            "question": question,
+            "qid": qid,
+        }
+
+    def _load_last_result(self, client_ip: Optional[str]) -> Optional[dict[str, Any]]:
+        return _LAST_RESULT_QUERY.get(self._query_store_key(client_ip))
+
+    def _parse_chart_regroup_phrase(self, question: str) -> Optional[str]:
+        """用户是否明确要求按某一列重绘统计图。"""
+        raw = (question or "").strip()
+        if len(raw) < 4:
+            return None
+        m = _CHART_REGROUP_RE.search(raw)
+        if not m:
+            return None
+        phrase = re.sub(r"[\s的]+$", "", (m.group(1) or "").strip("\"'“”‘’「」『』 "))
+        phrase = re.sub(r"^(这个|该|此)", "", phrase)
+        if len(phrase) < 1 or len(phrase) > 24:
+            return None
+        return phrase
+
+    def _available_chart_dim_keys(self, keys: List[str]) -> List[str]:
+        skip = self._HIGH_CARD_CHART_KEYS | {
+            "cnt",
+            "count",
+            "value",
+            "total_value",
+            "rn",
+            "rownum",
+            "rowno",
+        }
+        out = []
+        for k in keys or []:
+            name = str(k).strip()
+            if not name or name.lower() in skip:
+                continue
+            if re.match(r"^(id|.+_id)$", name, re.IGNORECASE):
+                continue
+            out.append(name)
+        return out
+
+    def _resolve_chart_dim_phrase(
+        self, phrase: str, keys: List[str]
+    ) -> Optional[str]:
+        """把「空间位置 / area_name」解析成上一轮结果里真实存在的列。"""
+        want = (phrase or "").strip().strip("\"'")
+        if not want or not keys:
+            return None
+        key_map = {str(k).lower(): k for k in keys}
+        if want.lower() in key_map:
+            raw = key_map[want.lower()]
+            if str(raw).lower() not in self._HIGH_CARD_CHART_KEYS:
+                return raw
+            return None
+        label_map = {}
+        for k in keys:
+            label_map[self._format_column_label(str(k))] = k
+        if want in label_map:
+            raw = label_map[want]
+            if str(raw).lower() not in self._HIGH_CARD_CHART_KEYS:
+                return raw
+        ranked_aliases = sorted(_CHART_DIM_ALIASES, key=lambda x: len(x[0]), reverse=True)
+        for alias, cols in ranked_aliases:
+            if want != alias and alias not in want and want not in alias:
+                continue
+            for col in cols:
+                if col.lower() in key_map:
+                    return key_map[col.lower()]
+        # 标签模糊：区域名称 vs 区域
+        for label, raw in label_map.items():
+            if want in label or label in want:
+                if str(raw).lower() not in self._HIGH_CARD_CHART_KEYS:
+                    return raw
+        return None
 
     def _normalize_slice_question(self, question: str) -> str:
         s = (question or "").strip()
@@ -3516,6 +3632,70 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             f"FROM (\n{inner}\n) src\n"
             f"WHERE CAST(src.{cat} AS VARCHAR) = '{literal}'"
         )
+
+    def _sql_is_category_count_overview(self, sql: str) -> bool:
+        """上一轮是分类计数（GROUP BY / UNION COUNT），切片不能只筛这一行。"""
+        text = sql or ""
+        if not re.search(r"\bCOUNT\s*\(", text, re.IGNORECASE):
+            return False
+        return bool(
+            re.search(r"\bUNION\b", text, re.IGNORECASE)
+            or re.search(r"\bGROUP\s+BY\b", text, re.IGNORECASE)
+        )
+
+    def _listing_qid_for_chart_slice(
+        self, ctx: dict[str, Any], slice_name: str
+    ) -> Optional[str]:
+        """概览图点某一类时，改走清单里的「查看xxx」明细题。"""
+        if not self._sql_is_category_count_overview(ctx.get("sql") or ""):
+            return None
+        name = (slice_name or "").strip()
+        if not name:
+            return None
+        parent_qid = str(ctx.get("qid") or "").strip()
+        parent_domain = parent_qid.split(".")[0] if "." in parent_qid else ""
+        variants = [name]
+        if name.endswith("设备"):
+            variants.append(name[:-2])
+        else:
+            variants.append(name + "设备")
+        titles = {v: True for v in variants}
+        titles.update({f"查看{v}": True for v in variants})
+        titles.update({f"{v}列表": True for v in variants})
+        titles.update({f"查看{v}列表": True for v in variants})
+
+        from app.chat.sql_template_loader import get_template_loader
+
+        loader = get_template_loader()
+        hits: List[tuple] = []
+        for qid in loader.all_qids():
+            if qid == parent_qid:
+                continue
+            title = re.sub(r"\s+", "", (loader.get_title(qid) or "").strip())
+            title = title.split("，")[0].split(",")[0]
+            if title not in titles:
+                continue
+            if not loader.get_executable_sql(qid):
+                continue
+            same = 0 if parent_domain and qid.startswith(parent_domain + ".") else 1
+            hits.append((same, qid))
+        if hits:
+            hits.sort()
+            return hits[0][1]
+        fallback = {
+            "楼控设备": "7.2",
+            "楼控": "7.2",
+            "冷源设备": "7.3",
+            "冷源": "7.3",
+            "电表设备": "7.4",
+            "电表": "7.4",
+            "安防设备": "7.5",
+            "安防": "7.5",
+        }
+        mapped = fallback.get(name) or fallback.get(name.replace("设备", ""))
+        if mapped and mapped != parent_qid:
+            return mapped
+        return None
 
     def _normalize_view_all_text(self, question: str) -> str:
         return re.sub(r"[\s。！？!?,.，、]+", "", question or "")
@@ -3637,6 +3817,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
 
         vue_table = self._build_vue_table(data, max_rows=None)
         stream_summary["table"] = vue_table
+        self._remember_last_result(
+            client_ip,
+            sql=self._strip_result_limit(sql),
+            keys=list(data[0].keys()),
+            question=orig_question,
+            qid=last.get("qid"),
+        )
         yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': self._strip_result_limit(sql), **vue_table})}\n\n"
         await asyncio.sleep(0)
 
@@ -3682,6 +3869,151 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         if on_summary:
             await on_summary(stream_summary)
 
+    async def _reject_chart_regroup(
+        self,
+        *,
+        phrase: str,
+        last_result: Optional[dict[str, Any]],
+        on_summary: Optional[callable],
+        stream_summary: dict[str, Any],
+    ) -> AsyncIterator[str]:
+        if not last_result:
+            msg = (
+                f"请先完成一次查询，再说明要按哪一列统计，例如：按照{phrase}统计。"
+            )
+        else:
+            labels = [
+                self._format_column_label(k)
+                for k in self._available_chart_dim_keys(last_result.get("keys") or [])
+            ]
+            shown = "、".join(labels[:8]) if labels else "无可用分类列"
+            msg = f"上一轮结果没有「{phrase}」列，无法按它重绘统计图。当前可按：{shown}。"
+        stream_summary["mode"] = "db"
+        stream_summary["error"] = "无法按指定列统计"
+        stream_summary["summary"] = msg
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '无法按指定列统计'})}\n\n"
+        yield f"data: {self._safe_json_dumps({'type': 'message', 'content': msg})}\n\n"
+        yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+        if on_summary:
+            await on_summary(stream_summary)
+
+    async def _handle_chart_regroup_followup(
+        self,
+        *,
+        question: str,
+        dim_key: str,
+        dim_phrase: str,
+        client_ip: Optional[str],
+        on_summary: Optional[callable],
+        stream_summary: dict[str, Any],
+    ) -> AsyncIterator[str]:
+        last = self._load_last_result(client_ip) or {}
+        sql = (last.get("sql") or "").strip()
+        if not sql:
+            async for chunk in self._reject_chart_regroup(
+                phrase=dim_phrase,
+                last_result=None,
+                on_summary=on_summary,
+                stream_summary=stream_summary,
+            ):
+                yield chunk
+            return
+
+        stream_summary["mode"] = "db"
+        stream_summary["qid"] = last.get("qid")
+        stream_summary["sql"] = sql
+        label = self._format_column_label(dim_key)
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': f'正在按「{label}」重新统计...'})}\n\n"
+        yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': sql})}\n\n"
+
+        data, err = self._execute_sql(sql)
+        if err:
+            stream_summary["error"] = f"查询执行失败: {err}"
+            yield f"data: {self._safe_json_dumps({'type': 'error', 'message': f'查询执行失败: {err}'})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+        if not data:
+            msg = "上一轮查询没有数据，无法重绘统计图。"
+            stream_summary["error"] = "查询结果为空"
+            stream_summary["summary"] = msg
+            yield f"data: {self._safe_json_dumps({'type': 'message', 'content': msg})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+
+        preview_count, total_count, truncated = self._resolve_result_cardinality(
+            sql, data
+        )
+        stream_summary["row_count"] = preview_count
+        stream_summary["preview_count"] = preview_count
+        stream_summary["total_count"] = total_count
+        stream_summary["truncated"] = truncated
+
+        vue_table = self._build_vue_table(data)
+        stream_summary["table"] = vue_table
+        self._remember_last_result(
+            client_ip,
+            sql=sql,
+            keys=list(data[0].keys()),
+            question=last.get("question") or question,
+            qid=last.get("qid"),
+        )
+        yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': sql, **vue_table})}\n\n"
+        await asyncio.sleep(0)
+
+        echarts = self._build_echarts(
+            data,
+            question,
+            source_sql=sql,
+            prefer_dims=[dim_key],
+            force_prefer=True,
+        )
+        if echarts:
+            stream_summary["chart"] = {
+                "chartType": echarts.get("chartType"),
+                "chartId": echarts.get("chartId"),
+            }
+            stream_summary["chart_sql"] = echarts.get("sql") or ""
+            self._remember_chart_followup(
+                client_ip,
+                sql=sql,
+                question=last.get("question") or question,
+                qid=last.get("qid"),
+                echarts=echarts,
+                replace=True,
+            )
+            for packet in self._sse_chart_packets(echarts):
+                yield packet
+            await asyncio.sleep(0)
+        else:
+            msg = f"无法按「{label}」生成统计图，请换一列再试。"
+            stream_summary["error"] = "无法按指定列统计"
+            stream_summary["summary"] = msg
+            yield f"data: {self._safe_json_dumps({'type': 'message', 'content': msg})}\n\n"
+            yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+            if on_summary:
+                await on_summary(stream_summary)
+            return
+
+        yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在生成分析总结...'})}\n\n"
+        summary = self._generate_summary(
+            question,
+            data,
+            vue_table,
+            preview_count=preview_count,
+            total_count=total_count,
+            truncated=truncated,
+        )
+        summary = self._append_view_all_hint(summary, truncated)
+        stream_summary["summary"] = summary
+        yield f"data: {self._safe_json_dumps({'type': 'summary', 'content': summary})}\n\n"
+        yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
+        if on_summary:
+            await on_summary(stream_summary)
+
     async def _handle_chart_slice_followup(
         self,
         *,
@@ -3692,7 +4024,20 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         stream_summary: dict[str, Any],
     ) -> AsyncIterator[str]:
         ctx = self._load_chart_followup(client_ip) or {}
-        sql = self._compose_slice_filter_sql(ctx, slice_name)
+        listing_qid = self._listing_qid_for_chart_slice(ctx, slice_name)
+        sql = ""
+        follow_qid = ctx.get("qid")
+        if listing_qid:
+            from app.chat.sql_template_loader import get_template_loader
+
+            canned = get_template_loader().get_executable_sql(listing_qid)
+            sql = self._finalize_template_sql(canned or "", qid=listing_qid) or ""
+            follow_qid = listing_qid
+            logger.info(
+                "图表切片改走清单明细 qid=%s slice=%s", listing_qid, slice_name
+            )
+        if not sql:
+            sql = self._compose_slice_filter_sql(ctx, slice_name)
         if not sql:
             stream_summary["error"] = "无法按图表切片生成查询"
             yield f"data: {self._safe_json_dumps({'type': 'error', 'message': '无法按上一张图的切片筛选数据。'})}\n\n"
@@ -3702,7 +4047,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             return
 
         stream_summary["mode"] = "db"
-        stream_summary["qid"] = ctx.get("qid")
+        stream_summary["qid"] = follow_qid
         stream_summary["sql"] = sql
         yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': f'正在查看「{slice_name}」...'})}\n\n"
         yield f"data: {self._safe_json_dumps({'type': 'sql', 'sql': sql})}\n\n"
@@ -3737,28 +4082,61 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 client_ip,
                 sql=sql,
                 question=question,
-                qid=ctx.get("qid"),
+                qid=follow_qid,
                 preview_count=preview_count,
                 total_count=total_count,
             )
 
         vue_table = self._build_vue_table(data)
         stream_summary["table"] = vue_table
+        self._remember_last_result(
+            client_ip,
+            sql=sql,
+            keys=list(data[0].keys()),
+            question=question,
+            qid=follow_qid,
+        )
         yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': sql, **vue_table})}\n\n"
         await asyncio.sleep(0)
 
-        echarts = self._build_echarts(
-            data,
-            question,
-            source_sql=sql,
-            prefer_dims=["run_state", "status", "online"],
-        )
+        if listing_qid:
+            echarts = self._build_echarts(data, question, source_sql=sql)
+        else:
+            parent_dim = str(ctx.get("cat_key") or "").strip().lower()
+            drill_dims = [
+                dim
+                for dim in (
+                    "online",
+                    "run_state",
+                    "region_name",
+                    "space_name",
+                    "venue_name",
+                    "device_type",
+                    "status",
+                )
+                if dim != parent_dim
+            ]
+            echarts = self._build_echarts(
+                data,
+                question,
+                source_sql=sql,
+                prefer_dims=drill_dims,
+            )
         if echarts:
             stream_summary["chart"] = {
                 "chartType": echarts.get("chartType"),
                 "chartId": echarts.get("chartId"),
             }
             stream_summary["chart_sql"] = echarts.get("sql") or ""
+            if listing_qid:
+                self._remember_chart_followup(
+                    client_ip,
+                    sql=sql,
+                    question=question,
+                    qid=follow_qid,
+                    echarts=echarts,
+                    replace=True,
+                )
             for packet in self._sse_chart_packets(echarts):
                 yield packet
             await asyncio.sleep(0)
@@ -3953,7 +4331,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         try:
             # ========== 步骤 1: 解析时间范围 ==========
             start_date, end_date = self._parse_energy_time_range(question)
-            logger.info(f"能耗查询: question={question}, time={start_date}~{end_date}")
+            logger.info(
+                "能耗查询 q=%s range=%s~%s",
+                _one_line(question, 80),
+                start_date,
+                end_date,
+            )
 
             yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'db', 'message': '正在查询能耗配置...'})}\n\n"
 
@@ -3975,7 +4358,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     await on_summary(stream_summary)
                 return
 
-            logger.info(f"查到 {len(metering_points)} 个计量点配置")
+            logger.info("能耗计量点 %s 个", len(metering_points))
 
             # ========== 步骤 3: 查 energy_medium_manage 能介名称 ==========
             medium_name_map = {}
@@ -4006,7 +4389,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     await on_summary(stream_summary)
                 return
 
-            logger.info(f"共 {len(all_device_codes)} 个 device_code 需查询")
+            logger.info("能耗 device_code %s 个", len(all_device_codes))
 
             # 查 device 表, 建 device_code -> device.id 映射 (分批, 每批 1000)
             code_to_id = {}  # device_code (str) -> device.id (int)
@@ -4032,7 +4415,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 except Exception as e:
                     logger.error(f"device 查询失败 (chunk {i}): {e}")
 
-            logger.info(f"device 映射完成, {len(code_to_id)} 个有对应 id")
+            logger.info("能耗 device 映射 %s 个", len(code_to_id))
 
             if not code_to_id:
                 stream_summary["error"] = "device_code 无对应设备"
@@ -4075,7 +4458,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 except Exception as e:
                     logger.error(f"data_day 批量查询失败 (chunk {i}): {e}")
 
-            logger.info(f"data_day 查询完成, {len(device_values)} 个设备有数据")
+            logger.info("能耗查询完成 devices_with_data=%s", len(device_values))
 
             if not device_values:
                 stream_summary["error"] = "无能耗数据"
@@ -4270,6 +4653,7 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
         """
         full_reply = ""
         mode = "unknown"
+        self.ollama.reset_usage()
         # 收集流式结果摘要，供日志记录
         stream_summary = {
             "mode": None,
@@ -4306,6 +4690,44 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             slice_name = self._match_last_chart_slice(
                 question, (last_chart or {}).get("slices") or []
             )
+            regroup_phrase = self._parse_chart_regroup_phrase(question)
+            last_result = self._load_last_result(client_ip)
+            regroup_dim = (
+                self._resolve_chart_dim_phrase(
+                    regroup_phrase, (last_result or {}).get("keys") or []
+                )
+                if regroup_phrase and last_result
+                else None
+            )
+            if regroup_phrase and regroup_dim:
+                async for chunk in self._handle_chart_regroup_followup(
+                    question=question,
+                    dim_key=regroup_dim,
+                    dim_phrase=regroup_phrase,
+                    client_ip=client_ip,
+                    on_summary=on_summary,
+                    stream_summary=stream_summary,
+                ):
+                    yield chunk
+                return
+            compact_q = self._normalize_view_all_text(question)
+            if (
+                regroup_phrase
+                and last_result
+                and not regroup_dim
+                and not slice_name
+                and not self._is_energy_formula_query(question)
+                and len(compact_q) <= 18
+            ):
+                async for chunk in self._reject_chart_regroup(
+                    phrase=regroup_phrase,
+                    last_result=last_result,
+                    on_summary=on_summary,
+                    stream_summary=stream_summary,
+                ):
+                    yield chunk
+                return
+
             if last_chart and slice_name:
                 async for chunk in self._handle_chart_slice_followup(
                     question=question,
@@ -4334,28 +4756,21 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 template_loader = get_template_loader()
 
                 if matcher.available():
-                    # 同步阻塞调用 → 放线程池, 不卡 event loop
                     match_result = await asyncio.to_thread(matcher.match, question)
                 else:
                     logger.warning("QA 匹配器不可用, 走兜底")
             except Exception as e:
                 logger.exception(f"QA 匹配异常, 走兜底: {e}")
 
-            # 判定是否匹配
-            #   - match_result.matched 用 confidence >= 0.6, 适合 LLM 时代
-            #   - 现在用 TF-IDF (score 通常 0.05~0.5), 改用 best_qid 非空判定
-            #   - TF-IDF 内部已有阈值过滤 (tfidf_threshold=0.15), 到这里 best_qid 非空 = 已过滤掉低质量候选
             matched = match_result is not None and bool(match_result.best_qid)
 
             if matched:
                 qid = match_result.best_qid
                 confidence = match_result.best_confidence
+                sql_template = template_loader.get(qid) or ""
                 stream_summary["mode"] = "db"
                 stream_summary["qid"] = qid
                 stream_summary["match_confidence"] = round(confidence, 3)
-
-                # 拿该 Q-ID 的 SQL 范式
-                sql_template = template_loader.get(qid) or ""
                 if not sql_template:
                     logger.warning(
                         f"Q{qid} 在问答手册中无 SQL 范式, 仍走 DB 模式但无范式参考"
@@ -4431,6 +4846,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                 # ========== 阶段4：构建 Vue 表格 ==========
                 vue_table = self._build_vue_table(data)
                 stream_summary["table"] = vue_table
+                self._remember_last_result(
+                    client_ip,
+                    sql=stream_summary.get("sql") or sql,
+                    keys=list(data[0].keys()),
+                    question=question,
+                    qid=qid,
+                )
                 yield f"data: {self._safe_json_dumps({'type': 'table', 'sql': stream_summary.get('sql') or sql, **vue_table})}\n\n"
                 await asyncio.sleep(0)
 
@@ -4496,14 +4918,12 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                     stream_summary["fallback_reason"] = "匹配器不可用"
 
                 logger.info(
-                    f"兜底分支: 走 LLM 流式 | 原因={stream_summary['fallback_reason']}"
+                    "兜底 LLM 流式 reason=%s", stream_summary["fallback_reason"]
                 )
 
                 yield f"data: {self._safe_json_dumps({'type': 'mode', 'value': 'llm', 'message': '本问题未匹配到业务清单, 使用通用 LLM 回答...'})}\n\n"
 
                 response_parts = []
-                prompt_tokens = None
-                completion_tokens = None
 
                 async for chunk in self.ollama.stream_chat(payload):
                     if chunk.get("error"):
@@ -4514,8 +4934,6 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
                             await on_summary(stream_summary)
                         break
                     if chunk.get("done"):
-                        prompt_tokens = chunk.get("prompt_eval_count")
-                        completion_tokens = chunk.get("eval_count")
                         yield f"data: {self._safe_json_dumps({'done': True})}\n\n"
                         stream_summary["summary"] = full_reply
                         if on_summary:
@@ -4553,21 +4971,13 @@ SELECT "device_name" AS "设备名称", "run_state" AS "运行状态", "create_t
             if on_summary:
                 await on_summary(stream_summary)
         finally:
-            # 写入访问日志
-            total = None
-            if mode == "llm":
-                try:
-                    # 尝试获取 token 统计（如果流式已经结束）
-                    total = len(full_reply) // 4  # 粗估
-                except Exception:
-                    pass
-
+            prompt_tokens, completion_tokens, token_count = self.ollama.usage_snapshot()
             await save_access_log(
                 question=question,
                 access_time=access_time,
-                token_count=total,
-                prompt_tokens=None,
-                completion_tokens=None,
+                token_count=token_count,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
                 response=full_reply[:2000] if full_reply else None,
                 model=self.ollama.model,
                 client_ip=client_ip,

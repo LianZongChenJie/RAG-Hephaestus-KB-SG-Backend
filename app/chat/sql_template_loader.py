@@ -2,16 +2,16 @@
 问答手册 SQL 范式索引
 =====================
 
-把 config/FWBZ问答手册.md 按 Q-ID 切块, 建 dict 索引, 一次性加载, 进程内缓存.
+把保障平台问答手册按 Q-ID 切块, 建 dict 索引, 一次性加载, 进程内缓存.
 
-Q-ID 格式: "1.1" / "5.3" / "17.2"  (业务域.子序号)
+Q-ID 格式: "2.1" / "7.3" / "11.5"  (菜单号.子序号，见 FWBZ保障平台问题清单.md)
 chunk 切片规则:
     1. 优先匹配 "**Q1.1 ..."  /  "### Q1.1"  /  "**Qx.y**" 这类模式
     2. 兜底: 按 "## 业务域" + 序号列表的相邻顺序推断
 
 用法:
     loader = get_template_loader()
-    sql_template = loader.get("5.1")  # 拿 5.1 的 SQL 范式块
+    sql_template = loader.get("7.1")  # 拿对应 Q-ID 的 SQL 范式块
     if sql_template:
         ...
 
@@ -104,6 +104,10 @@ class QATemplateLoader:
             self.load()
         return self._templates.get(q_id)
 
+    def get_executable_sql(self, q_id: str) -> Optional[str]:
+        """手册里可直接执行的 SELECT；含 {{占位}} 时返回 None，需模型改写。"""
+        return extract_sql_from_chunk(self.get(q_id))
+
     def get_title(self, q_id: str) -> Optional[str]:
         """拿 Q-ID 对应的标题 (纯文本)"""
         if not self._loaded:
@@ -120,6 +124,24 @@ class QATemplateLoader:
         if not self._loaded:
             self.load()
         return q_id in self._templates
+
+
+_SQL_FENCE = re.compile(r"```sql\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL)
+
+
+def extract_sql_from_chunk(chunk: Optional[str]) -> Optional[str]:
+    """从问答手册 chunk 抽出可直接跑的 SELECT。含 {{变量}} 则需要模型替换。"""
+    if not chunk:
+        return None
+    m = _SQL_FENCE.search(chunk)
+    if not m:
+        return None
+    sql = m.group(1).strip().rstrip(";").strip()
+    if not sql or "{{" in sql:
+        return None
+    if not sql.upper().lstrip().startswith("SELECT"):
+        return None
+    return sql
 
 
 def _qid_sort_key(qid: str) -> tuple[int, int]:
@@ -145,7 +167,7 @@ def get_template_loader() -> QATemplateLoader:
             return _singleton
         # 项目根 = app/chat/sql_template_loader.py 往上 3 级
         root = Path(__file__).resolve().parent.parent.parent
-        qa_path = root / "config" / "FWBZ问答手册.md"
+        qa_path = root / "config" / "FWBZ保障平台问答手册.md"
         _singleton = QATemplateLoader(qa_path)
         _singleton.load()
         return _singleton

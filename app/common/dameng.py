@@ -156,13 +156,6 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
     Returns:
         查询结果列表，每行是一个字典
     """
-    logger.info("=" * 80)
-    logger.info(">>> 执行SQL查询 >>>")
-    logger.info("SQL: %s", sql)
-    if params:
-        logger.info("参数: %s", params)
-    logger.info("-" * 80)
-
     try:
         with dameng_cursor() as cursor:
             if params:
@@ -170,33 +163,18 @@ def execute_query(sql: str, params: Optional[Tuple] = None) -> List[Dict[str, An
             else:
                 cursor.execute(sql)
 
-            # 获取列名
             columns = (
                 [desc[0] for desc in cursor.description] if cursor.description else []
             )
-
-            # 获取所有结果
             rows = cursor.fetchall()
-
-            logger.info("返回 %d 行数据", len(rows))
-            if rows:
-                logger.info("示例数据: %s", dict(zip(columns, rows[0])))
-            logger.info(">>> SQL执行成功 <<<")
-
-            # 转换为字典列表
+            logger.info("execute_query rows=%s sql=%s", len(rows), sql)
             return [dict(zip(columns, row)) for row in rows]
     except ImportError as exc:
         logger.warning("达梦驱动未安装: %s", exc)
         return []
     except Exception as exc:
-        logger.error("=" * 80)
-        logger.error(">>> SQL执行失败 <<<")
-        logger.error("SQL: %s", sql)
-        if params:
-            logger.error("参数: %s", params)
-        logger.error("错误: %s", exc)
-        logger.error("堆栈: %s", traceback.format_exc())
-        logger.error("=" * 80)
+        logger.error("execute_query 失败: %s | sql=%s", exc, sql)
+        logger.error("execute_query 堆栈:\n%s", traceback.format_exc())
         return []
 
 
@@ -340,19 +318,17 @@ def validate_sql_columns(
                 alias_to_table[am.group(1).lower()] = "__subquery__"
 
         # ========== 步骤 2: 提取 SELECT 列表的 AS 别名 (跳过校验) ==========
-        # 用字符串扫描 (不依赖正则) 找顶层 SELECT 列表, 跳过嵌套括号
-        # (避免 EXTRACT 内的 FROM 干扰)
+        # 必须扫整条 SQL：切片下钻会包 SELECT src.* FROM (原查询) src，
+        # 只看顶层 SELECT 会把内层「AS "设备类型名称"」误判成臆造列。
         select_aliases: set[str] = set()
-        select_clause = _extract_top_select(sql)
-        if select_clause:
-            for m in re.finditer(
-                r'\bAS\s+(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z_]\w*))',
-                select_clause,
-                re.IGNORECASE,
-            ):
-                alias = m.group(1) or m.group(2) or m.group(3)
-                if alias and alias.lower() not in sql_keywords_skip:
-                    select_aliases.add(alias.lower())
+        for m in re.finditer(
+            r'\bAS\s+(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z_]\w*))',
+            sql,
+            re.IGNORECASE,
+        ):
+            alias = m.group(1) or m.group(2) or m.group(3)
+            if alias and alias.lower() not in sql_keywords_skip:
+                select_aliases.add(alias.lower())
 
         # ========== 步骤 3: 校验表 (按真实表名, 不查别名; 子查询占位排除) ==========
         real_tables = {t for t in alias_to_table.values() if t != "__subquery__"}
@@ -651,18 +627,13 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
     Returns:
         影响的行数
     """
-    logger.info(">>> 执行更新SQL >>>")
-    logger.info("SQL: %s", sql)
-    if params:
-        logger.info("参数: %s", params)
-
     try:
         with dameng_cursor() as cursor:
             if params:
                 cursor.execute(sql, params)
             else:
                 cursor.execute(sql)
-            logger.info(">>> 更新成功，影响 %d 行 <<<", cursor.rowcount)
+            logger.info("execute_update rows=%s sql=%s", cursor.rowcount, sql)
             return cursor.rowcount
     except Exception as exc:
         # 编码错误时，尝试将特殊 Unicode 字符替换后重试
@@ -675,13 +646,7 @@ def execute_update(sql: str, params: Optional[Tuple] = None) -> int:
             with dameng_cursor() as cursor:
                 cursor.execute(sql, safe_params)
                 return cursor.rowcount
-        logger.error("=" * 80)
-        logger.error(">>> SQL执行失败 <<<")
-        logger.error("SQL: %s", sql)
-        if params:
-            logger.error("参数: %s", params)
-        logger.error("错误: %s", exc)
-        logger.error("=" * 80)
+        logger.error("execute_update 失败: %s | sql=%s", exc, sql)
         raise
 
 
@@ -696,25 +661,18 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
     Returns:
         新插入记录的自增ID
     """
-    logger.info(">>> 执行INSERT SQL >>>")
-    logger.info("SQL: %s", sql)
-    if params:
-        logger.info("参数: %s", params)
-
     try:
         with dameng_cursor() as cursor:
             if params:
                 cursor.execute(sql, params)
             else:
                 cursor.execute(sql)
-            # 获取最后插入的ID
             cursor.execute("SELECT LAST_INSERT_ID()")
             result = cursor.fetchone()
             new_id = result[0] if result else 0
-            logger.info(">>> 插入成功，新记录ID: %d <<<", new_id)
+            logger.info("execute_insert id=%s sql=%s", new_id, sql)
             return new_id
     except Exception as exc:
-        # 编码错误时，尝试将特殊 Unicode 字符替换后重试
         if params and ("gbk" in str(exc).lower() or "codec" in str(exc).lower()):
             safe_params = tuple(
                 str(p).replace("\u00b3", "^3") if isinstance(p, str) else p
@@ -726,11 +684,5 @@ def execute_insert_return_id(sql: str, params: Optional[Tuple] = None) -> int:
                 cursor.execute("SELECT LAST_INSERT_ID()")
                 result = cursor.fetchone()
                 return result[0] if result else 0
-        logger.error("=" * 80)
-        logger.error(">>> INSERT执行失败 <<<")
-        logger.error("SQL: %s", sql)
-        if params:
-            logger.error("参数: %s", params)
-        logger.error("错误: %s", exc)
-        logger.error("=" * 80)
+        logger.error("execute_insert 失败: %s | sql=%s", exc, sql)
         raise

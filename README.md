@@ -25,15 +25,16 @@
 ├── config/
 │   ├── config.yaml         # 105 生产配置（入库）
 │   ├── local.yaml.example  # 本机覆盖模板（复制为 local.yaml）
-│   ├── FWBZ问题清单.md     # 聊天：标准问题 → Q-ID
-│   ├── FWBZ问答手册.md     # 聊天：Q-ID → SQL 范式
+│   ├── FWBZ保障平台问题清单.md  # 聊天匹配：保障平台菜单问法
+│   ├── FWBZ保障平台问答手册.md  # 聊天：上述 Q-ID → SQL 范式
+│   ├── FWBZ问题清单.md     # 旧清单（按库表章节，现网聊天已不读）
+│   ├── FWBZ问答手册.md     # 旧范式（按库表章节，现网聊天已不读）
 │   ├── FWBZ问题分类速查.md
 │   └── FWBZ_strut.sql      # 达梦表结构，聊天 SQL 白名单来源
 ├── prompts/match.md        # 聊天 TF-IDF 后的匹配 prompt（生产默认未开 LLM 二次）
 ├── scripts/
 │   ├── create_hephaestus_tables.py  # 达梦 Hephaestus 6 张表 + 中文注释
-│   ├── seed_meta_nl.py              # 从 strut 灌元数据（聊天尚未读取）
-│   └── debug/                       # 一次性调试脚本，不参与服务启动
+│   └── seed_meta_nl.py              # 从 strut 灌 4 张 hephaestus_meta_nl_* 表
 ├── docs/
 │   ├── hephaestus_tables.md         # 6 张 Hephaestus 表字段说明
 │   └── API接口文档.md
@@ -48,7 +49,7 @@ macOS 无 `dmpython` wheel，达梦走 JDBC（`app/common/dameng_jdbc.py` + `dri
 路由：`app/chat/api.py` → `ChatService.stream_chat`（`app/chat/chat_service.py`）。  
 请求体是对话 `messages`，取最后一条用户问题。响应为 SSE，前端按 `type` 渲染。
 
-没有向量检索。`hephaestus_meta_nl_*` 已在达梦建表灌数，**本链路尚未读取**。
+没有向量检索。聊天读达梦 `hephaestus_meta_nl_*`（表/列/关系/同义词）来选图表维度、指标和 JOIN。
 
 ### 分支顺序
 
@@ -64,7 +65,7 @@ macOS 无 `dmpython` wheel，达梦走 JDBC（`app/common/dameng_jdbc.py` + `dri
 
 **2. 命中问题清单 → 查库（主路径）**
 
-`qa_matcher` + `keyword_matcher` 对照 `config/FWBZ问题清单.md`：
+`qa_matcher` + `keyword_matcher` 对照 `config/FWBZ保障平台问题清单.md`：
 
 - 中文单字/二字 + 英文数字做 TF-IDF 余弦，取 top-3
 - 问句含子串「你好、天气、Python」等黑名单 → 直接判未匹配（整句闲聊）
@@ -74,7 +75,7 @@ macOS 无 `dmpython` wheel，达梦走 JDBC（`app/common/dameng_jdbc.py` + `dri
 
 命中后：
 
-1. `sql_template_loader` 从 `config/FWBZ问答手册.md` 取该 Q-ID 的 SQL 范式  
+1. `sql_template_loader` 从 `config/FWBZ保障平台问答手册.md` 取该 Q-ID 的 SQL 范式  
 2. LLM 按用户原话改造范式（时间、设备名等），**不原样执行手册 SQL**  
 3. Prompt 还塞入启动时解析的整份 `config/FWBZ_strut.sql`（100+ 张表），并按关键词猜「可能相关表」  
 4. 最多生成 3 次；失败把校验错误回灌 prompt  
@@ -106,7 +107,7 @@ macOS 无 `dmpython` wheel，达梦走 JDBC（`app/common/dameng_jdbc.py` + `dri
 | `error` | 失败 |
 | `done` | 结束 |
 
-知识文件：`FWBZ问题清单.md`（Q-ID）、`FWBZ问答手册.md`（范式）、`FWBZ_strut.sql`（列名对错）。  
+知识文件：`FWBZ保障平台问题清单.md`（Q-ID）、`FWBZ保障平台问答手册.md`（范式）、`FWBZ_strut.sql`（列名对错）。  
 `prompts/match.md` 仅在打开 LLM 二次匹配时使用，生产默认关闭。
 
 ## 配置
@@ -199,6 +200,47 @@ python3.10 scripts/seed_meta_nl.py
 
 ## 测试
 
+单元测试：
+
 ```bash
-pytest tests/
+python3.10 -m pytest tests/test_chart_meta.py tests/test_access_log.py tests/test_chat_service.py tests/test_sql_service.py
 ```
+
+脚本式（直接跑，不走 pytest 收集）：
+
+```bash
+python3.10 tests/test_sql_guard.py
+python3.10 tests/test_sql_validator.py
+python3.10 tests/test_energy_verify.py
+```
+
+端到端评测（需本服务已启动）：
+
+```bash
+python3.10 tests/test_stream_chat_eval.py
+```
+
+
+原数据层图表如下：
+hephaestus_meta_nl_table
+hephaestus_meta_nl_column
+hephaestus_meta_nl_relation
+hephaestus_meta_nl_synonym
+hephaestus_chat_access_logs
+hephaestus_rag_chunks
+
+
+本地模型：qwen3.8-flash。
+服务器模型：Ollama 的 qwen3.5:9b。
+
+
+服贸会小镇服务保障平台：
+2. 智慧能源:能源管控,暖通管控,冷源管控,能源优化,数据统计分析,
+3. 韧性安全:安防管理,门禁管理,
+4. 照明控制:综合预览,设备监控,能耗统计,基础信息,控制日志,地图模式,
+5. 会展服务:会前管理,会中管理,会后管理,
+6. 场馆运营:场馆客流,场馆排期,
+7. 设备管理:设备列表,设备模型,
+8. 故障告警:报警处理,报警设置,
+9. 物联网:接口平台,数据采集,运行保障,
+11. AI运行报告:故障分析报告,运行报告,节能报告,预警分析报告,能效分析报告,

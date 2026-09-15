@@ -1,14 +1,13 @@
 """聊天流式接口"""
-import json
 import time
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from app.chat.schemas import ChatMessage, ChatStreamRequest
-from app.chat.chat_service import ChatService
+from app.chat.chat_service import ChatService, _one_line
+from app.common.database import beijing_now
 from app.common.logger import get_logger
 
 router = APIRouter(prefix="/api", tags=["聊天"])
@@ -39,7 +38,7 @@ async def chat_stream(
     转发对话至 Ollama，SSE 流式返回增量 content。
     """
     chat_service = ChatService()
-    access_time = datetime.now(timezone.utc)
+    access_time = beijing_now()
     question = chat_service.get_last_user_question(body.messages)
     client_ip = _client_ip(request)
     user_agent = request.headers.get("user-agent")
@@ -50,23 +49,24 @@ async def chat_stream(
     # 回调：流式结束后记日志
     async def on_summary(summary: dict):
         duration = time.time() - start_time
-        # 脱敏
-        req_body = {"messages": body.messages[-1:]}  # 只记最后一条
-        log_data = {
-            "ip": client_ip or "unknown",
-            "method": "POST",
-            "path": "/api/chat-stream",
-            "query": None,
-            "request": {
-                "messages": [{"role": "user", "content": question}],
-                "temperature": body.temperature,
-                "num_ctx": body.num_ctx,
-            },
-            "response": summary,
-            "status": 200,
-            "duration_ms": round(duration * 1000, 2),
-        }
-        log.info(f"访问日志: {json.dumps(log_data, ensure_ascii=False, default=str)}")
+        prompt_tokens, completion_tokens, token_count = (
+            chat_service.ollama.usage_snapshot()
+        )
+        log.info(
+            "chat-stream ip=%s duration_ms=%s mode=%s qid=%s rows=%s "
+            "tokens=%s prompt=%s completion=%s error=%s q=%s sql=%s",
+            client_ip or "unknown",
+            round(duration * 1000, 2),
+            summary.get("mode"),
+            summary.get("qid"),
+            summary.get("row_count"),
+            token_count,
+            prompt_tokens,
+            completion_tokens,
+            summary.get("error"),
+            (question or "")[:80],
+            _one_line(summary.get("sql"), 160),
+        )
 
     return StreamingResponse(
         chat_service.stream_chat(

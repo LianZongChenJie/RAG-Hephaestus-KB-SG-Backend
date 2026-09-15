@@ -166,6 +166,17 @@ test_pass(
     'SELECT "id" FROM fwbz."device" LIMIT 10',
 )
 
+test_pass(
+    "4.4 切片下钻包裹后仍排除内层中文 AS 别名",
+    '''SELECT src.*
+FROM (
+SELECT "device_name", "category_id" AS "设备类型ID",
+       (SELECT "full_name" FROM "FWBZ"."equipment_category" WHERE "id" = "d"."category_id") AS "设备类型名称"
+FROM "FWBZ"."device" "d"
+) src
+WHERE CAST(src."device_name" AS VARCHAR) = '备用' ''',
+)
+
 
 print("\n" + "=" * 60)
 print(" ✅ 全部 P0 测试通过")
