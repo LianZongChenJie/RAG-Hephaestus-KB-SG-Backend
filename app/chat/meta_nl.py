@@ -27,8 +27,8 @@ _FROM_JOIN_RE = re.compile(
 )
 _GROUP_BY_RE = re.compile(r"\bGROUP\s+BY\b", re.IGNORECASE)
 
-# seed 的 resolve_fk_table 只认 col[:-3] 等于表名，device.category_id 对不上
-# equipment_category，这里按 strut 注释补齐推荐 JOIN。
+# seed 会把手册 JOIN 和业务外键写入 hephaestus_meta_nl_relation。
+# 这里只补 seed 尚未覆盖、但图表下钻仍需要的显示列（name_col / 中文标签）。
 _FALLBACK_JOINS: Dict[Tuple[str, str], Tuple[str, str, str, str]] = {
     # from_table, from_col -> to_table, to_pk, name_col, label_cn
     ("device", "category_id"): (
@@ -61,10 +61,10 @@ _FALLBACK_JOINS: Dict[Tuple[str, str], Tuple[str, str, str, str]] = {
         "设备类别",
     ),
     ("cold_source_device", "category_id"): (
-        "equipment_category",
+        "cold_source_equipment_category",
         "id",
         "category_name",
-        "设备类别",
+        "冷源类别",
     ),
 }
 

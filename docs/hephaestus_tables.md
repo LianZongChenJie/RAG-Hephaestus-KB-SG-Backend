@@ -2,7 +2,7 @@
 
 Schema：`FWBZ`  
 建表脚本：`scripts/create_hephaestus_tables.py`  
-灌数脚本：`scripts/seed_meta_nl.py`
+灌数脚本：`scripts/seed_meta_nl.py`（达梦 `FWBZ` 数据字典补列；`FWBZ保障平台问答手册.md` 订正 SQL 作为重点表 / JOIN / 枚举金标）
 
 ---
 

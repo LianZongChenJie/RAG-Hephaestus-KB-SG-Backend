@@ -180,18 +180,18 @@ LIMIT 500
 ## 6. 场馆运营
 
 **Q6.1 场馆客流**
+> 默认今日：当天每馆最大 `id`（最新一条）。问昨日/前天：每馆取 `today_in_count` 最大的一条（进场累计峰值，保证有客流，不要落到凌晨 0）。问总量对每日快照 SUM。
 ```sql
 SELECT vi."venue_name", f."today_in_count", f."today_now_count",
-       f."max_count", f."max_time", f."average_duration", f."data_hour"
+       f."max_count", f."average_duration"
 FROM "FWBZ"."table_venue_flow_hour" f
 INNER JOIN "FWBZ"."table_venue_info" vi ON vi."id" = f."venue_id"
-WHERE f."data_date" = TRUNC(SYSDATE)
-  AND f."data_hour" = (
-    SELECT MAX(f2."data_hour")
-    FROM "FWBZ"."table_venue_flow_hour" f2
-    WHERE f2."venue_id" = f."venue_id"
-      AND f2."data_date" = TRUNC(SYSDATE)
-  )
+WHERE f."id" IN (
+  SELECT MAX(f2."id")
+  FROM "FWBZ"."table_venue_flow_hour" f2
+  WHERE f2."data_date" = TRUNC(SYSDATE)
+  GROUP BY f2."venue_id"
+)
 ORDER BY vi."id"
 LIMIT 200
 ```
@@ -289,7 +289,6 @@ SELECT * FROM (
     END AS "device_type"
   FROM "FWBZ"."table_camera_resource" c
   ORDER BY c."online" DESC, c."name"
-  LIMIT 200
 ) 
 UNION ALL
 SELECT * FROM (
@@ -307,7 +306,6 @@ SELECT * FROM (
     '门禁点' AS "device_type"
   FROM "FWBZ"."table_door_resource" d
   ORDER BY d."name"
-  LIMIT 200
 ) door
 UNION ALL
 SELECT * FROM (
@@ -325,7 +323,6 @@ SELECT * FROM (
     NVL(a."dev_type_desc", '未知型号') AS "device_type"
   FROM "FWBZ"."table_acs_device" a
   ORDER BY a."online" DESC, a."name"
-  LIMIT 200
 ) ctl
 ```
 

@@ -67,18 +67,21 @@ def find_jdbc_jar() -> Path:
 
 
 def _to_python(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool, bytes)):
+    if value is None or isinstance(value, (str, bool, bytes)):
         return value
+    # jpype 的 Long 是 int 子类，但 json/图表要用纯 Python int
+    if hasattr(value, "longValue") and not isinstance(value, bool):
+        try:
+            return int(value.longValue())
+        except Exception:
+            pass
     if hasattr(value, "doubleValue"):
         try:
             return float(value.doubleValue())
         except Exception:
             pass
-    if hasattr(value, "longValue"):
-        try:
-            return int(value.longValue())
-        except Exception:
-            pass
+    if isinstance(value, (int, float)):
+        return value
     return str(value)
 
 

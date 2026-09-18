@@ -59,3 +59,53 @@ class TestChatService:
         assert "equipment_category" in out
         assert '"d"."device_name"' in out
         assert '"ec"."category_name"' in out
+
+    def test_venue_flow_today_keeps_sysdate(self):
+        sql = (
+            'SELECT f."today_in_count" FROM "FWBZ"."table_venue_flow_hour" f '
+            'WHERE f."data_date" = TRUNC(SYSDATE)'
+        )
+        out = self.service._apply_venue_flow_question(sql, "今日场馆客流")
+        assert "TRUNC(SYSDATE) -" not in out
+        assert "TRUNC(SYSDATE)" in out
+        assert "SUM" not in out.upper()
+
+    def test_venue_flow_yesterday_takes_max_in_count(self):
+        sql = (
+            'SELECT f."today_in_count" FROM "FWBZ"."table_venue_flow_hour" f '
+            'WHERE f."id" IN (SELECT MAX(f2."id") '
+            'FROM "FWBZ"."table_venue_flow_hour" f2 '
+            'WHERE f2."data_date" = TRUNC(SYSDATE) GROUP BY f2."venue_id")'
+        )
+        out = self.service._apply_venue_flow_question(sql, "昨日场馆客流")
+        assert "TRUNC(SYSDATE) - 1" in out
+        assert 'MAX("today_in_count")' in out
+        assert 'today_in_count" > 0' in out
+        assert "SUM" not in out.upper()
+
+    def test_venue_flow_total_sums_daily_snapshot(self):
+        sql = (
+            'SELECT vi."venue_name", f."today_in_count" '
+            'FROM "FWBZ"."table_venue_flow_hour" f '
+            'INNER JOIN "FWBZ"."table_venue_info" vi ON vi."id" = f."venue_id" '
+            'WHERE f."id" IN ('
+            'SELECT MAX(f2."id") FROM "FWBZ"."table_venue_flow_hour" f2 '
+            'WHERE f2."data_date" = TRUNC(SYSDATE) GROUP BY f2."venue_id") '
+            'ORDER BY vi."id" LIMIT 200'
+        )
+        out = self.service._apply_venue_flow_question(sql, "场馆客流总量")
+        assert "SUM" in out.upper()
+        assert "total_in_count" in out
+        assert "MAX(f2.\"id\")" in out
+        assert "data_hour" not in out.lower()
+
+    def test_venue_flow_yesterday_total_wraps_shifted_sql(self):
+        sql = (
+            'SELECT f."today_in_count" FROM "FWBZ"."table_venue_flow_hour" f '
+            'WHERE f."data_date" = TRUNC(SYSDATE) LIMIT 200'
+        )
+        out = self.service._apply_venue_flow_question(sql, "昨日场馆客流总量")
+        assert "(TRUNC(SYSDATE) - 1)" in out
+        assert 'MAX("today_in_count")' in out
+        assert "SUM" in out.upper()
+        assert "LIMIT" not in out.upper()

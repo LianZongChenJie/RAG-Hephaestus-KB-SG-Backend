@@ -551,13 +551,91 @@ class ChatService:
             logger.warning(f"公式求值失败: {true_formula} -> {e}")
             return None
 
+    @staticmethod
+    def _parse_venue_flow_time(question: str) -> tuple:
+        """场馆客流问法：距今天数（None=未说日期）、是否要总量。"""
+        q = question or ""
+        want_total = any(k in q for k in ("总量", "累计", "合计", "总共", "共计"))
+        if any(k in q for k in ("前天", "前日")):
+            return 2, want_total
+        if any(k in q for k in ("昨日", "昨天")):
+            return 1, want_total
+        if any(k in q for k in ("今日", "今天", "当日")):
+            return 0, want_total
+        return None, want_total
+
+    @staticmethod
+    def _strip_order_limit(sql: str) -> str:
+        text = (sql or "").rstrip(";").strip()
+        text = re.sub(r"\s+LIMIT\s+\d+\s*$", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+ORDER\s+BY[\s\S]*$", "", text, flags=re.IGNORECASE)
+        return text.strip()
+
+    @staticmethod
+    def _venue_flow_max_in_sql(date_sql: str) -> str:
+        """前一天客流：每馆取进场累计最大的一条，避免凌晨 0 客流行。"""
+        d = date_sql
+        return (
+            'SELECT vi."venue_name", f."today_in_count", f."today_now_count", '
+            'f."max_count", f."average_duration" '
+            'FROM "FWBZ"."table_venue_flow_hour" f '
+            'INNER JOIN "FWBZ"."table_venue_info" vi ON vi."id" = f."venue_id" '
+            f'WHERE f."data_date" = {d} '
+            'AND f."today_in_count" > 0 '
+            'AND f."id" IN ('
+            'SELECT MAX(f2."id") '
+            'FROM "FWBZ"."table_venue_flow_hour" f2 '
+            'INNER JOIN ('
+            'SELECT "venue_id", MAX("today_in_count") AS "peak_in" '
+            'FROM "FWBZ"."table_venue_flow_hour" '
+            f'WHERE "data_date" = {d} AND "today_in_count" > 0 '
+            'GROUP BY "venue_id"'
+            ') p ON p."venue_id" = f2."venue_id" AND p."peak_in" = f2."today_in_count" '
+            f'WHERE f2."data_date" = {d} '
+            'GROUP BY f2."venue_id") '
+            'ORDER BY vi."id" '
+            "LIMIT 200"
+        )
+
+    def _apply_venue_flow_question(self, sql: str, question: str) -> str:
+        """Q6.1 仍是同一意图。今日用最新 id；昨日/前天用进场最大的一条。"""
+        if not sql or "table_venue_flow_hour" not in sql.lower():
+            return sql
+        offset, want_total = self._parse_venue_flow_time(question)
+        if want_total and offset is None:
+            return (
+                'SELECT SUM(src."today_in_count") AS "total_in_count" FROM ('
+                'SELECT f."today_in_count" '
+                'FROM "FWBZ"."table_venue_flow_hour" f '
+                'WHERE f."id" IN ('
+                'SELECT MAX(f2."id") '
+                'FROM "FWBZ"."table_venue_flow_hour" f2 '
+                'GROUP BY f2."venue_id", f2."data_date"'
+                ")) src"
+            )
+        if offset:
+            date_sql = f"(TRUNC(SYSDATE) - {int(offset)})"
+            sql = self._venue_flow_max_in_sql(date_sql)
+        if want_total:
+            inner = self._strip_order_limit(sql)
+            return (
+                'SELECT SUM(src."today_in_count") AS "total_in_count" '
+                f"FROM ({inner}) src"
+            )
+        return sql
+
     def _finalize_template_sql(
-        self, sql: str, *, qid: Optional[str] = None
+        self,
+        sql: str,
+        *,
+        qid: Optional[str] = None,
+        question: Optional[str] = None,
     ) -> Optional[str]:
         """手册范式已是达梦 SELECT 时直接采用，避免再走 LLM 改写和标识符清洗。"""
         sql = (sql or "").rstrip(";").strip()
         if not sql.upper().startswith("SELECT") or "FROM" not in sql.upper():
             return None
+        sql = self._apply_venue_flow_question(sql, question or "")
         from app.common.dameng import validate_sql_columns
 
         ok, err, _invalid = validate_sql_columns(sql)
@@ -583,7 +661,9 @@ class ChatService:
         """
         canned_sql = extract_sql_from_chunk(sql_template)
         if canned_sql:
-            ready = self._finalize_template_sql(canned_sql, qid=qid)
+            ready = self._finalize_template_sql(
+                canned_sql, qid=qid, question=question
+            )
             if ready:
                 logger.info("生成SQL q=%s", _one_line(question, 80))
                 return ready

@@ -34,7 +34,7 @@
 ├── prompts/match.md        # 聊天 TF-IDF 后的匹配 prompt（生产默认未开 LLM 二次）
 ├── scripts/
 │   ├── create_hephaestus_tables.py  # 达梦 Hephaestus 6 张表 + 中文注释
-│   └── seed_meta_nl.py              # 从 strut 灌 4 张 hephaestus_meta_nl_* 表
+│   └── seed_meta_nl.py              # 达梦字典 + 问答手册 SQL 金标，灌 hephaestus_meta_nl_*
 ├── docs/
 │   ├── hephaestus_tables.md         # 6 张 Hephaestus 表字段说明
 │   └── API接口文档.md
